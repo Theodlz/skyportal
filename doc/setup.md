@@ -39,7 +39,7 @@ These instructions assume that you have [Homebrew](http://brew.sh/) installed.
 1. Install dependencies
 
 ```
-brew install supervisor nginx postgresql node
+brew install supervisor nginx postgresql-14 node
 ```
 
 2. Start the PostgreSQL server:
@@ -63,8 +63,18 @@ brew install graphviz
 1. Install dependencies
 
 ```
-sudo apt install nginx supervisor postgresql libpq-dev npm python3-pip libcurl4-gnutls-dev libgnutls28-dev
+sudo apt install nginx supervisor postgresql-14 libpq-dev npm python3-pip libcurl4-gnutls-dev libgnutls28-dev
 ```
+
+If postgresql-14 cannot be found, you need to add the repository that provides PostgreSQL 14:
+
+```
+sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+sudo apt -y update
+```
+
+After which you can re-run the previous command to install postgresql-14.
 
 2. Configure your database permissions.
 
