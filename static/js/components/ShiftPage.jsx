@@ -9,6 +9,7 @@ import PropTypes from "prop-types";
 import NewShift from "./NewShift";
 import MyCalendar from "./ShiftCalendar";
 import CurrentShiftMenu from "./ShiftManagement";
+import CurrentShiftComments from "./ShiftComments";
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -35,6 +36,15 @@ const ShiftPage = ({ route }) => {
   const currentUser = useSelector((state) => state.profile);
   const shiftList = useSelector((state) => state.shifts.shiftList);
   const currentShift = useSelector((state) => state.shift.currentShift);
+  //const currentShiftComments = useSelector((state) => state.shift.currentShiftComments);
+  //this is temporary, as an example
+  const currentShiftComments = [
+    {
+      id: 1,
+      shift_id: 2,
+      text: "GCN blablabla new notice on Tach, link here: http://blabla.com",
+    },
+  ];
   const [events, setEvents] = React.useState([]);
 
   if (shiftList) {
@@ -90,6 +100,7 @@ const ShiftPage = ({ route }) => {
         }
       }
     }
+    // implement similar logic as the one above but for currentShiftComments
   }, [shiftList, dispatch]);
 
   const permission =
@@ -112,6 +123,15 @@ const ShiftPage = ({ route }) => {
           {currentShift &&
             (events && Object.keys(currentShift).length > 0 ? (
               <CurrentShiftMenu currentShift={currentShift} />
+            ) : null)}
+        </Paper>
+        <Paper elevation={1}>
+          {currentShift &&
+            (events && currentShiftComments.length > 0 ? (
+              <CurrentShiftComments
+                currentShift={currentShift}
+                currentShiftComments={currentShiftComments}
+              />
             ) : null)}
         </Paper>
         {permission && (
