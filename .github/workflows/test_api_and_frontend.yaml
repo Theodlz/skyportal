@@ -37,9 +37,10 @@ jobs:
           python-version: "3.8"
       - name: screen resolution
         run: |
-          system_profiler SPDisplaysDataType | grep Resolution
-          "/Library/Application Support/VMware Tools/vmware-resolutionSet" 2560 1440
-          system_profiler SPDisplaysDataType | grep Resolution
+          xdpyinfo  | grep -oP 'dimensions:\s+\K\S+'
+          xrandr --newmode "1920x1080"  173.00  1920 2048 2248 2576  1080 1083 1088 1120 -hsync +vsync
+          xrandr --addmode Virtual1 1920x1080
+          xrandr --output Virtual1 --mode 1920x1080
         
       - name: Checkout main
         uses: actions/checkout@v2
