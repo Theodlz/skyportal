@@ -35,7 +35,12 @@ jobs:
       - uses: actions/setup-python@v1
         with:
           python-version: "3.8"
-
+      - name: screen resolution
+        run: |
+          system_profiler SPDisplaysDataType | grep Resolution
+          "/Library/Application Support/VMware Tools/vmware-resolutionSet" 2560 1440
+          system_profiler SPDisplaysDataType | grep Resolution
+        
       - name: Checkout main
         uses: actions/checkout@v2
         with:
