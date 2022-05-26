@@ -8,7 +8,6 @@ import CircularProgress from "@material-ui/core/CircularProgress";
 import PropTypes from "prop-types";
 import NewShift from "./NewShift";
 import MyCalendar from "./ShiftCalendar";
-import CurrentShiftMenu from "./ShiftManagement";
 import ShiftSummary from "./ShiftSummary";
 
 import { getShiftsSummary } from "../ducks/shift";
