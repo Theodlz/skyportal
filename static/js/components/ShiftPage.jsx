@@ -158,7 +158,9 @@ const ShiftPage = ({ route }) => {
             ) : null)}
         </Paper>
         <Paper elevation={1}>
-          <CommentOnShift />
+          {!show && Object.keys(currentShift).length > 0 ? (
+            <CommentOnShift />
+          ) : null}
         </Paper>
       </Grid>
       <Grid item md={12} sm={12}>
