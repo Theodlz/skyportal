@@ -158,7 +158,7 @@ const ShiftPage = ({ route }) => {
             ) : null)}
         </Paper>
         <Paper elevation={1}>
-          <CommentOnShift associatedResourceType="shift" />
+          <CommentOnShift />
         </Paper>
       </Grid>
       <Grid item md={12} sm={12}>
