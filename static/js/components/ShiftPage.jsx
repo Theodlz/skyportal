@@ -12,6 +12,7 @@ import CurrentShiftMenu from "./ShiftManagement";
 import ShiftSummary from "./ShiftSummary";
 
 import { getShiftsSummary } from "../ducks/shift";
+import { CurrentShiftMenu, CommentOnShift } from "./ShiftManagement";
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -87,24 +88,31 @@ const ShiftPage = ({ route }) => {
           Object.keys(updatedShift).length > 0 &&
           Object.keys(currentShift).length > 0
         ) {
-          let usersHaveChanged = false;
-          // check if the users have the same ids, or if they need a replacement when they didnt need one before, and vice versa
-          for (let i = 0; i < updatedShift.shift_users.length; i += 1) {
-            if (
-              updatedShift.shift_users[i].id !==
-                currentShift.shift_users[i].id ||
-              updatedShift.shift_users[i].needs_replacement !==
-                currentShift.shift_users[i].needs_replacement ||
-              updatedShift.shift_users[i].modified !==
-                currentShift.shift_users[i].modified
-            ) {
-              usersHaveChanged = true;
-              break;
-            }
-          }
-          if (usersHaveChanged) {
+          if (
+            updatedShift?.comments?.length !== currentShift?.comments?.length
+          ) {
             dispatch({ type: "skyportal/CURRENT_SHIFT", data: updatedShift });
             setShow(false);
+          } else {
+            let usersHaveChanged = false;
+            // check if the users have the same ids, or if they need a replacement when they didnt need one before, and vice versa
+            for (let i = 0; i < updatedShift.shift_users.length; i += 1) {
+              if (
+                updatedShift.shift_users[i].id !==
+                  currentShift.shift_users[i].id ||
+                updatedShift.shift_users[i].needs_replacement !==
+                  currentShift.shift_users[i].needs_replacement ||
+                updatedShift.shift_users[i].modified !==
+                  currentShift.shift_users[i].modified
+              ) {
+                usersHaveChanged = true;
+                break;
+              }
+            }
+            if (usersHaveChanged) {
+              dispatch({ type: "skyportal/CURRENT_SHIFT", data: updatedShift });
+              setShow(false);
+            }
           }
         }
       }
@@ -149,6 +157,9 @@ const ShiftPage = ({ route }) => {
             (events && !show && Object.keys(currentShift).length > 0 ? (
               <CurrentShiftMenu currentShift={currentShift} />
             ) : null)}
+        </Paper>
+        <Paper elevation={1}>
+          <CommentOnShift associatedResourceType="shift" />
         </Paper>
       </Grid>
       <Grid item md={12} sm={12}>
