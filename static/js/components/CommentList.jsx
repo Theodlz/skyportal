@@ -623,15 +623,21 @@ const CommentList = ({
         )}
       </div>
       <br />
-      {permissions.indexOf("Comment") >= 0 && objID && (
-        <CommentEntry addComment={addComment} />
-      )}
-      {permissions.indexOf("Comment") >= 0 && gcnEventID && (
-        <CommentEntry addComment={addGcnEventComment} />
-      )}
-      {permissions.indexOf("Comment") >= 0 && shift_id && (
-        <CommentEntry addComment={addShiftComment} />
-      )}
+      {permissions.indexOf("Comment") >= 0 &&
+        objID &&
+        associatedResourceType === "object" && (
+          <CommentEntry addComment={addComment} />
+        )}
+      {permissions.indexOf("Comment") >= 0 &&
+        gcnEventID &&
+        associatedResourceType === "gcn_event" && (
+          <CommentEntry addComment={addGcnEventComment} />
+        )}
+      {permissions.indexOf("Comment") >= 0 &&
+        shift_id &&
+        associatedResourceType === "shift" && (
+          <CommentEntry addComment={addShiftComment} />
+        )}
     </div>
   );
 };
