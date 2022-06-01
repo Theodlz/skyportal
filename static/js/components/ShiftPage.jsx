@@ -25,39 +25,14 @@ const useStyles = makeStyles((theme) => ({
   },
 }));
 
-function datestringToDate(shiftList) {
-  for (let i = 0; i < shiftList.length; i += 1) {
-    shiftList[i].start_date = new Date(`${shiftList[i].start_date}Z`);
-    shiftList[i].end_date = new Date(`${shiftList[i].end_date}Z`);
-  }
-  return shiftList;
-}
-
 const ShiftPage = ({ route }) => {
   const classes = useStyles();
   const dispatch = useDispatch();
   const currentUser = useSelector((state) => state.profile);
   const shiftList = useSelector((state) => state.shifts.shiftList);
+  console.log("shiftList", shiftList);
   const currentShift = useSelector((state) => state.shift.currentShift);
-  const [events, setEvents] = React.useState([]);
   const [show, setShow] = useState(true);
-
-  if (shiftList) {
-    if (!events || events?.length !== shiftList?.length) {
-      setEvents(datestringToDate(shiftList));
-    } else if (
-      currentShift?.shift_users &&
-      currentShift?.id &&
-      events.length > 0
-    ) {
-      if (
-        events?.find((shift) => shift.id === currentShift.id)?.shift_users
-          ?.length !== currentShift.shift_users.length
-      ) {
-        setEvents(datestringToDate(shiftList));
-      }
-    }
-  }
 
   useEffect(() => {
     if (!currentShift?.id && route) {
@@ -125,9 +100,9 @@ const ShiftPage = ({ route }) => {
     <Grid container spacing={3}>
       <Grid item md={6} sm={12}>
         <Paper elevation={1}>
-          {events ? (
+          {shiftList ? (
             <MyCalendar
-              events={events}
+              events={shiftList}
               currentShift={currentShift}
               setShow={setShow}
             />
@@ -152,10 +127,9 @@ const ShiftPage = ({ route }) => {
           </Paper>
         )}
         <Paper elevation={1}>
-          {currentShift &&
-            (events && !show && Object.keys(currentShift).length > 0 ? (
-              <CurrentShiftMenu currentShift={currentShift} />
-            ) : null)}
+          {currentShift?.id && shiftList ? (
+            <CurrentShiftMenu currentShift={currentShift} />
+          ) : null}
         </Paper>
         <Paper elevation={1}>
           {!show && Object.keys(currentShift).length > 0 ? (
