@@ -30,7 +30,6 @@ const ShiftPage = ({ route }) => {
   const dispatch = useDispatch();
   const currentUser = useSelector((state) => state.profile);
   const shiftList = useSelector((state) => state.shifts.shiftList);
-  console.log("shiftList", shiftList);
   const currentShift = useSelector((state) => state.shift.currentShift);
   const [show, setShow] = useState(true);
 

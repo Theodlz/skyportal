@@ -52,7 +52,7 @@ messageHandler.add((actionType, payload, dispatch) => {
 });
 
 function datestringToDate(shiftList) {
-  let newShiftList = [...shiftList]
+  const newShiftList = [...shiftList];
   for (let i = 0; i < shiftList.length; i += 1) {
     newShiftList[i].start_date = new Date(`${shiftList[i].start_date}Z`);
     newShiftList[i].end_date = new Date(`${shiftList[i].end_date}Z`);
@@ -64,10 +64,6 @@ const reducer = (state = { shiftList: [] }, action) => {
   switch (action.type) {
     case FETCH_SHIFTS_OK: {
       const shiftList = datestringToDate(action.data);
-      for (let i = 0; i < shiftList.length; i += 1) {
-        console.log(`shiftList[${i}]`, shiftList[i].start_date)
-      }
-      console.log("FETCH_SHIFTS_OK", shiftList[2]);
       return {
         ...state,
         shiftList,
