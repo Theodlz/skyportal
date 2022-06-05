@@ -7,7 +7,7 @@ def test_reprioritize_followup_request(
     public_group_sedm_allocation, public_source, upload_data_token, super_admin_token
 ):
 
-    datafile = f'{os.path.dirname(__file__)}/../data/GW190425_initial.xml'
+    datafile = f'{os.path.dirname(__file__)}/../data/GW220603_preliminary.xml'
     with open(datafile, 'rb') as fid:
         payload = fid.read()
     data = {'xml': payload}
@@ -16,12 +16,13 @@ def test_reprioritize_followup_request(
     assert status == 200
     assert data['status'] == 'success'
 
-    dateobs = "2019-04-25 08:18:05"
+    dateobs = "2022-06-03T00:04:12"
     params = {"include2DMap": True}
 
     status, data = api(
         'GET', f'gcn_event/{dateobs}', token=super_admin_token, params=params
     )
+    print(data)
     assert status == 200
     localization_id = data['data']['localizations'][0]['id']
 

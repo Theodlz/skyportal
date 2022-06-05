@@ -9,12 +9,12 @@ import pytest
 from skyportal.tests import api
 
 
-@pytest.mark.flaky(reruns=2)
+#@pytest.mark.flaky(reruns=2)
 def test_observation_plan_tiling(
     user, super_admin_token, upload_data_token, view_only_token, public_group
 ):
 
-    datafile = f'{os.path.dirname(__file__)}/../data/GW190425_initial.xml'
+    datafile = f'{os.path.dirname(__file__)}/../data/GW220603_preliminary.xml'
     with open(datafile, 'rb') as fid:
         payload = fid.read()
     data = {'xml': payload}
@@ -24,8 +24,8 @@ def test_observation_plan_tiling(
     assert data['status'] == 'success'
     gcnevent_id = data['data']['gcnevent_id']
 
-    dateobs = "2019-04-25 08:18:05"
-    skymap = "bayestar.fits.gz"
+    dateobs = "2022-06-03T00:04:12"
+    skymap = "bayestar.fits.gz,0"
     status, data = api(
         'GET',
         f'localization/{dateobs}/name/{skymap}',
@@ -68,7 +68,7 @@ def test_observation_plan_tiling(
             'telescope_id': telescope_id,
             'api_classname': 'ZTFAPI',
             'api_classname_obsplan': 'ZTFMMAAPI',
-            'field_data': pd.read_csv(fielddatafile)[:5].to_dict(orient='list'),
+            'field_data': pd.read_csv(fielddatafile)[33:35].to_dict(orient='list'),
             'field_region': Regions.read(regionsdatafile).serialize(format='ds9'),
         },
         token=super_admin_token,
@@ -100,8 +100,8 @@ def test_observation_plan_tiling(
         'gcnevent_id': gcnevent_id,
         'localization_id': localization_id,
         'payload': {
-            'start_date': '2019-04-25 01:01:01',
-            'end_date': '2019-04-27 01:01:01',
+            'start_date': '2022-06-03 00:04:12',
+            'end_date': '2022-06-06 00:04:12',
             'filter_strategy': 'block',
             'schedule_strategy': 'tiling',
             'schedule_type': 'greedy_slew',
@@ -152,7 +152,7 @@ def test_observation_plan_tiling(
 
     planned_observations = observation_plan['planned_observations']
 
-    assert len(planned_observations) == 5
+    assert len(planned_observations) == 2
     assert all(
         [
             obs['filt'] == request_data["payload"]['filters']
@@ -172,7 +172,7 @@ def test_observation_plan_galaxy(
     user, super_admin_token, upload_data_token, view_only_token, public_group
 ):
 
-    datafile = f'{os.path.dirname(__file__)}/../data/GW190425_initial.xml'
+    datafile = f'{os.path.dirname(__file__)}/../data/GW220603_preliminary.xml'
     with open(datafile, 'rb') as fid:
         payload = fid.read()
     data = {'xml': payload}
@@ -182,8 +182,8 @@ def test_observation_plan_galaxy(
     assert data['status'] == 'success'
     gcnevent_id = data['data']['gcnevent_id']
 
-    dateobs = "2019-04-25 08:18:05"
-    skymap = "bayestar.fits.gz"
+    dateobs = "2022-06-03 00:04:12"
+    skymap = "bayestar.fits.gz,0"
     status, data = api(
         'GET',
         f'localization/{dateobs}/name/{skymap}',
@@ -310,8 +310,8 @@ def test_observation_plan_galaxy(
         'gcnevent_id': gcnevent_id,
         'localization_id': localization_id,
         'payload': {
-            'start_date': '2019-04-25 01:01:01',
-            'end_date': '2019-04-27 01:01:01',
+            'start_date': '2022-06-03 00:04:08',
+            'end_date': '2022-06-05 00:04:08',
             'filter_strategy': 'block',
             'schedule_strategy': 'galaxy',
             'galaxy_catalog': catalog_name,
@@ -365,7 +365,7 @@ def test_observation_plan_galaxy(
             assert observation_plan['validity_window_end'] == request_data["payload"][
                 'end_date'
             ].replace(" ", "T")
-
+            
             planned_observations = observation_plan['planned_observations']
             print(planned_observations)
             assert len(planned_observations) > 0

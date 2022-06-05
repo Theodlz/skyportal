@@ -7,7 +7,7 @@ def test_add_and_retrieve_comment_group_id(
     comment_token, upload_data_token, public_group, super_admin_token
 ):
 
-    datafile = f'{os.path.dirname(__file__)}/../data/GW190425_initial.xml'
+    datafile = f'{os.path.dirname(__file__)}/../data/GRB180116A_Fermi_GBM_Gnd_Pos.xml'
     with open(datafile, 'rb') as fid:
         payload = fid.read()
     data = {'xml': payload}
@@ -39,7 +39,7 @@ def test_add_and_retrieve_comment_group_id(
 
 def test_delete_comment(comment_token, public_group, super_admin_token):
 
-    datafile = f'{os.path.dirname(__file__)}/../data/GW190425_initial.xml'
+    datafile = f'{os.path.dirname(__file__)}/../data/GRB180116A_Fermi_GBM_Gnd_Pos.xml'
     with open(datafile, 'rb') as fid:
         payload = fid.read()
     data = {'xml': payload}

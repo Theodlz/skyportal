@@ -9,10 +9,10 @@ import uuid
 from skyportal.tests import api
 
 
-@pytest.mark.flaky(reruns=2)
+#@pytest.mark.flaky(reruns=2)
 def test_observation(super_admin_token, view_only_token):
 
-    datafile = f'{os.path.dirname(__file__)}/../data/GW190425_initial.xml'
+    datafile = f'{os.path.dirname(__file__)}/../data/GW220603_preliminary.xml'
     with open(datafile, 'rb') as fid:
         payload = fid.read()
     data = {'xml': payload}
@@ -81,10 +81,10 @@ def test_observation(super_admin_token, view_only_token):
     data = {
         'telescopeName': telescope_name,
         'instrumentName': instrument_name,
-        'startDate': "2019-04-25 08:18:05",
-        'endDate': "2019-04-28 08:18:05",
-        'localizationDateobs': "2019-04-25T08:18:05",
-        'localizationName': "bayestar.fits.gz",
+        'startDate': "2022-06-03 00:04:12",
+        'endDate': "2022-06-05 00:04:12",
+        'localizationDateobs': "2022-06-03T00:04:12",
+        'localizationName': "bayestar.fits.gz,0",
         'localizationCumprob': 1.01,
         'returnStatistics': True,
         'numPerPage': 1000,
@@ -94,11 +94,12 @@ def test_observation(super_admin_token, view_only_token):
 
     assert status == 200
     data = data["data"]
+    print(data)
     assert len(data['observations']) == 10
     assert np.isclose(data['probability'], 2.927898964006069e-05)
     assert any(
         [
-            d['obstime'] == '2019-04-25T08:18:18.002909'
+            d['obstime'] == '2022-06-03_00:04:12.002909'
             and d['observation_id'] == 84434604
             for d in data['observations']
         ]
@@ -117,9 +118,9 @@ def test_observation(super_admin_token, view_only_token):
     data = {
         'telescopeName': telescope_name,
         'instrumentName': instrument_name,
-        'startDate': "2019-04-25 08:18:05",
-        'endDate': "2019-04-28 08:18:05",
-        'localizationDateobs': "2019-04-25T08:18:05",
+        'startDate': "2022-06-03 00:04:08",
+        'endDate': "2022-06-06 00:04:08",
+        'localizationDateobs': "2022-06-03T00:04:08",
         'localizationName': "bayestar.fits.gz",
         'localizationCumprob': 1.01,
         'returnStatistics': True,
@@ -133,14 +134,14 @@ def test_observation(super_admin_token, view_only_token):
     assert len(data['observations']) == 9
     assert not any(
         [
-            d['obstime'] == '2019-04-25T08:18:18.002909'
+            d['obstime'] == '2022-06-03T00:04:08.002909'
             and d['observation_id'] == 84434604
             for d in data['observations']
         ]
     )
 
 
-@pytest.mark.flaky(reruns=2)
+#@pytest.mark.flaky(reruns=2)
 def test_observation_radec(super_admin_token, view_only_token):
 
     telescope_name = str(uuid.uuid4())
@@ -216,8 +217,8 @@ def test_observation_radec(super_admin_token, view_only_token):
     assert data['status'] == 'success'
 
     params = {
-        'startDate': "2019-04-25 08:18:05",
-        'endDate': "2019-04-28 08:18:05",
+        'startDate': "2022-06-03 00:04:08",
+        'endDate': "2022-06-06 00:04:08",
     }
 
     # wait for the executed observations to populate
@@ -238,14 +239,14 @@ def test_observation_radec(super_admin_token, view_only_token):
 
     assert any(
         [
-            d['obstime'] == '2019-04-25T08:18:18.002909'
+            d['obstime'] == '2022-06-03T00:04:08.002909'
             and d['observation_id'] == 94434604
             for d in data['observations']
         ]
     )
 
 
-@pytest.mark.flaky(reruns=2)
+#@pytest.mark.flaky(reruns=2)
 def test_observation_isot(super_admin_token, view_only_token):
 
     telescope_name = str(uuid.uuid4())
@@ -321,8 +322,8 @@ def test_observation_isot(super_admin_token, view_only_token):
     assert data['status'] == 'success'
 
     params = {
-        'startDate': "2019-04-25 08:18:05",
-        'endDate': "2019-04-28 08:18:05",
+        'startDate': "2022-06-03 00:04:12",
+        'endDate': "2022-06-06 00:04:12",
     }
 
     # wait for the executed observations to populate
@@ -343,7 +344,7 @@ def test_observation_isot(super_admin_token, view_only_token):
 
     assert any(
         [
-            d['obstime'] == '2019-04-25T08:18:18' and d['observation_id'] == 94434604
+            d['obstime'] == '2022-06-03T00:04:12' and d['observation_id'] == 94434604
             for d in data['observations']
         ]
     )

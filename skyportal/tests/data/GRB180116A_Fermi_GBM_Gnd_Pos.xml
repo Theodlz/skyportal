@@ -93,7 +93,7 @@
               <C1>214.7400</C1>
               <C2>28.1400</C2>
             </Value2>
-            <Error2Radius>11.1900</Error2Radius>
+            <Error2Radius>1.1900</Error2Radius>
           </Position2D>
         </AstroCoords>
       </ObservationLocation>

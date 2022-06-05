@@ -43,7 +43,7 @@ def test_galaxy(super_admin_token, view_only_token):
             nretries = nretries + 1
             time.sleep(5)
 
-    datafile = f'{os.path.dirname(__file__)}/../data/GW190425_initial.xml'
+    datafile = f'{os.path.dirname(__file__)}/../data/GW220603_preliminary.xml'
     with open(datafile, 'rb') as fid:
         payload = fid.read()
     data = {'xml': payload}
@@ -58,8 +58,8 @@ def test_galaxy(super_admin_token, view_only_token):
     params = {
         'includeGeoJSON': True,
         'catalog_name': catalog_name,
-        'localizationDateobs': '2019-04-25T08:18:05',
-        'localizationCumprob': 0.8,
+        'localizationDateobs': '2022-06-03T00:04:12',
+        'localizationCumprob': 0.92,
     }
 
     status, data = api('GET', 'galaxy_catalog', token=view_only_token, params=params)
@@ -72,20 +72,20 @@ def test_galaxy(super_admin_token, view_only_token):
     assert len(data) == 2
     assert any(
         [
-            d['name'] == '2MASX J00022478-5445592' and d['mstar'] == 14329555096.85143
+            d['name'] == '2MASX J00021772-4345168' and d['mstar'] == 19468772606.159004
             for d in data
         ]
     )
 
     # The GeoJSON takes the form of
     """
-    {"type": "FeatureCollection", "features": [{"geometry": {"coordinates": [0.60321, -54.76653], "type": "Point"}, "properties": {"name": "2MASX J00022478-5445592"}, "type": "Feature"}, {"geometry": {"coordinates": [0.948375, -54.574083], "type": "Point"}, "properties": {"name": "IRAS F00012-5451 ID"}, "type": "Feature"}]}
+    {"type": "FeatureCollection", "features": [{"geometry": {"coordinates": [0.57383, -43.75467], "type": "Point"}, "properties": {"name": "2MASX J00021772-4345168"}, "type": "Feature"}, {"geometry": {"coordinates": [0.99855, -36.28124], "type": "Point"}, "properties": {"name": "MRSS 349-058718"}, "type": "Feature"}]}
     """
 
     assert any(
         [
-            d['geometry']['coordinates'] == [0.60321, -54.76653]
-            and d['properties']['name'] == '2MASX J00022478-5445592'
+            d['geometry']['coordinates'] == [0.57383, -43.75467]
+            and d['properties']['name'] == '2MASX J00021772-4345168'
             for d in geojson['features']
         ]
     )
