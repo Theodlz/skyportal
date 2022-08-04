@@ -44,10 +44,10 @@ import PhotometryTable from "./PhotometryTable";
 import FavoritesButton from "./FavoritesButton";
 import SourceAnnotationButtons from "./SourceAnnotationButtons";
 import TNSATForm from "./TNSATForm";
+import AddPhotFink from "./AddPhotFink";
 
 import * as spectraActions from "../ducks/spectra";
 import * as sourceActions from "../ducks/source";
-import * as finkActions from "../ducks/fink_phot";
 
 const VegaHR = React.lazy(() => import("./VegaHR"));
 
@@ -271,10 +271,6 @@ const SourceDesktop = ({ source }) => {
       <HelpOutlineOutlinedIcon />
     </Tooltip>
   );
-
-  const handleAddPhotFink = (id) => {
-    dispatch(finkActions.postFinkPhot(id));
-  };
 
   return (
     <Grid container spacing={2} className={classes.source}>
@@ -531,15 +527,7 @@ const SourceDesktop = ({ source }) => {
                       <Button variant="contained">Periodogram Analysis</Button>
                     </Link>
                   )}
-                  <Button
-                    variant="contained"
-                    onClick={() => {
-                      handleAddPhotFink(source.id);
-                    }}
-                    data-testid="show-photometry-table-button"
-                  >
-                    Add Phot from Fink
-                  </Button>
+                  <AddPhotFink id={source.id} />
                 </div>
               </Grid>
             </AccordionDetails>
