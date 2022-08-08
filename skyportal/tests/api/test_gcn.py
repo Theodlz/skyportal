@@ -143,6 +143,8 @@ def test_gcn_summary_sources(
     data = {'xml': payload}
 
     status, data = api('POST', 'gcn_event', data=data, token=super_admin_token)
+    print(status)
+    print(data)
     assert status == 200
     assert data['status'] == 'success'
 
