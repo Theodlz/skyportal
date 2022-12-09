@@ -141,6 +141,7 @@ from skyportal.handlers.api import (
     PS1ThumbnailHandler,
     SourcesConfirmedInGCNHandler,
     GCNsAssociatedWithSourceHandler,
+    SocketAppHandler,
 )
 from skyportal.handlers.api.internal import (
     PlotPhotometryHandler,
@@ -184,6 +185,7 @@ class CustomApplication(tornado.web.Application):
 
 skyportal_handlers = [
     # API endpoints
+    (r'/api/websocket_apps', SocketAppHandler),
     (r'/api/acls', ACLHandler),
     (r'/api/allocation/report(/[0-9]+)', AllocationReportHandler),
     (r'/api/allocation(/.*)?', AllocationHandler),

@@ -462,7 +462,12 @@ class ObservationPlanRequestHandler(BaseHandler):
                     observation_plan_request_id = post_observation_plan(
                         plan, self.associated_user_object.id, session
                     )
-                    ids = [observation_plan_request_id]
+                    ids.append(observation_plan_request_id)
+
+            self.push_all(
+                action="skyportal/NEW_OBSPLANS",
+                payload={"ids": ids},
+            )
 
             return self.success(data={"ids": ids})
 

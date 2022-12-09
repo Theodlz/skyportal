@@ -22,6 +22,7 @@ all_acl_ids = [
     'Post taxonomy',
     'Delete taxonomy',
     'Classify',
+    'Websocket Apps',
 ] + [c.get_acl_id() for c in LISTENER_CLASSES]
 
 

@@ -635,6 +635,14 @@ class FollowupRequestHandler(BaseHandler):
                     action="skyportal/REFRESH_SOURCE",
                     payload={"obj_key": followup_request.obj.internal_key},
                 )
+                self.push_all(
+                    action="skyportal/NEW_FOLLOWUP_REQUEST",
+                    payload={
+                        "request_id": followup_request.id,
+                        "obj_id": followup_request.obj_id,
+                        "instrument_id": instrument.id,
+                    },
+                )
 
             return self.success(data={"id": followup_request.id})
 

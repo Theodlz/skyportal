@@ -157,3 +157,5 @@ from .sources_confirmed_in_gcn import (
     SourcesConfirmedInGCNHandler,
     GCNsAssociatedWithSourceHandler,
 )
+
+from .socket_apps import SocketAppHandler
