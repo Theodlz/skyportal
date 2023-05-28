@@ -590,10 +590,6 @@ class ObjTNSHandler(BaseHandler):
 
             if tnsrobotID is None:
                 return self.error('tnsrobotID is required')
-            if reporters == '' or not isinstance(reporters, str):
-                return self.error(
-                    'reporters is required and must be a non-empty string'
-                )
 
             obj = session.scalars(
                 Obj.select(session.user_or_token).where(Obj.id == obj_id)
@@ -606,6 +602,14 @@ class ObjTNSHandler(BaseHandler):
             ).first()
             if tnsrobot is None:
                 return self.error(f'No TNSRobot available with ID {tnsrobotID}')
+
+            if reporters == '' or not isinstance(reporters, str):
+                if tnsrobot.default_reporters != '...':
+                    reporters = f"{self.associated_user_object.first_name} {self.associated_user_object.last_name} on behalf of {tnsrobot.default_reporters}"
+                else:
+                    return self.error(
+                        'reporters or a default_reporter is required, and must be a non-empty string'
+                    )
 
             altdata = tnsrobot.altdata
             if not altdata:

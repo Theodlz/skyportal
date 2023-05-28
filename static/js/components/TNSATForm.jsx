@@ -99,6 +99,10 @@ const TNSATForm = ({ obj_id }) => {
     setSelectedTNSRobotId(e.target.value);
   };
 
+  const reporter = selectedTNSRobotId
+    ? tnsrobotLookUp[selectedTNSRobotId]
+    : "...";
+
   const formSchema = {
     description: "Add TNS",
     type: "object",
@@ -106,7 +110,7 @@ const TNSATForm = ({ obj_id }) => {
       reporters: {
         type: "string",
         title: "Reporters",
-        default: `${currentUser.first_name} ${currentUser.last_name} on behalf of...`,
+        default: `${currentUser.first_name} ${currentUser.last_name} on behalf of ${reporter}`,
       },
       transientComment: {
         type: "string",

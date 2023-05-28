@@ -38,6 +38,14 @@ class TNSRobot(Base):
         sa.Integer, doc="Source group ID of the TNS bot.", nullable=False
     )
 
+    default_reporters = sa.Column(
+        sa.String,
+        doc="Default reporter for the TNS bot. If not given at the time of submission, this reporter will be used.",
+        nullable=False,
+        default="...",
+        server_default="...",
+    )
+
     _altdata = sa.Column(
         EncryptedType(JSONType, cfg['app.secret_key'], AesEngine, 'pkcs5')
     )
