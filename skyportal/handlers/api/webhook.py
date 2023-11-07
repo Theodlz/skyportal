@@ -66,6 +66,14 @@ class AnalysisWebhookHandler(BaseHandler):
         log(
             f"Received webhook request for Analysis type={analysis_resource_type} token={token}"
         )
+        try:
+            is_admin = (
+                self.associated_user_object.is_admin
+                if self.associated_user_object is not None
+                else False
+            )
+        except Exception:
+            is_admin = False
 
         # allowable resources now are [obj]. Can be extended in the future.
         if analysis_resource_type.lower() not in ['obj']:
@@ -98,6 +106,7 @@ class AnalysisWebhookHandler(BaseHandler):
             if (
                 analysis.invalid_after
                 and datetime.datetime.utcnow() > analysis.invalid_after
+                and not is_admin
             ):
                 analysis.status = 'timed_out'
                 analysis.status_message = f'Analysis timed out before webhook call at {str(datetime.datetime.utcnow())}'

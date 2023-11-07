@@ -203,8 +203,12 @@ const AnalysisList = ({ obj_id }) => {
       const last_active_str = `${dayjs().to(
         dayjs.utc(`${analysis?.last_activity}Z`)
       )}`;
-      const duration_str = `${analysis?.duration?.toFixed(2)} sec`;
-      const info_str = `${last_active_str} (duration ${duration_str})`;
+      let info_str = last_active_str;
+      if (analysis?.duration) {
+        info_str = `${last_active_str} (duration ${analysis?.duration?.toFixed(
+          2
+        )} sec)`;
+      }
       return (
         <div>
           <Chip
