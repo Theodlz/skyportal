@@ -1,5 +1,6 @@
 from logging.config import fileConfig
 
+import asyncio
 from alembic import context
 
 from baselayer.app.config import load_config
@@ -50,7 +51,7 @@ def run_migrations_offline():
     password = db.get('password', '') or ''
     host = db['host']
 
-    url = f'postgresql://{user}:{password}@/{host}/{db["database"]}'
+    url = f'postgresql+asyncpg://{user}:{password}@/{host}/{db["database"]}'
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -62,7 +63,23 @@ def run_migrations_offline():
         context.run_migrations()
 
 
-def run_migrations_online():
+def do_run_migrations(connection):
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        compare_type=True,
+    )
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+async def run_async_migrations(connectable):
+    async with connectable.connect() as connection:
+        await connection.run_sync(do_run_migrations)
+    await connectable.dispose()
+
+
+def run_migrations_online() -> None:
     """Run migrations in 'online' mode.
 
     In this scenario we need to create an Engine
@@ -70,12 +87,7 @@ def run_migrations_online():
 
     """
     connectable = init_db(**cfg['database'])
-
-    with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
-
-        with context.begin_transaction():
-            context.run_migrations()
+    asyncio.run(run_async_migrations(connectable))
 
 
 if context.is_offline_mode():

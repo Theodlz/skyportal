@@ -178,6 +178,7 @@ from skyportal.handlers.api import (
     SourcesConfirmedInGCNHandler,
     SourcesConfirmedInGCNTNSHandler,
     GCNsAssociatedWithSourceHandler,
+    AsyncHandler,
 )
 from skyportal.handlers.api.internal import (
     PlotPhotometryHandler,
@@ -224,6 +225,7 @@ class CustomApplication(tornado.web.Application):
 
 skyportal_handlers = [
     # API endpoints
+    (r'/api/async_handler(/.*)?', AsyncHandler),
     (r'/api/acls', ACLHandler),
     (r'/api/allocation/report(/[0-9]+)', AllocationReportHandler),
     (r'/api/allocation(/.*)?', AllocationHandler),
@@ -578,7 +580,7 @@ skyportal_handlers = [
 ]
 
 
-def make_app(cfg, baselayer_handlers, baselayer_settings, process=None, env=None):
+async def make_app(cfg, baselayer_handlers, baselayer_settings, process=None, env=None):
     """Create and return a `tornado.web.Application` object with specified
     handlers and settings.
 
@@ -685,16 +687,13 @@ def make_app(cfg, baselayer_handlers, baselayer_settings, process=None, env=None
         autoflush=False,
     )
 
-    # If tables are found in the database, new tables will only be added
-    # in debug mode.  In production, we leave the tables alone, since
-    # migrations might be used.
-    create_tables(add=env.debug)
-    model_util.refresh_enums()
+    await create_tables(add=env.debug)
+    await model_util.refresh_enums()
+    await model_util.setup_permissions()
 
-    model_util.setup_permissions()
     app.cfg = cfg
 
-    admin_token = model_util.provision_token()
+    admin_token = await model_util.provision_token()
     with open('.tokens.yaml', 'w') as f:
         f.write(f'INITIAL_ADMIN: {admin_token.id}\n')
     with open('.tokens.yaml') as f:
@@ -703,7 +702,8 @@ def make_app(cfg, baselayer_handlers, baselayer_settings, process=None, env=None
         print('\n'.join(f.readlines()), end='')
         print('-' * 78)
 
-    model_util.provision_public_group()
+    # create a new task to run the provision_public_group function
+    await model_util.provision_public_group()
     app.openapi_spec = openapi.spec_from_handlers(handlers)
 
     return app

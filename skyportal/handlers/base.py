@@ -14,8 +14,8 @@ class BaseHandler(BaselayerHandler):
             return self.current_user
         return self.current_user.created_by
 
-    def success(self, *args, **kwargs):
-        super().success(*args, **kwargs, extra={'version': __version__})
+    async def success(self, *args, **kwargs):
+        await super().success(*args, **kwargs, extra={'version': __version__})
 
     def error(self, message, *args, **kwargs):
         super().error(message, *args, **kwargs, extra={'version': __version__})

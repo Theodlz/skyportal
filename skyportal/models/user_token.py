@@ -54,12 +54,13 @@ def user_update_delete_logic(cls, user_or_token):
 
 
 @property
-def user_or_token_accessible_groups(self):
+async def user_or_token_accessible_groups(self):
     """Return the list of Groups a User or Token has access to. For non-admin
     Users or Token owners, this corresponds to the Groups they are a member of.
     For System Admins, this corresponds to all Groups."""
     if "System admin" in self.permissions:
-        return Group.query.all()
+        groups = await DBSession().scalars(sa.select(Group))
+        return groups.all()
     return self.groups
 
 
@@ -75,14 +76,10 @@ def user_or_token_accessible_streams(self):
 
 @property
 def get_single_user_group(self):
-    group = (
-        DBSession()
-        .scalars(
-            sa.select(Group)
-            .join(GroupUser)
-            .where(Group.single_user_group.is_(True), GroupUser.user_id == self.id)
-        )
-        .first()
+    group = DBSession().scalar(
+        sa.select(Group)
+        .join(GroupUser)
+        .where(Group.single_user_group.is_(True), GroupUser.user_id == self.id)
     )
     return group
 
@@ -460,10 +457,10 @@ def update_single_user_group(mapper, connection, target):
 
     # Update single user group name if needed
     @event.listens_for(inspect(target).session, "after_flush_postexec", once=True)
-    def receive_after_flush(session, context):
-        single_user_group = target.single_user_group
+    async def receive_after_flush(session, context):
+        single_user_group = await target.single_user_group
         single_user_group.name = slugify(target.username)
-        session.merge(single_user_group)
+        await session.merge(single_user_group)
 
 
 @property

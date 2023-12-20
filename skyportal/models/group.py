@@ -295,12 +295,14 @@ class Group(Base):
         back_populates='groups',
         passive_deletes=True,
         doc='Stream access required for a User to become a member of the Group.',
+        # lazy="subquery",
     )
     filters = relationship(
         "Filter",
         back_populates="group",
         passive_deletes=True,
         doc='All filters (not just active) associated with a group.',
+        # lazy="subquery",
     )
 
     shifts = relationship(
@@ -325,6 +327,7 @@ class Group(Base):
         passive_deletes=True,
         doc='Elements of a join table mapping Users to Groups.',
         overlaps='users, groups',
+        # lazy='selectin'
     )
 
     observing_runs = relationship(

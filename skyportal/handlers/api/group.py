@@ -38,7 +38,7 @@ log = make_log('api/group')
 
 class GroupHandler(BaseHandler):
     @auth_or_token
-    def get(self, group_id=None):
+    async def get(self, group_id=None):
         """
         ---
         single:
@@ -136,12 +136,11 @@ class GroupHandler(BaseHandler):
                   schema: Error
         """
 
-        with self.Session() as session:
-
+        async with self.Session() as session:
             if group_id is not None:
-                group = session.scalars(
-                    Group.select(session.user_or_token).where(Group.id == group_id)
-                ).first()
+                group = await session.scalar(
+                    Group.select(session.user_or_token).where(Group.id == int(group_id))
+                )
                 if group is None:
                     return self.error(f'Cannot find Group with id {group_id}')
                 include_group_users = self.get_query_argument("includeGroupUsers", True)
@@ -160,16 +159,23 @@ class GroupHandler(BaseHandler):
                             "admin": gu.admin,
                             "can_save": gu.can_save,
                         }
-                        for gu in group.group_users
+                        for gu in await session.run_sync(lambda sess: group.group_users)
                     ]
                     if include_group_users
                     else None
                 )
 
-                streams = group.streams
-                filters = group.filters
+                streams = [
+                    await s.to_dict()
+                    for s in await session.run_sync(lambda sess: group.streams)
+                ]
+                filters = [
+                    await f.to_dict()
+                    for f in await session.run_sync(lambda sess: group.filters)
+                ]
 
-                group = group.to_dict()
+                group = await group.to_dict()
+                del group["group_users"]
 
                 if users is not None:
                     group['users'] = users
@@ -186,41 +192,61 @@ class GroupHandler(BaseHandler):
                 except AccessError as e:
                     log(f'Insufficient filter permissions: {e}.')
 
-                return self.success(data=group)
+                return await self.success(data=group)
+            else:
+                group_name = self.get_query_argument("name", None)
+                if group_name is not None:
+                    groups = await session.scalars(
+                        Group.select(session.user_or_token).where(
+                            Group.name == group_name
+                        )
+                    )
+                    groups = [await g.to_dict() for g in groups.unique().all()]
+                    return self.success(data=groups)
 
-            group_name = self.get_query_argument("name", None)
-            if group_name is not None:
-                groups = session.scalars(
-                    Group.select(session.user_or_token).where(Group.name == group_name)
-                ).all()
-                return self.success(data=groups)
-
-            include_single_user_groups = self.get_query_argument(
-                "includeSingleUserGroups", False
-            )
-            info = {}
-            info['user_groups'] = sorted(
-                list(self.current_user.groups), key=lambda g: g.name.lower()
-            )
-            info['user_accessible_groups'] = sorted(
-                (
-                    g
-                    for g in self.current_user.accessible_groups
-                    if not g.single_user_group
-                ),
-                key=lambda g: g.name.lower(),
-            )
-            all_groups_query = Group.select(session.user_or_token)
-            if not include_single_user_groups:
-                all_groups_query = all_groups_query.where(
-                    Group.single_user_group.is_(False)
+                include_single_user_groups = self.get_query_argument(
+                    "includeSingleUserGroups", False
                 )
-            info["all_groups"] = sorted(
-                session.scalars(all_groups_query).unique().all(),
-                key=lambda g: g.name.lower(),
-            )
+                info = {}
 
-            return self.success(data=info)
+                current_user = await self.get_current_user()
+                info['user_groups'] = sorted(
+                    [await g.to_dict() for g in current_user.groups],
+                    key=lambda g: g["name"].lower(),
+                )
+                print('-' * 80)
+                print("user_groups:")
+                print(info['user_groups'])
+
+                info['user_accessible_groups'] = sorted(
+                    (
+                        [
+                            await g.to_dict()
+                            for g in await current_user.accessible_groups
+                            if not g.single_user_group
+                        ]
+                    ),
+                    key=lambda g: g["name"].lower(),
+                )
+                print('-' * 80)
+                print("user_accessible_groups:")
+                print(info['user_accessible_groups'])
+                all_groups_query = Group.select(session.user_or_token)
+                if not include_single_user_groups:
+                    all_groups_query = all_groups_query.where(
+                        Group.single_user_group.is_(False)
+                    )
+
+                all_groups = await session.scalars(all_groups_query)
+                info["all_groups"] = sorted(
+                    [await g.to_dict() for g in all_groups.unique().all()],
+                    key=lambda g: g["name"].lower(),
+                )
+                print('-' * 80)
+                print("all_groups:")
+                print(info['all_groups'])
+
+                return await self.success(data=info)
 
     @permissions(["Upload data"])
     def post(self):

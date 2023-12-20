@@ -77,7 +77,7 @@ class MMADetectorHandler(BaseHandler):
             return self.success(data={"id": mmadetector.id})
 
     @auth_or_token
-    def get(self, mmadetector_id=None):
+    async def get(self, mmadetector_id=None):
         """
         ---
         single:
@@ -120,27 +120,33 @@ class MMADetectorHandler(BaseHandler):
                   schema: Error
         """
 
-        with self.Session() as session:
-
-            if mmadetector_id is not None:
-                t = session.scalars(
-                    MMADetector.select(
-                        session.user_or_token, options=[joinedload(MMADetector.events)]
-                    ).where(MMADetector.id == int(mmadetector_id))
-                ).first()
-                if t is None:
-                    return self.error(
-                        f"Could not load MMA Detector with ID {mmadetector_id}"
+        det_name = self.get_query_argument("name", None)
+        async with self.Session() as session:
+            try:
+                if mmadetector_id is not None:
+                    t = await session.scalar(
+                        MMADetector.select(
+                            session.user_or_token,
+                            options=[joinedload(MMADetector.events)],
+                        ).where(MMADetector.id == int(mmadetector_id))
                     )
-                return self.success(data=t)
+                    if t is None:
+                        raise ValueError(
+                            f"Could not load MMA Detector with ID {mmadetector_id}"
+                        )
+                    data = await t.to_dict()
+                else:
+                    stmt = MMADetector.select(session.user_or_token)
+                    if det_name is not None:
+                        stmt = stmt.where(MMADetector.name.contains(det_name))
 
-            det_name = self.get_query_argument("name", None)
-            stmt = MMADetector.select(session.user_or_token)
-            if det_name is not None:
-                stmt = stmt.where(MMADetector.name.contains(det_name))
+                    data = await session.scalars(stmt)
+                    data = [await d.to_dict() for d in data.unique().all()]
+            except (ValueError, AccessError) as e:
+                print(e)
+                return await self.error(str(e))
 
-            data = session.scalars(stmt).all()
-            return self.success(data=data)
+        return await self.success(data=data)
 
     @permissions(['Manage allocations'])
     def patch(self, mmadetector_id):

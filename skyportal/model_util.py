@@ -64,10 +64,10 @@ role_acls = {
 env, cfg = load_env()
 
 
-def add_user(username, roles=[], auth=False, first_name=None, last_name=None):
+async def add_user(username, roles=[], auth=False, first_name=None, last_name=None):
 
-    with DBSession() as session:
-        user = session.scalars(sa.select(User).where(User.username == username)).first()
+    async with DBSession() as session:
+        user = await session.scalar(sa.select(User).where(User.username == username))
 
         if user is None:
             user = User(username=username, first_name=first_name, last_name=last_name)
@@ -75,51 +75,51 @@ def add_user(username, roles=[], auth=False, first_name=None, last_name=None):
                 TornadoStorage.user.create_social_auth(
                     user, user.username, 'google-oauth2'
                 )
+            session.add(user)
 
         for rolename in roles:
-            role = session.scalars(sa.select(Role).where(Role.id == rolename)).first()
-            if role not in user.roles:
+            role = await session.scalar(sa.select(Role).where(Role.id == rolename))
+            if role not in await session.run_sync(lambda sess: user.roles):
                 user.roles.append(role)
 
-        session.add(user)
-        session.flush()
+        # await session.flush()
 
         # Add user to sitewide public group
         public_group_name = cfg['misc.public_group_name']
         if public_group_name:
-            public_group = session.scalars(
+            public_group = await session.scalar(
                 sa.select(Group).where(Group.name == public_group_name)
-            ).first()
+            )
             if public_group is None:
                 public_group = Group(name=public_group_name)
                 session.add(public_group)
-                session.flush()
+                # await session.flush()
+        if public_group not in await session.run_sync(lambda sess: user.groups):
+            user.groups.append(public_group)
+        await session.commit()
 
-        user.groups.append(public_group)
-        session.commit()
-
-    return DBSession().query(User).filter(User.username == username).first()
+    return await DBSession().scalar(sa.select(User).where(User.username == username))
 
 
-def refresh_enums():
-    with DBSession() as session:
+async def refresh_enums():
+    async with DBSession() as session:
         for type in sqla_enum_types:
             for key in type.enums:
-                session.execute(
+                await session.execute(
                     sa.text(f"ALTER TYPE {type.name} ADD VALUE IF NOT EXISTS '{key}'")
                 )
-        session.commit()
+        await session.commit()
 
 
-def make_super_user(username):
+async def make_super_user(username):
     """Initializes a super user with full permissions."""
-    setup_permissions()  # make sure permissions already exist
-    add_user(username, roles=['Super admin'], auth=True)
+    await setup_permissions()  # make sure permissions already exist
+    await add_user(username, roles=['Super admin'], auth=True)
 
 
-def provision_token():
+async def provision_token():
     """Provision an initial administrative token."""
-    admin = add_user(
+    admin = await add_user(
         'provisioned_admin',
         roles=['Super admin'],
         first_name="provisioned",
@@ -127,58 +127,70 @@ def provision_token():
     )
     token_name = 'Initial admin token'
 
-    token = (
-        DBSession().query(Token).filter_by(created_by=admin, name=token_name).first()
+    token = await DBSession().scalar(
+        sa.select(Token).where(
+            Token.created_by_id == admin.id, Token.name == token_name
+        )
     )
 
     if token is None:
-        token_id = create_token(all_acl_ids, user_id=admin.id, name=token_name)
-        token = DBSession().get(Token, token_id)
+        token_id = await create_token(all_acl_ids, user_id=admin.id, name=token_name)
+        token = await DBSession().scalar(sa.select(Token).where(Token.id == token_id))
 
     return token
 
 
-def provision_public_group():
+async def provision_public_group():
     """If public group name is set in the config file, create it."""
     env, cfg = load_env()
     public_group_name = cfg['misc.public_group_name']
-    pg = DBSession().query(Group).filter(Group.name == public_group_name).first()
+    pg = await DBSession().scalar(
+        sa.select(Group).where(Group.name == public_group_name)
+    )
 
     if pg is None:
         DBSession().add(Group(name=public_group_name))
-        DBSession().commit()
+        await DBSession().commit()
 
 
-def setup_permissions():
+async def setup_permissions():
     """Create default ACLs/Roles needed by application.
 
     If a given ACL or Role already exists, it will be skipped."""
-    all_acls = [ACL.create_or_get(a) for a in all_acl_ids]
-    DBSession().add_all(all_acls)
-    DBSession().commit()
+    all_acls = []
+    for acl_id in all_acl_ids:
+        acl = await DBSession().get(ACL, acl_id)
+        if acl is None:
+            await DBSession().add(ACL(id=acl_id))
+        all_acls.append(acl)
+    await DBSession().commit()
 
     for r, acl_ids in role_acls.items():
-        role = DBSession().get(Role, r)
+        role = await DBSession().get(Role, r)
         if role is None:
             role = Role(id=r)
-        role.acls = [DBSession().get(ACL, a) for a in acl_ids]
+        acls = []
+        for a in acl_ids:
+            acl = await DBSession().scalar(sa.select(ACL).where(ACL.id == a))
+            acls.append(acl)
+        role.acls = acls
         DBSession().add(role)
-    DBSession().commit()
+    await DBSession().commit()
 
 
-def create_token(ACLs, user_id, name):
+async def create_token(ACLs, user_id, name):
     t = Token(permissions=ACLs, name=name)
     u = DBSession().get(User, user_id)
     u.tokens.append(t)
     t.created_by = u
     DBSession().add(u)
     DBSession().add(t)
-    DBSession().commit()
+    await DBSession().commit()
     return t.id
 
 
-def delete_token(token_id):
+async def delete_token(token_id):
     t = DBSession().get(Token, token_id)
     if t is not None:
         DBSession().delete(t)
-        DBSession().commit()
+        await DBSession().commit()
