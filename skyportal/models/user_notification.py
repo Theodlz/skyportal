@@ -62,13 +62,18 @@ class UserNotification(Base):
 @event.listens_for(Classification, 'after_insert')
 @event.listens_for(Spectrum, 'after_insert')
 @event.listens_for(Comment, 'after_insert')
-@event.listens_for(FacilityTransaction, 'after_insert')
 @event.listens_for(GroupAdmissionRequest, 'after_insert')
 @event.listens_for(ObjAnalysis, 'after_update')
 @event.listens_for(EventObservationPlan, 'after_insert')
 @event.listens_for(FollowupRequest, 'after_update')
 def add_user_notifications(mapper, connection, target):
-    # Add front-end user notifications
+    old_value = inspect(target).committed_state
+    if target.__class__.__name__ == 'FollowupRequest' and 'status' not in old_value:
+        # we only notify on status change for FollowupRequest
+        # this is to avoid spamming users with notifications when
+        # things like the last_modified_by field are updated automatically
+        return
+
     @event.listens_for(inspect(target).session, "after_commit", once=True)
     def receive_after_commit(session):
         if target is None:
@@ -84,6 +89,10 @@ def add_user_notifications(mapper, connection, target):
             'target_class_name': target_class_name,
             'target_id': target_id,
         }
+        if target_class_name == 'FollowupRequest':
+            request_body['allocation_id'] = target.allocation_id
+        if target_class_name in ['FollowupRequest']:
+            request_body['obj_id'] = target.obj_id
 
         try:
             loop = asyncio.get_event_loop()
