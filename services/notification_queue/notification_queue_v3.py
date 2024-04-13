@@ -27,7 +27,6 @@ from skyportal.models import (
     Comment,
     DBSession,
     EventObservationPlan,
-    FacilityTransaction,
     FollowupRequest,
     GcnEvent,
     GcnNotice,
@@ -83,6 +82,7 @@ op_options = [
     "gt",
 ]
 
+
 def notification_resource_type(target):
     if not target["notification_type"]:
         return None
@@ -98,7 +98,8 @@ def notification_resource_type(target):
         return "gcn_events"
     elif "sources" in target["notification_type"]:
         return "sources"
-    
+
+
 def user_preferences(target, notification_setting, resource_type):
     if not isinstance(notification_setting, str):
         return
@@ -146,7 +147,7 @@ def user_preferences(target, notification_setting, resource_type):
             'sources',
             'favorite_sources',
             'gcn_events',
-            'facility_transactions',
+            'followup_requests',
             'mention',
             'analysis_services',
             'observation_plans',
@@ -208,7 +209,7 @@ def user_preferences(target, notification_setting, resource_type):
             'sources',
             'favorite_sources',
             'gcn_events',
-            'facility_transactions',
+            'followup_requests',
             'mention',
             'analysis_services',
             'observation_plans',
@@ -299,11 +300,11 @@ def send_email_notification(target):
                 new_tag=(target["notification_type"] == "gcn_events_new_tag"),
             )
 
-        elif resource_type == "facility_transactions":
-            subject = f"{cfg['app.title']} - New facility transaction"
+        elif resource_type == "followup_requests":
+            subject = f"{cfg['app.title']} - New follow-up request"
 
         elif resource_type == "observation_plans":
-            subject = f"{cfg['app.title']} - New observation plans"
+            subject = f"{cfg['app.title']} - New observation plan"
 
         elif resource_type == "analysis_services":
             subject = f"{cfg['app.title']} - New completed analysis service"
@@ -505,6 +506,7 @@ def users_on_shift(session):
     ).all()
     return [user.user_id for user in users]
 
+
 def process_gcn_notification(data):
     target_class_name = data['target_class_name']
     target_id = data['target_id']
@@ -518,9 +520,7 @@ def process_gcn_notification(data):
         )
         if target_class_name == "GcnTag":
             stmt = stmt.where(
-                User.preferences["notifications"]["gcn_events"][
-                    "new_tags"
-                ]
+                User.preferences["notifications"]["gcn_events"]["new_tags"]
                 .astext.cast(sa.Boolean)
                 .is_(True),
             )
@@ -534,9 +534,7 @@ def process_gcn_notification(data):
                 sa.select(GcnTag).where(GcnTag.id == target_id)
             ).first()
             gcn_event = session.scalars(
-                sa.select(GcnEvent).where(
-                    GcnEvent.dateobs == gcn_tag.dateobs
-                )
+                sa.select(GcnEvent).where(GcnEvent.dateobs == gcn_tag.dateobs)
             ).first()
             if len(gcn_event.localizations) > 0:
                 target_id = gcn_event.localizations[0].id
@@ -551,17 +549,17 @@ def process_gcn_notification(data):
         target_content = gcn_notification_content(target, session)
 
         event = session.scalars(
-            sa.select(GcnEvent).where(
-                GcnEvent.dateobs == target_data["dateobs"]
-            )
+            sa.select(GcnEvent).where(GcnEvent.dateobs == target_data["dateobs"])
         ).first()
         notices = event.gcn_notices
         filtered_notices = [
             notice
             for notice in notices
             if (target_class_name == "GcnNotice" and notice.id == target_id)
-                or 
-                (target_class_name != "GcnNotice" and notice.id == target_data["notice_id"])
+            or (
+                target_class_name != "GcnNotice"
+                and notice.id == target_data["notice_id"]
+            )
         ]
         if len(filtered_notices) == 0:
             return []
@@ -570,8 +568,7 @@ def process_gcn_notification(data):
         notifications = []
         for user in users:
             gcn_prefs = (
-                user.preferences
-                .get('notifications', {})
+                user.preferences.get('notifications', {})
                 .get("gcn_events", {})
                 .get("properties", {})
             )
@@ -581,23 +578,15 @@ def process_gcn_notification(data):
             # GCN notifications work with profiles
             # where a user can create different profiles, each with different notification settings
             for gcn_pref in gcn_prefs.values():
-                if (
-                    len(gcn_pref.get("gcn_notice_types", []))
-                    > 0
-                ):
+                if len(gcn_pref.get("gcn_notice_types", [])) > 0:
                     if (
-                        not gcn.NoticeType(
-                            notice.notice_type
-                        ).name
+                        not gcn.NoticeType(notice.notice_type).name
                         in gcn_pref['gcn_notice_types']
                     ):
                         continue
 
                 if len(gcn_pref.get("gcn_tags", [])) > 0:
-                    intersection = list(
-                        set(event.tags)
-                        & set(gcn_pref["gcn_tags"])
-                    )
+                    intersection = list(set(event.tags) & set(gcn_pref["gcn_tags"]))
                     if len(intersection) == 0:
                         continue
 
@@ -606,9 +595,7 @@ def process_gcn_notification(data):
                     for properties in event.properties:
                         properties_dict = properties.data
                         properties_pass = True
-                        for prop_filt in gcn_pref[
-                            "gcn_properties"
-                        ]:
+                        for prop_filt in gcn_pref["gcn_properties"]:
                             prop_split = prop_filt.split(":")
                             if not len(prop_split) == 3:
                                 raise ValueError(
@@ -625,15 +612,9 @@ def process_gcn_notification(data):
                                     )
                                 op = prop_split[2].strip()
                                 if op not in op_options:
-                                    raise ValueError(
-                                        f"Invalid operator: {op}"
-                                    )
-                                comp_function = getattr(
-                                    operator, op
-                                )
-                                if not comp_function(
-                                    properties_dict[name], value
-                                ):
+                                    raise ValueError(f"Invalid operator: {op}")
+                                comp_function = getattr(operator, op)
+                                if not comp_function(properties_dict[name], value):
                                     properties_pass = False
                                     break
                         properties_bool.append(properties_pass)
@@ -642,23 +623,14 @@ def process_gcn_notification(data):
 
                 if target_class_name != "GcnNotice":
                     localization = session.scalars(
-                        sa.select(Localization).where(
-                            Localization.id == target_id
-                        )
+                        sa.select(Localization).where(Localization.id == target_id)
                     ).first()
                     (
                         localization_properties_dict,
                         localization_tags_list,
                     ) = get_skymap_properties(localization)
 
-                    if (
-                        len(
-                            gcn_pref.get(
-                                "localization_tags", []
-                            )
-                        )
-                        > 0
-                    ):
+                    if len(gcn_pref.get("localization_tags", [])) > 0:
                         intersection = list(
                             set(localization_tags_list)
                             & set(gcn_pref["localization_tags"])
@@ -666,9 +638,7 @@ def process_gcn_notification(data):
                         if len(intersection) == 0:
                             continue
 
-                    for prop_filt in gcn_pref.get(
-                        "localization_properties", []
-                    ):
+                    for prop_filt in gcn_pref.get("localization_properties", []):
                         prop_split = prop_filt.split(":")
                         if not len(prop_split) == 3:
                             raise ValueError(
@@ -680,21 +650,13 @@ def process_gcn_notification(data):
                             try:
                                 value = float(value)
                             except ValueError as e:
-                                raise ValueError(
-                                    f"Invalid propertiesFilter value: {e}"
-                                )
+                                raise ValueError(f"Invalid propertiesFilter value: {e}")
                             op = prop_split[2].strip()
                             if op not in op_options:
-                                raise ValueError(
-                                    f"Invalid operator: {op}"
-                                )
-                            comp_function = getattr(
-                                operator, op
-                            )
+                                raise ValueError(f"Invalid operator: {op}")
+                            comp_function = getattr(operator, op)
                             if not comp_function(
-                                localization_properties_dict[
-                                    name
-                                ],
+                                localization_properties_dict[name],
                                 value,
                             ):
                                 continue
@@ -738,6 +700,7 @@ def process_gcn_notification(data):
 
     return notifications
 
+
 def process_followup_request_notification(data):
     target_class_name = data['target_class_name']
     target_id = data['target_id']
@@ -745,29 +708,37 @@ def process_followup_request_notification(data):
     target_obj_id = data['obj_id']
     target_content = None
 
-    print(f"PROCESS: {data}")
-
     notifications = []
     with DBSession() as session:
-        users = session.scalars(sa.select(User).where(
-            User.preferences["notifications"]["followup_requests"]["active"]
-            .astext.cast(sa.Boolean)
-            .is_(True),
-        )).all()
+        users = session.scalars(
+            sa.select(User).where(
+                User.preferences["notifications"]["followup_requests"]["active"]
+                .astext.cast(sa.Boolean)
+                .is_(True),
+            )
+        ).all()
         if len(users) == 0:
             return []
 
         followup_request = session.scalars(
-            sa.select(FollowupRequest).where(
-                FollowupRequest.id == target_id
-            )
+            sa.select(FollowupRequest).where(FollowupRequest.id == target_id)
         ).first()
 
-        if not followup_request and target_allocation_id and target_obj_id or followup_request.status == "deleted":
+        if (
+            not followup_request
+            and target_allocation_id
+            and target_obj_id
+            or followup_request.status == "deleted"
+        ):
             for user in users:
                 allocation = session.scalar(
                     Allocation.select(user, mode="read").where(
-                        Allocation.id == (target_allocation_id if not followup_request else followup_request.allocation_id)
+                        Allocation.id
+                        == (
+                            target_allocation_id
+                            if not followup_request
+                            else followup_request.allocation_id
+                        )
                     )
                 )
                 if allocation:
@@ -816,6 +787,7 @@ def process_followup_request_notification(data):
 
     return notifications
 
+
 def process_observation_plan_notification(data):
     target_class_name = data['target_class_name']
     target_id = data['target_id']
@@ -823,49 +795,27 @@ def process_observation_plan_notification(data):
 
     notifications = []
     with DBSession() as session:
-        # users = session.scalars(sa.select(User).where(
-        #     User.preferences["notifications"]["observation_plans"]["active"]
-        #     .astext.cast(sa.Boolean)
-        #     .is_(True),
-        # )).all()
-
-        # DEBUG
-        users = session.scalars(sa.select(User)).all()
+        users = session.scalars(
+            sa.select(User).where(
+                User.preferences["notifications"]["observation_plans"]["active"]
+                .astext.cast(sa.Boolean)
+                .is_(True),
+            )
+        ).all()
         if len(users) == 0:
             return []
 
         observation_plan = session.scalars(
-            sa.select(EventObservationPlan).where(
-                EventObservationPlan.id == target_id
-            )
+            sa.select(EventObservationPlan).where(EventObservationPlan.id == target_id)
         ).first()
 
-        if not observation_plan or observation_plan.status == "deleted":
+        if observation_plan:
             for user in users:
                 notification = UserNotification(
                     user=user,
-                    text=f"An observation plan was deleted",
+                    text=f"New observation plan for GCN event {observation_plan.dateobs}",
                     notification_type="observation_plans",
-                    url="/observation_plans",
-                )
-                session.add(notification)
-                session.commit()
-                target = {
-                    **notification.to_dict(),
-                    "user": {
-                        **notification.user.to_dict(),
-                        "preferences": notification.user.preferences,
-                    },
-                    "content": target_content,
-                }
-                notifications.append(target)
-        else:
-            for user in users:
-                notification = UserNotification(
-                    user=user,
-                    text=f"New observation plan",
-                    notification_type="observation_plans",
-                    url=f"/observation_plans/{target_id}",
+                    url=f"/gcn_events/{str(observation_plan.dateobs).replace(' ','T')}",
                 )
                 session.add(notification)
                 session.commit()
@@ -879,19 +829,255 @@ def process_observation_plan_notification(data):
                 }
                 notifications.append(target)
 
-    return notifications   
+    return notifications
 
 
-def process_notification_candidate(data):
+def process_comment_notification(data):
+    target_id = data['target_id']
+    target_content = None
+
+    notifications = []
+    with DBSession() as session:
+        comment = session.scalar(sa.select(Comment).where(Comment.id == target_id))
+
+        stmt = sa.select(User).where(
+            User.preferences["notifications"]["favorite_sources"]["active"]
+            .astext.cast(sa.Boolean)
+            .is_(True),
+            User.preferences["notifications"]["favorite_sources"]["new_comments"]
+            .astext.cast(sa.Boolean)
+            .is_(True),
+        )
+        if comment.bot:
+            stmt = stmt.where(
+                User.preferences["notifications"]["favorite_sources"][
+                    "new_bot_comments"
+                ]
+                .astext.cast(sa.Boolean)
+                .is_(True)
+            )
+
+        stmt = stmt.where(
+            User.id.in_(
+                sa.select(Listing.user_id).where(
+                    Listing.obj_id == comment.obj_id,
+                    Listing.list_name == "favorites",
+                )
+            )
+        )
+
+        users = session.scalars(stmt).all()
+        if len(users) == 0:
+            return []
+
+        for user in users:
+            notification = UserNotification(
+                user=user,
+                text=f"New comment on favorite source {comment.obj_id}",
+                notification_type="favorite_sources",
+                url=f"/source/{comment.obj_id}",
+            )
+            session.add(notification)
+            session.commit()
+            target = {
+                **notification.to_dict(),
+                "user": {
+                    **notification.user.to_dict(),
+                    "preferences": notification.user.preferences,
+                },
+                "content": target_content,
+            }
+            notifications.append(target)
+
+    return notifications
+
+
+def process_classification_notification(data):
+    target_id = data['target_id']
+    target_content = None
+
+    notifications = []
+    with DBSession() as session:
+        classification = session.scalar(
+            sa.select(Classification).where(Classification.id == target_id)
+        )
+
+        stmt = sa.select(User).where(
+            User.preferences["notifications"]["favorite_sources"]["active"]
+            .astext.cast(sa.Boolean)
+            .is_(True),
+            User.preferences["notifications"]["favorite_sources"]["new_classifications"]
+            .astext.cast(sa.Boolean)
+            .is_(True),
+        )
+
+        stmt = stmt.where(
+            User.id.in_(
+                sa.select(Listing.user_id).where(
+                    Listing.obj_id == classification.obj_id,
+                    Listing.list_name == "favorites",
+                )
+            )
+        )
+
+        users = session.scalars(stmt).all()
+        if len(users) == 0:
+            return []
+
+        for user in users:
+            notification = UserNotification(
+                user=user,
+                text=f"New classification on favorite source {classification.obj_id}",
+                notification_type="favorite_sources",
+                url=f"/source/{classification.obj_id}",
+            )
+            session.add(notification)
+            session.commit()
+            target = {
+                **notification.to_dict(),
+                "user": {
+                    **notification.user.to_dict(),
+                    "preferences": notification.user.preferences,
+                },
+                "content": target_content,
+            }
+            notifications.append(target)
+
+    return notifications
+
+
+def process_spectra_notification(data):
+    target_id = data['target_id']
+    target_content = None
+
+    notifications = []
+    with DBSession() as session:
+        spectra = session.scalar(sa.select(Spectrum).where(Spectrum.id == target_id))
+
+        # first we notify users who have favorited the source and have spectra notifications enabled
+        stmt = sa.select(User).where(
+            User.preferences["notifications"]["favorite_sources"]["active"]
+            .astext.cast(sa.Boolean)
+            .is_(True),
+            User.preferences["notifications"]["favorite_sources"]["new_spectra"]
+            .astext.cast(sa.Boolean)
+            .is_(True),
+        )
+
+        stmt = stmt.where(
+            User.id.in_(
+                sa.select(Listing.user_id).where(
+                    Listing.obj_id == spectra.obj_id,
+                    Listing.list_name == "favorites",
+                )
+            )
+        )
+
+        users = session.scalars(stmt).all()
+        for user in users:
+            notification = UserNotification(
+                user=user,
+                text=f"New spectrum on favorite source {spectra.obj_id}",
+                notification_type="favorite_sources",
+                url=f"/source/{spectra.obj_id}",
+            )
+            session.add(notification)
+            session.commit()
+            target = {
+                **notification.to_dict(),
+                "user": {
+                    **notification.user.to_dict(),
+                    "preferences": notification.user.preferences,
+                },
+                "content": target_content,
+            }
+            notifications.append(target)
+
+        # then we notify users other users, that have sources notifications activated (not just favorite_sources)
+        # and that want to be notification on new spectrum
+        stmt = sa.select(User).where(
+            User.preferences["notifications"]["sources"]["active"].astext.cast(
+                sa.Boolean
+            ),
+            User.preferences["notifications"]["sources"]["new_spectra"].astext.cast(
+                sa.Boolean
+            ),
+            User.id.notin_([u.id for u in users]),
+        )
+
+        users = session.scalars(stmt).all()
+        for user in users:
+            notification = UserNotification(
+                user=user,
+                text=f"New spectrum on source {spectra.obj_id}",
+                notification_type="sources",
+                url=f"/source/{spectra.obj_id}",
+            )
+            session.add(notification)
+            session.commit()
+            target = {
+                **notification.to_dict(),
+                "user": {
+                    **notification.user.to_dict(),
+                    "preferences": notification.user.preferences,
+                },
+                "content": target_content,
+            }
+            notifications.append(target)
+
+    return notifications
+
+
+def process_group_admission_request_notification(data):
+    target_id = data['target_id']
+    target_content = None
+
+    notifications = []
+    with DBSession() as session:
+        group_admission_request = session.scalar(
+            sa.select(GroupAdmissionRequest).where(
+                GroupAdmissionRequest.id == target_id
+            )
+        )
+        # find admins of the group
+        users = session.scalars(
+            sa.select(User).where(
+                User.id.in_(
+                    sa.select(GroupUser.user_id).where(
+                        GroupUser.group_id == group_admission_request.group_id,
+                        GroupUser.admin.is_(True),
+                    )
+                )
+            )
+        ).all()
+
+        for user in users:
+            notification = UserNotification(
+                user=user,
+                text=f"User {group_admission_request.user.username} requested to join group {group_admission_request.group.name}",
+                notification_type="group_admission_requests",
+                url=f"/group/{group_admission_request.group_id}",
+            )
+            session.add(notification)
+            session.commit()
+            target = {
+                **notification.to_dict(),
+                "user": {
+                    **notification.user.to_dict(),
+                    "preferences": notification.user.preferences,
+                },
+                "content": target_content,
+            }
+            notifications.append(target)
+
+    return notifications
+
+
+def process_notifications(data):
     target_class_name = data['target_class_name']
 
-    is_facility_transaction = target_class_name == "FacilityTransaction"
-    is_classification = target_class_name == "Classification"
-    is_spectra = target_class_name == "Spectrum"
-    is_comment = target_class_name == "Comment"
     is_group_admission_request = target_class_name == "GroupAdmissionRequest"
     is_analysis_service = target_class_name == "ObjAnalysis"
-    is_listing = target_class_name == "Listing"
 
     print(f"PROCESS: {data}")
 
@@ -899,6 +1085,15 @@ def process_notification_candidate(data):
         return process_gcn_notification(data)
     elif target_class_name == "FollowupRequest":
         return process_followup_request_notification(data)
+    elif target_class_name == "EventObservationPlan":
+        return process_observation_plan_notification(data)
+    elif target_class_name == "Comment":
+        return process_comment_notification(data)
+    elif target_class_name == "Classification":
+        return process_classification_notification(data)
+    elif target_class_name == "GroupAdmissionRequest":
+        return process_group_admission_request_notification(data)
+
 
 # here we send the notifications to the individual users that need to be notified
 def send_notifications(notifications_queue):
@@ -928,25 +1123,31 @@ def generate_notifications(notifications_candidates_queue, notifications_queue):
         if len(notifications_candidates_queue) == 0:
             time.sleep(1)
             continue
-        notifications_candidate = notifications_candidates_queue.pop(0)
-        if not isinstance(notifications_candidate, dict):
+        notifications = notifications_candidates_queue.pop(0)
+        if not isinstance(notifications, dict):
             continue
 
-        print(f"GENERATE: {notifications_candidate}")
+        print(f"GENERATE: {notifications}")
 
-        notifications = process_notification_candidate(notifications_candidate)
+        notifications = process_notifications(notifications)
         if not isinstance(notifications, list) or len(notifications) == 0:
             continue
 
         for notification in notifications:
             notifications_queue.append(notification)
 
+
 # The API gets the DB triggers from the app, and adds them to the queue of notifications candidates
 def api(notifications_candidates_queue):
     class QueueHandler(tornado.web.RequestHandler):
         def get(self):
             self.set_header("Content-Type", "application/json")
-            self.write({"status": "success", "data": {"queue_length": len(notifications_candidates_queue)}})
+            self.write(
+                {
+                    "status": "success",
+                    "data": {"queue_length": len(notifications_candidates_queue)},
+                }
+            )
 
         async def post(self):
             try:
@@ -954,15 +1155,15 @@ def api(notifications_candidates_queue):
             except json.JSONDecodeError:
                 self.set_status(400)
                 return self.write({"status": "error", "message": "Malformed JSON data"})
-            
+
             print(f"API: {data}")
-            
+
             notifications_candidates_queue.append(data)
 
             self.set_status(200)
             self.write({"status": "success", "message": "Notification added to queue"})
             return
-        
+
     app = tornado.web.Application([(r"/", QueueHandler)])
     try:
         loop = asyncio.get_event_loop()
@@ -974,20 +1175,26 @@ def api(notifications_candidates_queue):
     app.listen(cfg["ports.notification_queue"])
     loop.run_forever()
 
+
 notifications_candidates_queue = []
 notifications_queue = []
 
 if __name__ == "__main__":
     try:
         t = Thread(target=send_notifications, args=(notifications_queue,))
-        t2 = Thread(target=generate_notifications, args=(notifications_candidates_queue, notifications_queue))
+        t2 = Thread(
+            target=generate_notifications,
+            args=(notifications_candidates_queue, notifications_queue),
+        )
         t3 = Thread(target=api, args=(notifications_candidates_queue,))
         t.start()
         t2.start()
         t3.start()
 
         while True:
-            log(f"Current notification candidates queue length: {len(notifications_candidates_queue)}")
+            log(
+                f"Current notification candidates queue length: {len(notifications_candidates_queue)}"
+            )
             log(f"Current notification queue length: {len(notifications_queue)}")
             time.sleep(10)
             if not t.is_alive():
@@ -996,7 +1203,10 @@ if __name__ == "__main__":
                 t.start()
             if not t2.is_alive():
                 log("Notification generation thread died, restarting")
-                t2 = Thread(target=generate_notifications, args=(notifications_candidates_queue, notifications_queue))
+                t2 = Thread(
+                    target=generate_notifications,
+                    args=(notifications_candidates_queue, notifications_queue),
+                )
                 t2.start()
             if not t3.is_alive():
                 log("API thread died, restarting")

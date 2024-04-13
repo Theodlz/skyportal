@@ -145,7 +145,7 @@ const NotificationSettingsSelect = ({ notificationResourceType }) => {
       notificationResourceType === "gcn_events" ||
       notificationResourceType === "sources" ||
       notificationResourceType === "favorite_sources" ||
-      notificationResourceType === "facility_transactions" ||
+      notificationResourceType === "followup_requests" ||
       notificationResourceType === "mention" ||
       notificationResourceType === "analysis_services" ||
       notificationResourceType === "observation_plans"
@@ -213,7 +213,7 @@ const NotificationSettingsSelect = ({ notificationResourceType }) => {
       notificationResourceType === "gcn_events" ||
       notificationResourceType === "sources" ||
       notificationResourceType === "favorite_sources" ||
-      notificationResourceType === "facility_transactions" ||
+      notificationResourceType === "followup_requests" ||
       notificationResourceType === "mention" ||
       notificationResourceType === "analysis_services" ||
       notificationResourceType === "observation_plans"
@@ -296,7 +296,7 @@ const NotificationSettingsSelect = ({ notificationResourceType }) => {
       notificationResourceType === "gcn_events" ||
       notificationResourceType === "sources" ||
       notificationResourceType === "favorite_sources" ||
-      notificationResourceType === "facility_transactions" ||
+      notificationResourceType === "followup_requests" ||
       notificationResourceType === "mention" ||
       notificationResourceType === "analysis_services" ||
       notificationResourceType === "observation_plans"

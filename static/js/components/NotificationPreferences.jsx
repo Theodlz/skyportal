@@ -200,7 +200,7 @@ const NotificationPreferences = () => {
       event.target.name === "gcn_events" ||
       event.target.name === "mention" ||
       event.target.name === "favorite_sources" ||
-      event.target.name === "facility_transactions" ||
+      event.target.name === "followup_requests" ||
       event.target.name === "analysis_services" ||
       event.target.name === "observation_plans"
     ) {
@@ -391,24 +391,24 @@ const NotificationPreferences = () => {
             control={
               <Switch
                 checked={
-                  profile?.notifications?.facility_transactions?.active === true
+                  profile?.notifications?.followup_requests?.active === true
                 }
-                name="facility_transactions"
+                name="followup_requests"
                 onChange={prefToggled}
               />
             }
-            label="Facility Transactions / Follow-up Requests"
+            label="Follow-up Requests"
           />
           <Tooltip
-            title="This allows you to be notified for all facility transactions (followup requests, observation plans)."
+            title="This allows you to be notified on followup requests."
             placement="right"
             classes={{ tooltip: classes.tooltip }}
           >
             <HelpOutlineOutlinedIcon />
           </Tooltip>
         </FormGroup>
-        {profile?.notifications?.facility_transactions?.active === true && (
-          <NotificationSettingsSelect notificationResourceType="facility_transactions" />
+        {profile?.notifications?.followup_requests?.active === true && (
+          <NotificationSettingsSelect notificationResourceType="followup_requests" />
         )}
       </div>
       <div className={classes.pref}>

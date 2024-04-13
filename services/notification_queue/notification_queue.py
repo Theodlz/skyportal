@@ -243,11 +243,11 @@ def send_email_notification(target):
                 new_tag=(target["notification_type"] == "gcn_events_new_tag"),
             )
 
-        elif resource_type == "facility_transactions":
-            subject = f"{cfg['app.title']} - New facility transaction"
+        elif resource_type == "followup_requests":
+            subject = f"{cfg['app.title']} - New follow-up request"
 
         elif resource_type == "observation_plans":
-            subject = f"{cfg['app.title']} - New observation plans"
+            subject = f"{cfg['app.title']} - New observation plan"
 
         elif resource_type == "analysis_services":
             subject = f"{cfg['app.title']} - New completed analysis service"

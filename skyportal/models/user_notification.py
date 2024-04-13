@@ -68,11 +68,15 @@ class UserNotification(Base):
 @event.listens_for(FollowupRequest, 'after_update')
 def add_user_notifications(mapper, connection, target):
     old_value = inspect(target).committed_state
-    if target.__class__.__name__ == 'FollowupRequest' and 'status' not in old_value:
-        # we only notify on status change for FollowupRequest
-        # this is to avoid spamming users with notifications when
-        # things like the last_modified_by field are updated automatically
-        return
+    print(old_value)
+    if target.__class__.__name__ == 'FollowupRequest':
+        if 'status' not in old_value:
+            return
+        if not any(
+            valid_status in str(target.status).lower()
+            for valid_status in ['submitted', 'complete', 'failed', 'deleted']
+        ):
+            return
 
     @event.listens_for(inspect(target).session, "after_commit", once=True)
     def receive_after_commit(session):
