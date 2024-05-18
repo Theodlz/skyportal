@@ -26,8 +26,13 @@ RUN python3 -m venv /skyportal_env && \
     pip install --upgrade pip==22.2.2 wheel numpy"
 
 # install snid
-RUN git clone https://github.com/Theodlz/snid-install-ubuntu.git && \
-    cd snid-install-ubuntu && chmod +x install.sh && bash ./install.sh
+RUN git clone https://github.com/Theodlz/snid-install-ubuntu.git && \ 
+	cd snid-install-ubuntu && chmod +x install.sh && bash ./install.sh
 
-ENV LC_ALL=C.UTF-8
-ENV LANG=C.UTF-8
+COPY . /skyportal
+
+RUN cd skyportal && \
+	source /skyportal_env/bin/activate && \
+ 	export NPM_CONFIG_LEGACY_PEER_DEPS=true && \
+  	make system_setup
+
