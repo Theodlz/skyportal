@@ -31,13 +31,3 @@ RUN git clone https://github.com/Theodlz/snid-install-ubuntu.git && \
 
 ENV LC_ALL=C.UTF-8
 ENV LANG=C.UTF-8
-
-ADD . /skyportal
-WORKDIR /skyportal
-
-RUN bash -c "\
-    cp docker.yaml config.yaml && \
-    \
-    source /skyportal_env/bin/activate && \
-    export NPM_CONFIG_LEGACY_PEER_DEPS=true && \
-    make system_setup"
