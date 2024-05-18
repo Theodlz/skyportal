@@ -24,11 +24,8 @@ services:
       POSTGRES_PASSWORD: password
       POSTGRES_DB: skyportal
       PGDATA: /var/lib/postgresql/data/pgdata
-    volumes:
-      - ./data/dbdata:/var/lib/postgresql/data:z
     restart: on-failure:3
 
 volumes:
-  dbdata:
   thumbnails:
   persistentdata:
