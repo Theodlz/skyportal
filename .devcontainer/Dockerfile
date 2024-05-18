@@ -29,6 +29,9 @@ RUN python3 -m venv /skyportal_env && \
 RUN git clone https://github.com/Theodlz/snid-install-ubuntu.git && \ 
 	cd snid-install-ubuntu && chmod +x install.sh && bash ./install.sh
 
+ENV LC_ALL=C.UTF-8
+ENV LANG=C.UTF-8
+
 RUN git clone https://github.com/skyportal/skyportal.git
 
 RUN bash -c "cd skyportal && source /skyportal_env/bin/activate && export NPM_CONFIG_LEGACY_PEER_DEPS=true && make system_setup"
