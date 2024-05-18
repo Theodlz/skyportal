@@ -5,6 +5,7 @@ services:
     build:
       context: ..
       dockerfile: .devcontainer/Dockerfile
+    stdin_open: true
     ports:
       - "9000:5000"
       - "9001:5001"
