@@ -31,9 +31,5 @@ RUN git clone https://github.com/Theodlz/snid-install-ubuntu.git && \
 
 COPY . /skyportal
 
-RUN bash -c "\
-	cd skyportal && \
-	source /skyportal_env/bin/activate && \
- 	export NPM_CONFIG_LEGACY_PEER_DEPS=true && \
-  	make system_setup"
+RUN bash -c "cd skyportal && source /skyportal_env/bin/activate && export NPM_CONFIG_LEGACY_PEER_DEPS=true && make system_setup"
 
