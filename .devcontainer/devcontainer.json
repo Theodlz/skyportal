@@ -3,5 +3,8 @@
   "build": {
     "context": "..",
     "dockerfile": "./Dockerfile"
-  }
+  },
+	"dockerComposeFile": "docker-compose.yml",
+	"service": "web",
+	"workspaceFolder": "/skyportal"
 }
