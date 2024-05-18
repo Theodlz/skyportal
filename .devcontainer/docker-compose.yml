@@ -19,10 +19,12 @@ services:
   db:
     image: postgres:14.4
     container_name: postgres14.4
+    volumes:
+      - ../docker-postgresql-multiple-databases:/docker-entrypoint-initdb.d
     environment:
       POSTGRES_USER: skyportal
       POSTGRES_PASSWORD: password
-      POSTGRES_DB: skyportal
+      POSTGRES_MULTIPLE_DATABASES: skyportal,skyportal_test
       PGDATA: /var/lib/postgresql/data/pgdata
     restart: on-failure:3
 
