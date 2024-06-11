@@ -77,24 +77,6 @@ const ThumbnailList = ({
             />
           </Grid>
         ))}
-        {displayTypes?.includes("ps1") &&
-          !latestThumbnails?.map((t) => t.type)?.includes("ps1") && (
-            <Grid item key="placeholder">
-              <Thumbnail
-                key="thumbPlaceHolder"
-                ra={ra}
-                dec={dec}
-                name="PanSTARRS DR2: Loading..."
-                url="#"
-                size={size}
-                minSize={minSize === null ? size : minSize}
-                maxSize={maxSize === null ? size : maxSize}
-                grayscale={false}
-                header="PanSTARRS DR2"
-                titleSize={titleSize}
-              />
-            </Grid>
-          )}
       </Grid>
     );
   }
@@ -118,25 +100,6 @@ const ThumbnailList = ({
           />
         </Grid>
       ))}
-      {displayTypes?.includes("ps1") &&
-        !latestThumbnails?.map((t) => t.type)?.includes("ps1") && (
-          <Grid item key="thumb_placeholder">
-            <Thumbnail
-              key="thumbPlaceHolder"
-              ra={ra}
-              dec={dec}
-              name="PanSTARRS DR2: Loading..."
-              url="#"
-              size={size}
-              minSize={minSize === null ? size : minSize}
-              maxSize={maxSize === null ? size : maxSize}
-              noMargin={noMargin}
-              grayscale={false}
-              header="PanSTARRS DR2"
-              titleSize={titleSize}
-            />
-          </Grid>
-        )}
     </>
   );
 };
