@@ -40,6 +40,13 @@ from .cache import Cache
 from baselayer.log import make_log
 from baselayer.app.env import load_env
 
+from skyportal.models import (
+    DBSession,
+    ObjFindingChart,
+)
+import sqlalchemy as sa
+from skyportal.utils.calculations import great_circle_distance
+
 log = make_log('finder-chart')
 
 _, cfg = load_env()
@@ -1314,7 +1321,7 @@ def get_finding_chart(
     zscale_contrast=0.045,
     zscale_krej=2.5,
     extra_display_string="",
-    **offset_star_kwargs,
+    **kwargs,
 ):
     """Create a finder chart suitable for spectroscopic observations of
        the source
@@ -1347,8 +1354,8 @@ def get_finding_chart(
         Krej parameter for the Zscale interval
     extra_display_string :  str, optional
         What else to show for the source itself in the chart (e.g. proper motion)
-    **offset_star_kwargs : dict, optional
-        Other parameters passed to `get_nearby_offset_stars`
+    **kwargs : dict, optional
+        Other parameters passed to `get_nearby_offset_stars` or other functions
 
     Returns
     -------
@@ -1378,6 +1385,60 @@ def get_finding_chart(
             'data': '',
             'name': '',
         }
+    obstime = kwargs.get("obstime", datetime.datetime.utcnow().isoformat())
+
+    use_cache = kwargs.pop('use_cache', True)
+    existing_finding_charts = []
+    params = None
+    params_hash = None
+    if use_cache:
+        params = {
+            'imsize': imsize,
+            'image_source': image_source,
+            'use_ztfref': kwargs.get('use_ztfref', False),
+            'num_offset_stars': kwargs.get('num_offset_stars'),
+            'radius_degrees': kwargs.get('radius_degrees'),
+            'mag_limit': kwargs.get('mag_limit'),
+            'min_sep_arcsec': kwargs.get('min_sep_arcsec'),
+            'mag_min': kwargs.get('mag_min'),
+        }
+        # remove empty keys
+        params = {k: v for k, v in params.items() if v is not None}
+        # sort the keys alphabetically
+        params = {k: params[k] for k in sorted(params)}
+
+        import hashlib
+        import json
+
+        params_hash = hashlib.sha256(
+            json.dumps(params, sort_keys=True).encode()
+        ).hexdigest()
+
+        with DBSession as session:
+            existing_finding_charts = session.scalars(
+                sa.select(ObjFindingChart)
+                .where(
+                    ObjFindingChart.obj_id == kwargs.get('obj_id'),
+                    ObjFindingChart.facility == kwargs.get('starlist_type'),
+                    ObjFindingChart.params_hash == params_hash,
+                )
+                .order_by(sa.desc(ObjFindingChart.modified))
+            ).all()
+            # if there are any finding charts where the obstime if less than 1 month away from the
+            # one we are trying to create,
+            # and ra, dec are within 1 arcsec, return the latest one
+            for chart in existing_finding_charts:
+                if (
+                    obstime - chart.obstime
+                ).total_seconds() < 3600 * 24 * 30 and great_circle_distance(
+                    source_ra, source_dec, chart.ra, chart.dec
+                ) * 3600 <= 1.0:
+                    return {
+                        'success': True,
+                        'data': chart.data(output_format),
+                        'name': chart.name,
+                        'reason': '',
+                    }
 
     matplotlib.use("Agg")
     fig = plt.figure(figsize=(11, 8.5), constrained_layout=False)
@@ -1472,7 +1533,7 @@ def get_finding_chart(
                     tick_offset=tick_offset,
                     tick_length=tick_length,
                     fallback_image_source=None,
-                    **offset_star_kwargs,
+                    **kwargs,
                 )
 
         # we dont have an image here, so let's create a dummy one
@@ -1495,7 +1556,6 @@ def get_finding_chart(
     ax.grid(color='white', ls='dotted')
     ax.set_xlabel(r'$\alpha$ (J2000)', fontsize='large')
     ax.set_ylabel(r'$\delta$ (J2000)', fontsize='large')
-    obstime = offset_star_kwargs.get("obstime", datetime.datetime.utcnow().isoformat())
     ax.set_title(
         f'{source_name} Finder (for {obstime.split("T")[0]})',
         fontsize='large',
@@ -1503,7 +1563,7 @@ def get_finding_chart(
     )
 
     star_list, _, _, _, used_ztfref = get_nearby_offset_stars(
-        source_ra, source_dec, source_name, **offset_star_kwargs
+        source_ra, source_dec, source_name, **kwargs
     )
 
     if not isinstance(star_list, list) or len(star_list) == 0:
@@ -1524,7 +1584,7 @@ def get_finding_chart(
     starlist_url = urllib.parse.urljoin(
         HOST,
         f"/api/sources/{source_name}/offsets?"
-        f"facility={offset_star_kwargs.get('starlist_type', 'Keck')}",
+        f"facility={kwargs.get('starlist_type', 'Keck')}",
     )
     starlist_str = (
         f"# Note: {origin} used for offset star positions\n"
@@ -1705,10 +1765,39 @@ def get_finding_chart(
                 fontweight='bold',
             )
 
-    buf = io.BytesIO()
-    fig.savefig(buf, format=output_format)
-    plt.close(fig)
-    buf.seek(0)
+    if not use_cache:
+        buf = io.BytesIO()
+        fig.savefig(buf, format=output_format)
+        plt.close(fig)
+        buf.seek(0)
+    else:
+        # here we:
+        # - create it in pdf format
+        # - create a new ObjFindingChart object
+        buf = io.BytesIO()
+        fig.savefig(buf, format="pdf")
+        plt.close(fig)
+        buf.seek(0)
+
+        with DBSession as session:
+            obj_finding_chart = ObjFindingChart(
+                obj_id=source_name,
+                ra=source_ra,
+                dec=source_dec,
+                facility=kwargs.get('starlist_type'),
+                obstime=obstime,
+                params=params,
+                params_hash=params_hash,
+            )
+            obj_finding_chart.save_data(buf.read())
+            session.add(obj_finding_chart)
+            DBSession.commit()
+
+        if output_format == "png":
+            buf = io.BytesIO()
+            fig.savefig(buf, format="pdf")
+            plt.close(fig)
+            buf.seek(0)
 
     return {
         "success": True,

@@ -12,6 +12,7 @@ from .comment import *
 from .earthquake import *
 from .facility_transaction import *
 from .filter import *
+from .finding_chart import *
 from .followup_request import *
 from .galaxy import *
 from .gcn import *
