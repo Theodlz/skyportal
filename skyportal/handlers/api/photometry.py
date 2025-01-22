@@ -1,55 +1,54 @@
 import copy
-import uuid
 import datetime
 import json
-from io import StringIO
 import traceback
+import uuid
+from io import StringIO
 
-from astropy.time import Time
-from astropy.table import Table
-from marshmallow.exceptions import ValidationError
+import arrow
 import numpy as np
 import pandas as pd
 import sncosmo
-from sncosmo.photdata import PhotometricData
-import arrow
-from matplotlib import cm
-from matplotlib.colors import rgb2hex, LinearSegmentedColormap
-
 import sqlalchemy as sa
-from sqlalchemy.sql import column, Values
-from sqlalchemy.orm import joinedload
+from astropy.table import Table
+from astropy.time import Time
+from marshmallow.exceptions import ValidationError
+from matplotlib import cm
+from matplotlib.colors import LinearSegmentedColormap, rgb2hex
+from sncosmo.photdata import PhotometricData
 from sqlalchemy import and_
+from sqlalchemy.orm import joinedload
+from sqlalchemy.sql import Values, column
 
-from baselayer.app.access import permissions, auth_or_token
+from baselayer.app.access import auth_or_token, permissions
 from baselayer.app.env import load_env
-from baselayer.log import make_log
 from baselayer.app.flow import Flow
-from ..base import BaseHandler
+from baselayer.log import make_log
+
+from ...enum_types import ALLOWED_BANDPASSES, ALLOWED_MAGSYSTEMS
 from ...models import (
-    DBSession,
+    PHOT_ZP,
     Annotation,
+    DBSession,
     Group,
-    Stream,
-    Photometry,
-    PhotometricSeries,
+    GroupPhotometry,
     Instrument,
     Obj,
-    PHOT_ZP,
-    GroupPhotometry,
-    StreamPhotometry,
+    PhotometricSeries,
+    Photometry,
     PhotStat,
+    Stream,
+    StreamPhotometry,
     User,
 )
-
 from ...models.schema import (
-    PhotometryMag,
-    PhotometryFlux,
     PhotFluxFlexible,
     PhotMagFlexible,
+    PhotometryFlux,
+    PhotometryMag,
     PhotometryRangeQuery,
 )
-from ...enum_types import ALLOWED_MAGSYSTEMS, ALLOWED_BANDPASSES
+from ..base import BaseHandler
 from .photometry_validation import USE_PHOTOMETRY_VALIDATION
 
 _, cfg = load_env()

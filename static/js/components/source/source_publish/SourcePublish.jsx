@@ -70,6 +70,13 @@ const SourcePublish = ({ sourceId, isElements }) => {
 
   const publish = () => {
     if (manageSourcesAccess) {
+      // if a t0 is not set in the options, remove the x_axis from the options
+      if (
+        !options.t0 &&
+        (options.x_axis === "t0" || options.x_axis === "t0_log")
+      ) {
+        setOptions({ ...options, x_axis: "days_ago" });
+      }
       setPublishButton({ text: "loading", color: "" });
       dispatch(
         publicSourcePageActions.generatePublicSourcePage(sourceId, {

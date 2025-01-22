@@ -25,6 +25,9 @@ from ....utils.thumbnail import get_thumbnail_alt_link, get_thumbnail_header
 
 log = make_log('api/public_source_page')
 
+ALLOWED_X_AXIS_WITH_T0 = ['t0', 't0_log']
+ALLOWED_X_AXIS = ['days_ago', 'mjd', *ALLOWED_X_AXIS_WITH_T0]
+
 
 def calculate_hash(data):
     return joblib.hash(json.dumps(data, sort_keys=True))
@@ -99,6 +102,22 @@ def safe_round(number, precision):
     return round(number, precision) if isinstance(number, (int, float)) else None
 
 
+# TODO, add this docstring to the handler
+# - in: body
+#   name: body
+#   description: Options to manage data to display publicly
+#   required: true
+#   schema:
+#     type: object
+#       properties:
+#         options:
+#           type: object
+#           required: true
+#           description: Options to manage data to display publicly
+#         release_id:
+#           type: integer
+#           required: false
+#           description: The ID of the public release where the public source page belongs
 class PublicSourcePageHandler(BaseHandler):
     @permissions(['Manage sources'])
     async def post(self, source_id):
@@ -208,6 +227,29 @@ class PublicSourcePageHandler(BaseHandler):
                 data_to_publish["classifications"] = get_classifications(
                     source_id, group_ids, session
                 )
+
+            if options.get("x_axis"):
+                if not options.get("x_axis") in ALLOWED_X_AXIS:
+                    return self.error("Invalid x_axis value")
+                if (
+                    not options.get("t0")
+                    and options.get("x_axis") in ALLOWED_X_AXIS_WITH_T0
+                ):
+                    return self.error(
+                        f"t0 is required when x_axis is set to {options.get('x_axis')}"
+                    )
+                data_to_publish["x_axis"] = options.get("x_axis")
+
+            if options.get("t0"):
+                # we want to validate the t0 value, it has to be a valid
+                # mjd date
+                try:
+                    t0 = float(options.get("t0"))
+                    if t0 < 0:
+                        raise ValueError
+                    data_to_publish["t0"] = t0
+                except ValueError:
+                    return self.error("Invalid t0 value")
 
             new_page_hash = calculate_hash(data_to_publish)
             if (
