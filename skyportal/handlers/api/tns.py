@@ -51,6 +51,11 @@ PHOTOMETRY_OPTIONS = {
     "autoreport_allow_archival": bool,
 }
 
+REPORTING_OPTIONS = {
+    "not_classified_as": list,
+    "delay": (float, int),
+}
+
 
 def validate_photometry_options(photometry_options, existing_photometry_options=None):
     """Validate the photometry options and their values
@@ -93,6 +98,63 @@ def validate_photometry_options(photometry_options, existing_photometry_options=
             photometry_options[key] = True
 
     return photometry_options
+
+
+def validate_reporting_options(reporting_options, existing_reporting_options=None):
+    """Validate the reporting options and their values
+
+    Parameters
+    ----------
+    reporting_options : dict
+        Dictionary containing the reporting options
+    existing_reporting_options : dict, optional
+        Dictionary containing the existing reporting options, by default None
+
+    Returns
+    -------
+    dict
+        Dictionary containing the validated reporting options
+    """
+    if reporting_options is None:
+        reporting_options = {}
+    if not isinstance(reporting_options, dict):
+        raise ValueError("reporting_options must be a dictionary")
+
+    # if existing_reporting_options is provided, add missing keys with the existing values
+    if existing_reporting_options is not None and isinstance(
+        existing_reporting_options, dict
+    ):
+        for key in REPORTING_OPTIONS:
+            if key not in reporting_options and key in existing_reporting_options:
+                reporting_options[key] = existing_reporting_options[key]
+
+    # validate the reporting options and their values
+    keys_to_remove = []
+    for key, value in reporting_options.items():
+        if key not in REPORTING_OPTIONS:
+            raise ValueError(f"Invalid reporting option: {key}")
+        if not isinstance(value, REPORTING_OPTIONS[key]):
+            raise ValueError(f"Invalid value for reporting option {key}: {value}")
+        if key == "not_classified_as":
+            if not all(isinstance(x, str) for x in value):
+                raise ValueError(
+                    f"Invalid value for reporting option {key}: {value}, must be a list of strings"
+                )
+            if len(value) == 0:
+                keys_to_remove.append(key)
+        if key == "delay":
+            if value < 0 or value > 24:
+                raise ValueError(
+                    f"Invalid value for reporting option {key}: {value}, must be between 0 and 24 hours"
+                )
+            if value == 0:
+                keys_to_remove.append(key)
+
+    # remove the keys that are not needed
+    for key in keys_to_remove:
+        del reporting_options[key]
+
+    return reporting_options
 
 
 def create_tns_robot(
@@ -141,6 +203,10 @@ def create_tns_robot(
 
     data["photometry_options"] = validate_photometry_options(
         data.get("photometry_options", {})
+    )
+
+    data["reporting_options"] = validate_reporting_options(
+        data.get("reporting_options", {})
     )
 
     try:
@@ -280,6 +346,10 @@ def update_tns_robot(
 
     tnsrobot.photometry_options = validate_photometry_options(
         data.get("photometry_options", {}), tnsrobot.photometry_options
+    )
+
+    tnsrobot.reporting_options = validate_reporting_options(
+        data.get("reporting_options", {}), tnsrobot.reporting_options
     )
 
     # TNS AUTO-REPORTING INSTRUMENTS: ADD/MODIFY/DELETE
@@ -1664,6 +1734,7 @@ class ObjTNSHandler(BaseHandler):
             instrument_ids = data.get("instrument_ids", [])
             stream_ids = data.get("stream_ids", [])
             photometry_options = data.get("photometry_options", {})
+            reporting_options = data.get("reporting_options", {})
 
             if tnsrobotID is None:
                 return self.error("tnsrobotID is required")
@@ -1742,6 +1813,10 @@ class ObjTNSHandler(BaseHandler):
                 photometry_options, tnsrobot.photometry_options
             )
 
+            reporting_options = validate_reporting_options(
+                reporting_options, tnsrobot.reporting_options
+            )
+
             # verify that there isn't already a TNSRobotSubmission for this object
             # and TNSRobot, that is:
             # 1. pending
@@ -1777,6 +1852,7 @@ class ObjTNSHandler(BaseHandler):
                 instrument_ids=instrument_ids,
                 stream_ids=stream_ids,
                 photometry_options=photometry_options,
+                reporting_options=reporting_options,
                 auto_submission=False,
             )
             session.add(tnsrobot_submission)

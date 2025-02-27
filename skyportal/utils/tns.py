@@ -369,60 +369,74 @@ def get_IAUname(
         return None, None
 
 
-def get_internal_names(api_key, headers, tns_name=None):
-    """Query TNS to get internal names of an object
-
+def get_IAU_xmatches(api_key, headers, obj_id=None, ra=None, dec=None, radius=2.0):
+    """Query TNS to get IAU name (if exists)
     Parameters
     ----------
     api_key : str
         TNS api key
+    objname : str
+        Name of the object to query TNS for
     headers : str
         TNS query headers
-    tns_name : str
-        Name of the object to query TNS for
-
+    obj_id : str
+        Object name to search for
+    ra : float
+        Right ascension of object to search for
+    dec : float
+        Declination of object to search for
+    radius : float
+        Radius of object to search for
     Returns
     -------
     list
-        Internal names of the object
+        IAU prefix, IAU name
     """
-    data = {
-        "api_key": api_key,
-        "data": json.dumps(
-            {
-                "objname": tns_name,
-            }
-        ),
-    }
 
-    status_code = 429
-    n_retries = 0
-    r = None
-    while n_retries < 24:  # 6 * 4 * 10 = 4 minutes of retries
-        r = requests.post(
-            object_url,
-            headers=headers,
-            data=data,
-            allow_redirects=True,
-            stream=True,
-            timeout=10,
+    if obj_id is not None:
+        req_data = {
+            "ra": "",
+            "dec": "",
+            "radius": "",
+            "units": "",
+            "objname": "",
+            "objname_exact_match": 0,
+            "internal_name": obj_id.replace("_", " "),
+            "internal_name_exact_match": 0,
+            "objid": "",
+        }
+    elif ra is not None and dec is not None:
+        c = SkyCoord(ra=ra * u.degree, dec=dec * u.degree, frame="icrs")
+        req_data = {
+            "ra": c.ra.to_string(unit=u.hour, sep=":", pad=True),
+            "dec": c.dec.to_string(unit=u.degree, sep=":", alwayssign=True, pad=True),
+            "radius": f"{radius}",
+            "units": "arcsec",
+            "objname": "",
+            "objname_exact_match": 0,
+            "internal_name": "",
+            "internal_name_exact_match": 0,
+            "objid": "",
+        }
+    else:
+        raise ValueError("Must define obj_id or ra/dec.")
+
+    data = {"api_key": api_key, "data": json.dumps(req_data)}
+    r = requests.post(search_url, headers=headers, data=data)
+
+    count = 0
+    count_limit = 24  # 6 * 4 * 10 = 4 minutes of retries
+    while r.status_code == 429 and count < count_limit:
+        try:
+            content = r.json()
+        except Exception:
+            content = r.text
+        log(
+            f"TNS request rate limited: {str(content)}.  Waiting 10 seconds to try again."
         )
-        status_code = r.status_code
-        if status_code == 429:
-            n_retries += 1
-            try:
-                content = r.json()
-            except Exception:
-                content = r.text
-            log(
-                f"TNS request rate limited: {str(content)}.  Waiting 10 seconds to try again."
-            )
-            time.sleep(10)
-        else:
-            break
-
-    if not isinstance(r, requests.Response):
-        raise ValueError("TNS request failed: no response received.")
+        time.sleep(10)
+        r = requests.post(search_url, headers=headers, data=data)
+        count += 1
 
     if r.status_code not in [200, 429, 401]:
         try:
@@ -431,24 +445,85 @@ def get_internal_names(api_key, headers, tns_name=None):
             content = r.text
         raise ValueError(f"TNS request failed: {str(content)}.")
 
-    if status_code == 401:
+    if r.status_code == 401:
         raise ValueError("TNS request failed: invalid TNSRobot API key.")
 
-    if n_retries == 24:
+    if count == count_limit:
         raise ValueError("TNS request failed: request rate exceeded.")
 
-    internal_names = []
-    try:
-        reply = json.loads(r.text)
-        internal_names = reply["data"]["internal_names"]
-        # comma separated list of internal names, starting with a comma (so we fiter out the first empty string after splitting)
-        internal_names = list(filter(None, map(str.strip, internal_names.split(","))))
-    except Exception as e:
-        raise ValueError(
-            f"Failed to parse TNS response to retrieve internal names: {str(e)}"
-        )
+    print(r.json().get("data", {}))
 
-    return internal_names
+    try:
+        reply = r.json().get("data", {})
+    except Exception as e:
+        log(f"Failed to parse TNS response: {str(e)} ({str(r.json())})")
+        reply = []
+
+    matches = []
+    if len(reply) > 0:
+        for obj in reply:
+            data = {
+                "api_key": api_key,
+                "data": json.dumps(
+                    {
+                        "objname": obj["objname"],
+                    }
+                ),
+            }
+            status_code = 429
+            n_retries = 0
+            r = None
+            while (
+                status_code == 429 and n_retries < 24
+            ):  # 6 * 4 * 10 seconds = 4 minutes of retries
+                r = requests.post(
+                    object_url,
+                    headers=headers,
+                    data=data,
+                    allow_redirects=True,
+                    stream=True,
+                    timeout=10,
+                )
+                status_code = r.status_code
+                if status_code == 429:
+                    n_retries += 1
+                    time.sleep(10)
+                else:
+                    break
+
+            if status_code != 200 or r is None:
+                # ignore this object
+                continue
+
+            try:
+                source_data = r.json().get("data", {})
+            except Exception:
+                source_data = None
+            if source_data:
+                tns_ra, tns_dec = source_data["radeg"], source_data["decdeg"]
+                from skyportal.utils.calculations import great_circle_distance
+
+                separation = (
+                    great_circle_distance(ra, dec, tns_ra, tns_dec) * 3600
+                )  # arcsec
+                if obj_id is None and separation > radius:
+                    continue
+
+                matches.append(
+                    {
+                        "prefix": source_data["name_prefix"],
+                        "objname": source_data["objname"],
+                        "internal_names": str(
+                            source_data.get("internal_names", [])
+                        ).split(","),
+                        "objtype": source_data.get("object_type", {}).get("name", None),
+                        "ra": tns_ra,
+                        "dec": tns_dec,
+                        "separation": separation,
+                    }
+                )
+
+    return matches
 
 
 def get_tns(

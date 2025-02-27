@@ -84,6 +84,12 @@ class TNSRobot(Base):
         doc="Photometry options to use for this robot, to make some data optional or mandatory for manual and auto-reporting.",
     )
 
+    reporting_options = sa.Column(
+        psql.JSONB,
+        nullable=True,
+        doc="Reporting options to use for this robot, to condition the reporting of the data.",
+    )
+
     @property
     def altdata(self):
         if self._altdata is None:
@@ -282,6 +288,12 @@ class TNSRobotSubmission(Base):
         psql.JSONB,
         nullable=True,
         doc="Photometry options to use for this robot, to make some data optional or mandatory. If specified, overrides the robot's default photometry options.",
+    )
+
+    reporting_options = sa.Column(
+        psql.JSONB,
+        nullable=True,
+        doc="Reporting options to use for this robot, to condition the reporting of the data. If specified, overrides the robot's default reporting options.",
     )
 
     payload = deferred(sa.Column(psql.JSONB, doc="Payload to be sent to TNS."))

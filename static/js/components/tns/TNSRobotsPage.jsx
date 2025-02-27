@@ -34,6 +34,80 @@ import ConfirmDeletionDialog from "../ConfirmDeletionDialog";
 import * as tnsrobotsActions from "../../ducks/tnsrobots";
 import * as streamsActions from "../../ducks/streams";
 
+export const TNS_CLASSIFICATIONS = [
+  "Afterglow",
+  "AGN",
+  "Blazar",
+  "Computed-Ia",
+  "Computed-IIb",
+  "Computed-IIn",
+  "Computed-IIP",
+  "Computed-PISN",
+  "CV",
+  "FBOT",
+  "FRB",
+  "Galaxy",
+  "Gap",
+  "Gap I",
+  "Gap II",
+  "ILRT",
+  "Impostor-SN",
+  "Kilonova",
+  "LBV",
+  "Light-Echo",
+  "LRN",
+  "M dwarf",
+  "NA/Unknown",
+  "Nova",
+  "QSO",
+  "SLSN-I",
+  "SLSN-II",
+  "SLSN-R",
+  "SN",
+  "SN I",
+  "SN I-faint",
+  "SN I-rapid",
+  "SN Ia",
+  "SN Ia-91bg-like",
+  "SN Ia-91T-like",
+  "SN Ia-Ca-rich",
+  "SN Ia-CSM",
+  "SN Ia-pec",
+  "SN Ia-SC",
+  "SN Iax[02cx-like]",
+  "SN Ib",
+  "SN Ib-Ca-rich",
+  "SN Ib-pec",
+  "SN Ib/c",
+  "SN Ib/c-Ca-rich",
+  "SN Ibn",
+  "SN Ibn/Icn",
+  "SN Ic",
+  "SN Ic-BL",
+  "SN Ic-Ca-rich",
+  "SN Ic-pec",
+  "SN Icn",
+  "SN Ien",
+  "SN II",
+  "SN II-pec",
+  "SN IIb",
+  "SN IIL",
+  "SN IIn",
+  "SN IIn-pec",
+  "SN IIP",
+  "Std-spec",
+  "TDE",
+  "TDE-H",
+  "TDE-H-He",
+  "TDE-He",
+  "Varstar",
+  "WR",
+  "WR-WC",
+  "WR-WN",
+  "WR-WO",
+  "Other",
+];
+
 const useStyles = makeStyles(() => ({
   tnsrobots: {
     width: "100%",
@@ -744,6 +818,9 @@ const TNSRobotsPage = () => {
         tnsrobotListLookup[id]?.photometry_options?.first_and_last_detections,
       autoreport_allow_archival:
         tnsrobotListLookup[id]?.photometry_options?.autoreport_allow_archival,
+      delay: tnsrobotListLookup[id]?.reporting_options?.delay || 0,
+      not_classified_as:
+        tnsrobotListLookup[id]?.reporting_options?.not_classified_as || [],
     });
     setEditDialogOpen(true);
     setTnsrobotToManage(id);
@@ -773,6 +850,8 @@ const TNSRobotsPage = () => {
       report_existing,
       first_and_last_detections,
       autoreport_allow_archival,
+      delay,
+      not_classified_as,
     } = formData.formData;
 
     if (api_key?.length === 0) {
@@ -801,6 +880,10 @@ const TNSRobotsPage = () => {
       photometry_options: {
         first_and_last_detections,
         autoreport_allow_archival,
+      },
+      reporting_options: {
+        delay,
+        not_classified_as,
       },
     };
 
@@ -840,6 +923,8 @@ const TNSRobotsPage = () => {
       report_existing,
       first_and_last_detections,
       autoreport_allow_archival,
+      delay,
+      not_classified_as,
     } = formData.formData;
 
     const data = {
@@ -855,10 +940,13 @@ const TNSRobotsPage = () => {
         first_and_last_detections,
         autoreport_allow_archival,
       },
+      reporting_options: {
+        delay,
+        not_classified_as,
+      },
     };
 
     if (api_key?.length > 0) {
-      // eslint-disable-next-line no-underscore-dangle
       data._altdata = {
         api_key,
       };
@@ -987,6 +1075,31 @@ const TNSRobotsPage = () => {
             ?.autoreport_allow_archival || false,
         description:
           "If enabled, the bot will submit auto-reports as archival if there is no non-detection prior to the first detection that can be reported.",
+      },
+      delay: {
+        type: "number",
+        title: "Delay (in hours)",
+        default:
+          tnsrobotListLookup[tnsrobotToManage]?.reporting_options?.delay || 0,
+        minimum: 0,
+        maximum: 24,
+        description:
+          "For autoreports, delay in hours between when the a source is saved and when the report will be sent to TNS.",
+      },
+      // not classified as is a list of string
+      not_classified_as: {
+        type: "array",
+        items: {
+          type: "string",
+          enum: TNS_CLASSIFICATIONS,
+        },
+        uniqueItems: true,
+        title: "Not classified as (optional)",
+        default:
+          tnsrobotListLookup[tnsrobotToManage]?.reporting_options
+            ?.not_classified_as || [],
+        description:
+          "If enabled, the bot will not send a report to TNS if the object is classified as one of these on TNS.",
       },
     },
     required: [

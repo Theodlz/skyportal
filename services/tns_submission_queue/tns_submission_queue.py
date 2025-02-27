@@ -22,8 +22,7 @@ from skyportal.utils.tns import (
     SNCOSMO_TO_TNSFILTER,
     TNS_INSTRUMENT_IDS,
     TNS_SOURCE_GROUP_NAMING_CONVENTIONS,
-    get_IAUname,
-    get_internal_names,
+    get_IAU_xmatches,
 )
 
 env, cfg = load_env()
@@ -78,6 +77,39 @@ def validate_photometry_options(submission_request, tnsrobot):
         return _validate_photometry_options(
             getattr(submission_request, "photometry_options", {}),
             getattr(tnsrobot, "photometry_options", {}),
+        )
+    except ValueError as e:
+        raise TNSReportError(str(e))
+
+
+def validate_reporting_options(submission_request, tnsrobot):
+    """Validate the reporting options for a TNSRobot.
+
+    Parameters
+    ----------
+    submission_request : `~skyportal.models.TNSRobotSubmission`
+        The submission request's reporting options to validate.
+    tns_robot : `~skyportal.models.TNSRobot`
+        The TNSRobot to validate the reporting options for.
+
+    Returns
+    -------
+    dict
+        The validated reporting options.
+
+    Raises
+    ------
+    TNSReportError
+        If the reporting options are not valid.
+    """
+    from skyportal.handlers.api.tns import (
+        validate_reporting_options as _validate_reporting_options,
+    )
+
+    try:
+        return _validate_reporting_options(
+            getattr(submission_request, "reporting_options", {}),
+            getattr(tnsrobot, "reporting_options", {}),
         )
     except ValueError as e:
         raise TNSReportError(str(e))
@@ -197,7 +229,9 @@ def find_accessible_tnsrobot_groups(submission_request, tnsrobot, user, session)
     return tnsrobot_groups
 
 
-def apply_existing_tnsreport_rules(tns_headers, tnsrobot, submission_request, session):
+def apply_existing_tnsreport_rules(
+    tns_headers, tnsrobot, submission_request, reporting_options
+):
     """Apply the rules for existing TNS reports to the submission request.
 
     Parameters
@@ -208,8 +242,8 @@ def apply_existing_tnsreport_rules(tns_headers, tnsrobot, submission_request, se
         The TNSRobot to submit with.
     submission_request : `~skyportal.models.TNSRobotSubmission`
         The submission request.
-    session : `~sqlalchemy.orm.Session`
-        The database session to use.
+    reporting_options : dict
+        The reporting options to use for the submission.
     """
     # if the bot is set up to only report objects to TNS if they are not already there,
     # we check if an object is already on TNS (within 2 arcsec of the object's position)
@@ -218,24 +252,28 @@ def apply_existing_tnsreport_rules(tns_headers, tnsrobot, submission_request, se
     # (i.e. the same obj_id from the same survey)
     altdata = tnsrobot.altdata
     obj_id = submission_request.obj_id
+    obj_ra, obj_dec = submission_request.obj_ra, submission_request.obj_dec
 
-    _, existing_tns_name = get_IAUname(
-        altdata["api_key"], tns_headers, obj_id=obj_id, closest=True
+    matches = get_IAU_xmatches(
+        altdata["api_key"], tns_headers, obj_ra, obj_dec, radius=2.0
     )
-    if existing_tns_name is not None:
-        if not tnsrobot.report_existing:
+    if len(matches) == 0:
+        return
+
+    not_classified_as = reporting_options.get("not_classified_as", [])
+
+    if len(matches) > 0 and not tnsrobot.report_existing:
+        raise TNSReportWarning(f"{obj_id} already posted to TNS as {match['objname']}.")
+
+    for match in matches:
+        if obj_id in match["internal_names"]:
             raise TNSReportWarning(
-                f"{obj_id} already posted to TNS as {existing_tns_name}."
+                f"{obj_id} already posted to TNS as {match['objname']} with the same internal source name."
             )
-        else:
-            # look if the object on TNS has already been reported by the same survey (same internal name, here being the obj_id)
-            internal_names = get_internal_names(
-                altdata["api_key"], tns_headers, tns_name=existing_tns_name
+        elif match["classification"] in not_classified_as:
+            raise TNSReportWarning(
+                f"{obj_id} already posted to TNS as {match['objname']} with classification {match['classification']}, not submitting."
             )
-            if len(internal_names) > 0 and obj_id in internal_names:
-                raise TNSReportWarning(
-                    f"{obj_id} already posted to TNS with the same internal source name."
-                )
 
 
 def find_source_to_submit(submission_request, tnsrobot_groups, session):
@@ -936,11 +974,12 @@ def process_submission_request(submission_request, session):
         }
 
         photometry_options = validate_photometry_options(submission_request, tnsrobot)
+        reporting_options = validate_reporting_options(submission_request, tnsrobot)
 
         validate_obj_id(obj_id, tnsrobot.source_group_id)
 
         apply_existing_tnsreport_rules(
-            tns_headers, tnsrobot, submission_request, session
+            tns_headers, tnsrobot, submission_request, reporting_options
         )
 
         source = find_source_to_submit(submission_request, tnsrobot_groups, session)
@@ -1251,20 +1290,49 @@ def process_submission_requests():
     while True:
         with DBSession() as session:
             try:
-                submission_request = session.scalar(
+                submission_requests = session.scalars(
                     sa.select(TNSRobotSubmission)
                     .where(
                         TNSRobotSubmission.status.in_(["pending", "processing"]),
                         TNSRobotSubmission.submission_id.is_(None),
                     )
                     .order_by(TNSRobotSubmission.created_at.asc())
-                )
-                if submission_request is None:
+                ).all()
+
+                # for all of those that have reporting_options set and with a delay parameter that is a valid float > 0
+                # we check if the created_at + delay (in hours) is more than the current time
+                # this feature is used to delay the reports, to give people enough time to unsave the source
+                # and therefore cancel a report if they want to
+                remove_idx = []
+                for i, r in enumerate(submission_requests):
+                    if (
+                        r.reporting_options is not None
+                        and isinstance(r.reporting_options, dict)
+                        and isinstance(r.reporting_options.get("delay"), int | float)
+                        and r.reporting_options.get("delay") > 0
+                    ):
+                        delay = r.reporting_options["delay"]
+                        if (
+                            datetime.datetime.utcnow()
+                            > r.created_at + datetime.timedelta(hours=delay)
+                        ):
+                            remove_idx.append(i)
+
+                # remove the ones that are not ready yet
+                submission_requests = [
+                    submission_requests[i]
+                    for i in range(len(submission_requests))
+                    if i not in remove_idx
+                ]
+
+                if len(submission_requests) == 0:
                     time.sleep(5)
                     continue
-                else:
-                    submission_request.status = "processing"
-                    session.commit()
+
+                submission_request = submission_requests[0]
+
+                submission_request.status = "processing"
+                session.commit()
             except Exception as e:
                 log(f"Error getting TNS submission request: {str(e)}")
                 continue
