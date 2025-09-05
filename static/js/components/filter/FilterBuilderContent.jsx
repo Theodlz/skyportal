@@ -40,9 +40,6 @@ const FilterBuilderContent = ({
   // Local editable filter state
   const [localFilterData, setLocalFilterData] = useState(null);
   const [hasBeenModified, setHasBeenModified] = useState(false);
-  // Save filter dialog state
-  const [saveFilterDialog, setSaveFilterDialog] = useState({ open: false });
-  const [error, setError] = useState("");
 
   // Load initial data
   useFilterBuilderData();
@@ -221,7 +218,7 @@ const FilterBuilderContent = ({
   const handleSaveFilter = async () => {
     const mongoQuery = generateMongoQuery();
     if (!mongoQuery || (Array.isArray(mongoQuery) && mongoQuery.length === 0)) {
-      setError("No valid MongoDB query to save");
+      dispatch(showNotification("No valid MongoDB query to save", "error"));
       return;
     }
 
@@ -232,12 +229,7 @@ const FilterBuilderContent = ({
       const result = await dispatch(
         updateGroupFilter(filter.id, mongoQuery, currentFilters),
       );
-      dispatch(
-        showNotification(
-          "Filter saved successfully to boom database!",
-          "success",
-        ),
-      );
+      dispatch(showNotification("Filter saved to boom database!"));
       if (result.status === "success") {
         setInlineNewVersion(false);
         setShowAnnotationBuilder(false);
@@ -247,7 +239,6 @@ const FilterBuilderContent = ({
       const errorMessage =
         err.message ||
         "Failed to save filter to boom database. Please try again.";
-      setError(errorMessage);
       dispatch(showNotification(errorMessage, "error"));
     }
   };
@@ -371,6 +362,17 @@ FilterBuilderContent.propTypes = {
     group_id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     filt: PropTypes.object,
     version: PropTypes.arrayOf(PropTypes.object),
+    active_fid: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+    fv: PropTypes.arrayOf(
+      PropTypes.shape({
+        id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+      }),
+    ),
+    filters: PropTypes.arrayOf(
+      PropTypes.shape({
+        id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+      }),
+    ),
   }),
   setInlineNewVersion: PropTypes.func.isRequired,
   setShowAnnotationBuilder: PropTypes.func.isRequired,

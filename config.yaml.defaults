@@ -873,3 +873,10 @@ docs:
       description: Development server
     - url: https://skyportal.io
       description: Production server
+
+boom:
+  protocol: http
+  host: localhost
+  port: 4000
+  username: admin
+  password: adminsecret
