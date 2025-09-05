@@ -27,6 +27,11 @@ class Filter(Base):
         index=True,
         doc="ID of the Filter's Stream.",
     )
+    altdata = sa.Column(
+        JSONB,
+        nullable=True,
+        doc="Arbitrary additional JSON data associated with the Filter.",
+    )
     stream = relationship(
         "Stream",
         foreign_keys=[stream_id],
