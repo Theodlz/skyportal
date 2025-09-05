@@ -126,14 +126,14 @@ class BoomFilterHandler(BaseHandler):
                     return self.error(f"Cannot find a filter with ID: {filter_id}.")
 
                 if f.altdata is not None and "boom" in f.altdata:
-                    boom_url = f"http://localhost:4000/filters/{f.altdata['boom']['filter_id']}"
+                    url = f"{boom_url}/filters/{f.altdata['boom']['filter_id']}"
 
                     headers = {
                         "Authorization": f"Bearer {boom_token}",
                         "Content-Type": "application/json",
                     }
 
-                    response = requests.get(boom_url, headers=headers)
+                    response = requests.get(url, headers=headers)
                     response.raise_for_status()
 
                     f = session.scalar(
@@ -196,7 +196,7 @@ class BoomFilterHandler(BaseHandler):
                     return self.error(f"Cannot find a filter with ID: {filter_id}.")
 
                 if not f.altdata:
-                    data_url = "http://localhost:4000/filters"
+                    data_url = f"{boom_url}/filters"
                     data_payload = {
                         "pipeline": data["altdata"],
                         "permissions": f.stream.altdata["selector"],
@@ -226,7 +226,9 @@ class BoomFilterHandler(BaseHandler):
                         },
                     }
                 else:
-                    data_url = f"http://localhost:4000/filters/{f.altdata['boom']['filter_id']}/versions"
+                    data_url = (
+                        f"{boom_url}/filters/{f.altdata['boom']['filter_id']}/versions"
+                    )
                     data_payload = {
                         "pipeline": data["altdata"],
                     }
@@ -263,7 +265,7 @@ class BoomFilterHandler(BaseHandler):
             if filter_id is None:
                 session.add(fil)
             session.commit()
-            return self.success()
+            return self.success(data={"id": fil.id})
 
     @permissions(["Upload data"])
     @boom_available
@@ -305,9 +307,7 @@ class BoomFilterHandler(BaseHandler):
 
             data = self.get_json()
             if "active" in data or "active_fid" in data:
-                data_url = (
-                    f"http://localhost:4000/filters/{f.altdata['boom']['filter_id']}"
-                )
+                data_url = f"{boom_url}/filters/{f.altdata['boom']['filter_id']}"
                 data_payload = {
                     # Your data here, e.g. for /filters:
                     "active": data["active"],
