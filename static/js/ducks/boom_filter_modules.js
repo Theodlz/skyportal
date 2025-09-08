@@ -1,0 +1,45 @@
+import * as API from "../API";
+import store from "../store";
+
+export const FETCH_ALL_ELEMENTS = "skyportal/FETCH_ALL_ELEMENTS";
+export const FETCH_ALL_ELEMENTS_OK = "skyportal/FETCH_ALL_ELEMENTS_OK";
+export const FETCH_ALL_ELEMENTS_ERROR = "skyportal/FETCH_ALL_ELEMENTS_ERROR";
+export const FETCH_ALL_ELEMENTS_FAIL = "skyportal/FETCH_ALL_ELEMENTS_FAIL";
+
+export const FETCH_ELEMENT = "skyportal/FETCH_ELEMENT";
+export const FETCH_ELEMENT_OK = "skyportal/FETCH_ELEMENT_OK";
+
+export const POST_ELEMENT = "skyportal/POST_ELEMENT";
+export const POST_ELEMENT_OK = "skyportal/POST_ELEMENT_OK";
+
+export function fetchAllElements({ elements }) {
+  return API.GET(`/api/filter_modules`, FETCH_ALL_ELEMENTS, { elements });
+}
+
+export function fetchElement({ name, elements }) {
+  return API.GET(`/api/filter_modules/${name}`, FETCH_ELEMENT, { elements });
+}
+
+export function postElement({ name, data, elements }) {
+  return API.POST(`/api/filter_modules/${name}`, POST_ELEMENT, {
+    data,
+    elements,
+  });
+}
+
+const reducer = (state = {}, action) => {
+  switch (action.type) {
+    case FETCH_ELEMENT_OK:
+    case FETCH_ALL_ELEMENTS_OK: {
+      return action.data;
+    }
+    case FETCH_ALL_ELEMENTS_FAIL:
+    case FETCH_ALL_ELEMENTS_ERROR: {
+      return {};
+    }
+    default:
+      return state;
+  }
+};
+
+store.injectReducer("filter_modules", reducer);

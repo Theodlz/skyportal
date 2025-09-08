@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -11,7 +11,9 @@ import {
   saveBlock,
   checkBlockNameAvailable,
 } from "../../../services/filterApi";
+import { fetchElement, postElement } from "../../../ducks/boom_filter_modules";
 import { useCurrentBuilder } from "../../../hooks/useContexts";
+import { useDispatch, useSelector } from "react-redux";
 
 const SaveBlockDialogMenu = () => {
   const {
@@ -25,25 +27,36 @@ const SaveBlockDialogMenu = () => {
     setCollapsedBlocks,
     setFilters,
   } = useCurrentBuilder();
+
+  const dispatch = useDispatch();
+
   const handleSaveDialogConfirm = async () => {
     if (!saveName.trim()) {
       setSaveError("Name is required.");
       return;
     }
     // Check for duplicate name
-    const available = await checkBlockNameAvailable(saveName.trim());
-    if (!available) {
+    const notAvailable = await dispatch(
+      fetchElement({ name: saveName.trim(), elements: "blocks" }),
+    );
+    if (notAvailable.data.blocks) {
       setSaveError("Name already exists. Please choose another.");
       return;
     }
     // Save customBlocks
-    const saved = await saveBlock(saveDialog.block, saveName.trim());
+    const saved = await dispatch(
+      postElement({
+        name: saveName.trim(),
+        data: { block: saveDialog.block },
+        elements: "blocks",
+      }),
+    );
     if (saved) {
       setCustomBlocks((prev) => {
         const newId = saveDialog.block.id;
         const newName = `Custom.${saveName.trim()}`;
         return [
-          ...prev.filter((cb) => cb.block.id !== newId && cb.name !== newName),
+          ...prev.filter((cb) => cb.block?.id !== newId && cb.name !== newName),
           { name: newName, block: saveDialog.block },
         ];
       });

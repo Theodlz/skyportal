@@ -19,6 +19,7 @@ from skyportal.handlers.api import (
     AnnotationHandler,
     AssignmentHandler,
     BoomFilterHandler,
+    BoomFilterModulesHandler,
     BulkDeletePhotometryHandler,
     CandidateFilterHandler,
     CandidateHandler,
@@ -291,6 +292,7 @@ skyportal_handlers = [
     ),
     (r"/api/facility", FacilityMessageHandler),
     (r"/api/filters(/.*)?", BoomFilterHandler),
+    (r"/api/filter_modules(/.*)?", BoomFilterModulesHandler),
     # (r"/api/filters(/.*)?", FilterHandler),
     (
         r"/api/followup_request/([0-9A-Za-z-_\.\+]+)/comment",

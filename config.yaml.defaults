@@ -880,3 +880,6 @@ boom:
   port: 4000
   username: admin
   password: adminsecret
+  filter_modules:
+    mongodb_uri: "mongodb://localhost:27017"
+    database: "caltech_test_db"

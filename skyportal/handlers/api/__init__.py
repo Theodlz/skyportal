@@ -20,6 +20,7 @@ from .annotation_services import (
     VizierQueryHandler,
 )
 from .boom_filter import BoomFilterHandler
+from .boom_filter_modules import BoomFilterModulesHandler
 from .candidate.candidate import CandidateHandler
 from .candidate.candidate_filter import CandidateFilterHandler
 from .candidate.scan_report import ScanReportHandler

@@ -62,7 +62,7 @@ const useBlockState = (block, isRoot) => {
 
     // If no custom block name, try to find it from customBlocks by ID
     if (!blockName) {
-      const found = customBlocks?.find((cb) => cb.block.id === block.id);
+      const found = customBlocks?.find((cb) => cb.block?.id === block?.id);
       if (found) {
         blockName = found.name.replace(/^Custom\./, "");
       }
@@ -70,7 +70,7 @@ const useBlockState = (block, isRoot) => {
 
     // If block has custom block name, check if it's been updated in customBlocks
     if (block.customBlockName) {
-      const found = customBlocks?.find((cb) => cb.block.id === block.id);
+      const found = customBlocks?.find((cb) => cb.block?.id === block?.id);
       if (found) {
         const latestName = found.name.replace(/^Custom\./, "");
         if (latestName !== block.customBlockName) {
@@ -512,7 +512,7 @@ CustomAddElement.propTypes = {
   customBlocks: PropTypes.arrayOf(
     PropTypes.shape({
       name: PropTypes.string.isRequired,
-      block: PropTypes.object.isRequired,
+      block: PropTypes.object,
     }),
   ).isRequired,
   defaultCondition: PropTypes.func.isRequired,
@@ -774,7 +774,7 @@ const ValueInput = ({
 ValueInput.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
-    operator: PropTypes.string.isRequired,
+    operator: PropTypes.string,
     value: PropTypes.any,
     field: PropTypes.string,
   }).isRequired,
@@ -782,7 +782,7 @@ ValueInput.propTypes = {
     id: PropTypes.string.isRequired,
   }).isRequired,
   updateCondition: PropTypes.func.isRequired,
-  getFieldOptionsWithVariable: PropTypes.func.isRequired,
+  getFieldOptionsWithVariable: PropTypes.func,
   setOpenEquationIds: PropTypes.func.isRequired,
   setSelectedChip: PropTypes.func.isRequired,
   setEquationAnchor: PropTypes.func,
@@ -805,7 +805,7 @@ const shouldSkipValueInput = (conditionOrBlock) => {
 shouldSkipValueInput.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
-    operator: PropTypes.string.isRequired,
+    operator: PropTypes.string,
     value: PropTypes.any,
   }).isRequired,
 };
@@ -835,7 +835,7 @@ const isBooleanField = (
 isBooleanField.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
-    operator: PropTypes.string.isRequired,
+    operator: PropTypes.string,
     value: PropTypes.any,
   }).isRequired,
   customVariables: PropTypes.array.isRequired,
@@ -880,7 +880,7 @@ const isArrayFieldWithArrayOperator = (
 isArrayFieldWithArrayOperator.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
-    operator: PropTypes.string.isRequired,
+    operator: PropTypes.string,
     value: PropTypes.any,
   }).isRequired,
   customVariables: PropTypes.array.isRequired,
@@ -923,7 +923,7 @@ const ArrayFieldInput = ({ conditionOrBlock, block }) => {
 ArrayFieldInput.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
-    operator: PropTypes.string.isRequired,
+    operator: PropTypes.string,
     value: PropTypes.any,
   }).isRequired,
   block: PropTypes.shape({
@@ -1094,7 +1094,7 @@ ListVariableInput.propTypes = {
   }).isRequired,
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
-    operator: PropTypes.string.isRequired,
+    operator: PropTypes.string,
     value: PropTypes.any,
     booleanSwitch: PropTypes.bool,
   }).isRequired,
@@ -1170,14 +1170,14 @@ const RegularValueInput = ({
 RegularValueInput.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
-    operator: PropTypes.string.isRequired,
+    operator: PropTypes.string,
     value: PropTypes.any,
   }).isRequired,
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
   }).isRequired,
   updateCondition: PropTypes.func.isRequired,
-  getFieldOptionsWithVariable: PropTypes.func.isRequired,
+  getFieldOptionsWithVariable: PropTypes.func,
   setOpenEquationIds: PropTypes.func.isRequired,
   setSelectedChip: PropTypes.func.isRequired,
   setEquationAnchor: PropTypes.func,
@@ -1608,7 +1608,7 @@ const BlockHeader = ({
 BlockHeader.propTypes = {
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
-    type: PropTypes.string.isRequired,
+    type: PropTypes.string,
     children: PropTypes.array.isRequired,
     isTrue: PropTypes.bool,
     logic: PropTypes.string,
@@ -1779,7 +1779,7 @@ const SpecialOperatorInputs = ({
 SpecialOperatorInputs.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
-    operator: PropTypes.string.isRequired,
+    operator: PropTypes.string,
     value: PropTypes.any,
   }).isRequired,
   block: PropTypes.shape({
@@ -1834,7 +1834,7 @@ const ConditionComponent = ({
 ConditionComponent.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
-    operator: PropTypes.string.isRequired,
+    operator: PropTypes.string,
     value: PropTypes.any,
   }).isRequired,
   block: PropTypes.shape({
@@ -2074,7 +2074,7 @@ const ConditionComponentInner = ({
 ConditionComponentInner.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
-    operator: PropTypes.string.isRequired,
+    operator: PropTypes.string,
     value: PropTypes.any,
     field: PropTypes.string,
   }).isRequired,
@@ -2295,15 +2295,5 @@ BlockComponent.propTypes = {
   setLocalFilters: PropTypes.func,
   stickyBlockId: PropTypes.string,
 };
-
-// BlockComponent.defaultProps = {
-//   parentBlockId: null,
-//   isRoot: false,
-//   fieldOptionsList: [],
-//   isListDialogOpen: false,
-//   localFilters: null,
-//   setLocalFilters: null,
-//   stickyBlockId: null,
-// };
 
 export default BlockComponent;

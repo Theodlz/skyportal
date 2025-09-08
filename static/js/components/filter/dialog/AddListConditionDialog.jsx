@@ -24,6 +24,8 @@ import {
 import { useCurrentBuilder } from "../../../hooks/useContexts";
 import BlockComponent from "../block/BlockComponent";
 import { fieldOptions } from "../../../constants/filterConstants";
+import { postElement } from "../../../ducks/boom_filter_modules";
+import { useDispatch } from "react-redux";
 
 const SubFieldSelector = ({
   selectedSubField,
@@ -327,6 +329,7 @@ const AddListConditionDialog = () => {
     createDefaultBlock,
     setCustomListVariables,
     customListVariables,
+    localFiltersUpdater,
   } = useCurrentBuilder();
 
   // Use our custom hooks
@@ -338,6 +341,7 @@ const AddListConditionDialog = () => {
     createDefaultBlock,
   );
   const save = useListConditionSave();
+  const dispatch = useDispatch();
 
   // Auto-populate form when opening inline with condition data
   useEffect(() => {
@@ -416,6 +420,35 @@ const AddListConditionDialog = () => {
       return;
     }
 
+    // Check if conditions are required for this operator
+    const operatorNeedsConditions = [
+      "$anyElementTrue",
+      "$allElementsTrue",
+      "$filter",
+    ].includes(form.selectedOperator);
+    const operatorNeedsSubField = ["$min", "$max", "$avg", "$sum"].includes(
+      form.selectedOperator,
+    );
+
+    // Create a list condition that wraps the inner conditions
+    const listCondition = {
+      type: "array",
+      field: dialog.listFieldName,
+      operator: form.selectedOperator,
+      value: operatorNeedsConditions ? dialog.localFilters[0] : null,
+      subField: operatorNeedsSubField ? dialog.selectedSubField : null,
+      subFieldOptions: form.subFieldOptions,
+      name: form.conditionName.trim(),
+    };
+
+    const apiResult = await dispatch(
+      postElement({
+        name: form.conditionName.trim(),
+        data: { listCondition: listCondition, type: "array" },
+        elements: "listVariables",
+      }),
+    );
+
     const success = await save.saveListCondition({
       listFieldName: dialog.listFieldName,
       selectedOperator: form.selectedOperator,
@@ -423,13 +456,20 @@ const AddListConditionDialog = () => {
       conditionName: form.conditionName,
       localFilters: dialog.localFilters,
       subFieldOptions: dialog.subFieldOptions,
+      saved: apiResult?.status === "success",
+      listCondition: listCondition,
       listConditionDialog,
       setCustomListVariables,
-      setFilters,
+      setFilters: setFilters,
+      setLocalFilters: localFiltersUpdater, // Use the updater from context
     });
 
-    if (success) {
-      handleClose();
+    // Only close if both the API call and the filter update succeeded
+    if (success && apiResult?.status === "success") {
+      // Add a small delay to ensure state updates have processed
+      setTimeout(() => {
+        handleClose();
+      }, 100);
     }
   };
 

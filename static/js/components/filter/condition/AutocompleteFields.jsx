@@ -794,7 +794,7 @@ AutocompleteFields.propTypes = {
   fieldOptions: PropTypes.arrayOf(
     PropTypes.shape({
       label: PropTypes.string.isRequired,
-      value: PropTypes.string.isRequired,
+      value: PropTypes.string,
       group: PropTypes.string,
       isVariable: PropTypes.bool,
       isListVariable: PropTypes.bool,

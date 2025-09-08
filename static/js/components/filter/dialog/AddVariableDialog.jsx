@@ -12,6 +12,8 @@ import { saveVariable } from "../../../services/filterApi";
 import EquationEditor from "equation-editor-react";
 import { v4 as uuidv4 } from "uuid";
 import { useCurrentBuilder } from "../../../hooks/useContexts";
+import { postElement } from "../../../ducks/boom_filter_modules";
+import { useDispatch } from "react-redux";
 
 const AddVariableDialog = () => {
   const {
@@ -20,6 +22,8 @@ const AddVariableDialog = () => {
     setCustomVariables,
     setFilters,
   } = useCurrentBuilder();
+
+  const dispatch = useDispatch();
 
   const handleCloseSpecialCondition = () => {
     setSpecialConditionDialog({ open: false, blockId: null, equation: "" });
@@ -103,7 +107,13 @@ const AddVariableDialog = () => {
               return;
             }
             const variableName = eqParts[0].trim();
-            saveVariable(eq, variableName, "number");
+            dispatch(
+              postElement({
+                name: variableName,
+                data: { variable: eq, type: "number" },
+                elements: "variables",
+              }),
+            );
             setCustomVariables((prev) => {
               if (prev.some((v) => v.name === variableName)) return prev;
               return [

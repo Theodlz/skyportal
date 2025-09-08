@@ -4,7 +4,6 @@ import {
   getArrayFieldSubOptions,
   fieldOptions,
 } from "../constants/filterConstants";
-import { saveListVariable } from "../services/filterApi";
 
 export const useDialogStates = () => {
   // Dialog states
@@ -380,7 +379,8 @@ export const useListConditionSave = () => {
 
     if (
       operatorNeedsConditions &&
-      (localFilters.length === 0 || localFilters[0].children.length === 0)
+      localFilters &&
+      (localFilters?.length === 0 || localFilters[0].children.length === 0)
     ) {
       return "Please add at least one condition";
     }
@@ -396,38 +396,13 @@ export const useListConditionSave = () => {
       conditionName,
       localFilters,
       subFieldOptions,
+      saved,
+      listCondition,
       listConditionDialog,
       setCustomListVariables,
       setFilters,
+      setLocalFilters, // Add this parameter for local state update
     }) => {
-      // Check if conditions are required for this operator
-      const operatorNeedsConditions = [
-        "$anyElementTrue",
-        "$allElementsTrue",
-        "$filter",
-      ].includes(selectedOperator);
-      const operatorNeedsSubField = ["$min", "$max", "$avg", "$sum"].includes(
-        selectedOperator,
-      );
-
-      // Create a list condition that wraps the inner conditions
-      const listCondition = {
-        type: "array",
-        field: listFieldName,
-        operator: selectedOperator,
-        value: operatorNeedsConditions ? localFilters[0] : null,
-        subField: operatorNeedsSubField ? selectedSubField : null,
-        subFieldOptions: subFieldOptions,
-        name: conditionName.trim(),
-      };
-
-      // Save all list conditions as custom list variables in the database
-      const saved = await saveListVariable(
-        listCondition,
-        conditionName.trim(),
-        "array",
-      );
-
       if (saved) {
         setCustomListVariables((prev) => {
           return [
@@ -454,39 +429,49 @@ export const useListConditionSave = () => {
         isListVariable: true,
       };
 
-      // Add the new condition to the target block and optionally delete the original condition
-      setFilters((prevFilters) => {
-        const addConditionToBlock = (block) => {
-          if (block.id === listConditionDialog.blockId) {
-            let updatedChildren = [...block.children];
+      // Helper function to add condition to block
+      const addConditionToBlock = (block) => {
+        if (block.id === listConditionDialog.blockId) {
+          let updatedChildren = [...block.children];
 
-            // If conditionId is provided, delete the original condition
-            if (listConditionDialog.conditionId) {
-              updatedChildren = updatedChildren.filter(
-                (child) => child.id !== listConditionDialog.conditionId,
-              );
-            }
-
-            // Add the new list variable condition
-            updatedChildren.push(newCondition);
-
-            return {
-              ...block,
-              children: updatedChildren,
-            };
+          // If conditionId is provided, delete the original condition
+          if (listConditionDialog.conditionId) {
+            updatedChildren = updatedChildren.filter(
+              (child) => child.id !== listConditionDialog.conditionId,
+            );
           }
-          if (block.children) {
-            return {
-              ...block,
-              children: block.children.map((child) =>
-                child.category === "block" ? addConditionToBlock(child) : child,
-              ),
-            };
-          }
-          return block;
-        };
+
+          // Add the new list variable condition
+          updatedChildren.push(newCondition);
+
+          return {
+            ...block,
+            children: updatedChildren,
+          };
+        }
+        if (block.children) {
+          return {
+            ...block,
+            children: block.children.map((child) =>
+              child.category === "block" ? addConditionToBlock(child) : child,
+            ),
+          };
+        }
+        return block;
+      };
+
+      // Update both context filters and local filters if available
+      const updateFilters = (prevFilters) => {
         return prevFilters.map(addConditionToBlock);
-      });
+      };
+
+      // Update context filters
+      setFilters(updateFilters);
+
+      // Update local filters if setLocalFilters is provided
+      if (setLocalFilters && typeof setLocalFilters === "function") {
+        setLocalFilters(updateFilters);
+      }
 
       return true; // Success
     },

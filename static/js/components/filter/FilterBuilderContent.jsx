@@ -33,6 +33,7 @@ const FilterBuilderContent = ({
     collapsedBlocks,
     generateMongoQuery,
     setFilters,
+    setLocalFiltersUpdater,
   } = useFilterBuilder();
   const navigate = useNavigate();
   const dispatch = useDispatch();
@@ -152,6 +153,13 @@ const FilterBuilderContent = ({
       setFilters(updatedFilters);
     }
   };
+
+  // Set the local filters updater in the context so dialogs can access it
+  useEffect(() => {
+    if (setLocalFiltersUpdater) {
+      setLocalFiltersUpdater(() => handleFilterUpdate);
+    }
+  }, [setLocalFiltersUpdater]);
 
   // Use local filter data or fallback to context filters
   const { filters: contextFilters } = useFilterBuilder();

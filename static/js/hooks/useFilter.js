@@ -1,5 +1,6 @@
 import { useContext, useEffect, useCallback, useState } from "react";
 import { useLocation } from "react-router-dom";
+import { useDispatch, useSelector } from "react-redux";
 import { v4 as uuidv4 } from "uuid";
 import { FilterBuilderContext } from "../contexts/FilterBuilderContext";
 import { AnnotationBuilderContext } from "../contexts/AnnotationBuilderContext";
@@ -8,6 +9,7 @@ import {
   fetchSavedVariables,
   fetchSavedListVariables,
 } from "../services/filterApi";
+import { fetchAllElements } from "../ducks/boom_filter_modules";
 import { useFilterBuilder } from "./useContexts";
 
 export const useCurrentBuilder = () => {
@@ -70,20 +72,24 @@ export const useFilterBuilderData = () => {
     setHasInitialized,
   ]);
 
+  const dispatch = useDispatch();
+
   // Load saved data on mount
   useEffect(() => {
     const loadData = async () => {
       try {
         // Load all saved data in parallel
-        const [blocks, variables, listVariables] = await Promise.all([
-          fetchSavedBlocks().catch(() => []),
-          fetchSavedVariables().catch(() => []),
-          fetchSavedListVariables().catch(() => []),
-        ]);
+        const blocks = await dispatch(fetchAllElements({ elements: "blocks" }));
+        const variables = await dispatch(
+          fetchAllElements({ elements: "variables" }),
+        );
+        const listVariables = await dispatch(
+          fetchAllElements({ elements: "listVariables" }),
+        );
 
-        setCustomBlocks(blocks);
-        setCustomVariables(variables);
-        setCustomListVariables(listVariables);
+        setCustomBlocks(blocks.data.blocks);
+        setCustomVariables(variables.data.variables);
+        setCustomListVariables(listVariables.data.listVariables);
       } catch (error) {
         console.error("Error loading filter builder data:", error);
         // Set empty arrays as fallback
@@ -94,7 +100,7 @@ export const useFilterBuilderData = () => {
     };
 
     loadData();
-  }, [setCustomBlocks, setCustomVariables, setCustomListVariables]);
+  }, [setCustomBlocks, setCustomVariables, setCustomListVariables, dispatch]);
 
   return {
     // This hook doesn't return anything directly, but loads data into context

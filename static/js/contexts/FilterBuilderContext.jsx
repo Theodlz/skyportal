@@ -21,6 +21,9 @@ export const FilterBuilderProvider = ({ children }) => {
   const [customVariables, setCustomVariables] = useState([]);
   const [customListVariables, setCustomListVariables] = useState([]);
 
+  // Local filters update function reference (to be set by FilterBuilderContent)
+  const [localFiltersUpdater, setLocalFiltersUpdater] = useState(null);
+
   // Get hook functionalities
   const filterManipulation = useFilterManipulation(filters, setFilters);
   const factories = useFilterFactories();
@@ -62,6 +65,10 @@ export const FilterBuilderProvider = ({ children }) => {
     setCustomVariables,
     customListVariables,
     setCustomListVariables,
+
+    // Local filters updater
+    localFiltersUpdater,
+    setLocalFiltersUpdater,
 
     // Spread hook functionalities
     ...filterManipulation,
