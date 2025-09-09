@@ -39,6 +39,7 @@ import {
 import { useCurrentBuilder } from "../../../hooks/useContexts";
 import { mongoQueryService } from "../../../services/mongoQueryService";
 import ReactJson from "react-json-view";
+import { useSelector } from "react-redux";
 
 // Helper function to get stage descriptions
 const getStageDescription = (stageName) => {
@@ -79,9 +80,11 @@ const MongoQueryDialog = () => {
     getFormattedMongoQuery,
     hasValidQuery,
   } = useCurrentBuilder();
+  const filter_stream = useSelector((state) => state.filter_v.stream.name.split(" ")[0]);
 
   const [copySuccess, setCopySuccess] = useState(false);
-  const [selectedCollection, setSelectedCollection] = useState("ZTF_alerts");
+  //set default to "ZTF_alerts" collection if filter_stream is "ZTF" or "LSST_alerts" if filter_stream is "LSST"
+  const [selectedCollection, setSelectedCollection] = useState(filter_stream === "ZTF" ? "ZTF_alerts" : filter_stream === "LSST" ? "LSST_alerts" : "");
   const [availableCollections, setAvailableCollections] = useState([]);
   const [isRunning, setIsRunning] = useState(false);
   const [queryResults, setQueryResults] = useState(null);
@@ -360,21 +363,6 @@ const MongoQueryDialog = () => {
               <Box
                 sx={{ display: "flex", gap: 2, mb: 3, alignItems: "center" }}
               >
-                <FormControl size="small" sx={{ minWidth: 200 }}>
-                  <InputLabel>Collection</InputLabel>
-                  <Select
-                    value={selectedCollection}
-                    label="Collection"
-                    onChange={(e) => setSelectedCollection(e.target.value)}
-                  >
-                    {availableCollections.map((collection) => (
-                      <MenuItem key={collection.name} value={collection.name}>
-                        {collection.name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-
                 <Button
                   variant="contained"
                   color="primary"
