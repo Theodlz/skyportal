@@ -39,7 +39,8 @@ import {
 import { useCurrentBuilder } from "../../../hooks/useContexts";
 import { mongoQueryService } from "../../../services/mongoQueryService";
 import ReactJson from "react-json-view";
-import { useSelector } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
+import { runBoomFilter } from "../../../ducks/boom_run_filter";
 
 // Helper function to get stage descriptions
 const getStageDescription = (stageName) => {
@@ -81,13 +82,14 @@ const MongoQueryDialog = () => {
     hasValidQuery,
   } = useCurrentBuilder();
   const filter_stream = useSelector((state) => state.filter_v.stream.name.split(" ")[0]);
+  const dispatch = useDispatch();
+  const results = useSelector((state) => state.query_result);
 
   const [copySuccess, setCopySuccess] = useState(false);
   //set default to "ZTF_alerts" collection if filter_stream is "ZTF" or "LSST_alerts" if filter_stream is "LSST"
   const [selectedCollection, setSelectedCollection] = useState(filter_stream === "ZTF" ? "ZTF_alerts" : filter_stream === "LSST" ? "LSST_alerts" : "");
   const [availableCollections, setAvailableCollections] = useState([]);
   const [isRunning, setIsRunning] = useState(false);
-  const [queryResults, setQueryResults] = useState(null);
   const [queryError, setQueryError] = useState(null);
   const [showResults, setShowResults] = useState(false);
   const [showPipeline, setShowPipeline] = useState(true);
@@ -130,6 +132,10 @@ const MongoQueryDialog = () => {
     }
   }, [mongoDialog?.open]);
 
+  useEffect(() => {
+    setShowResults(true);
+  }, [results]);
+
   const loadCollections = async () => {
     try {
       const collections = await mongoQueryService.getCollections();
@@ -145,7 +151,6 @@ const MongoQueryDialog = () => {
   const handleClose = () => {
     setMongoDialog({ open: false });
     // Reset query results when closing
-    setQueryResults(null);
     setQueryError(null);
     setShowResults(false);
     setShowPipeline(true); // Keep pipeline expanded by default
@@ -196,7 +201,6 @@ const MongoQueryDialog = () => {
   const handleRunQuery = async () => {
     setIsRunning(true);
     setQueryError(null);
-    setQueryResults(null);
     setExpandedCells(new Set()); // Reset expanded cells for new query
 
     try {
@@ -277,12 +281,7 @@ const MongoQueryDialog = () => {
       ];
       // Prepend the pipeline with the prepend stages
       pipeline.unshift(...prepend);
-      const results = await mongoQueryService.runQuery(
-        pipeline,
-        selectedCollection,
-      );
-      setQueryResults(results);
-      setShowResults(true);
+      await dispatch(runBoomFilter({ pipeline: pipeline, selectedCollection: selectedCollection }));
     } catch (error) {
       setQueryError(error.message);
     } finally {
@@ -386,7 +385,7 @@ const MongoQueryDialog = () => {
               )}
 
               {/* Query Results */}
-              {queryResults && (
+              {Object.keys(results).length > 0 && (
                 <Box sx={{ mb: 3 }}>
                   <Box
                     sx={{
@@ -400,7 +399,7 @@ const MongoQueryDialog = () => {
                       Query Results
                     </Typography>
                     <Chip
-                      label={`${queryResults.resultCount} documents`}
+                      label={`${results.data?.length} documents`}
                       size="small"
                       color="success"
                     />
@@ -413,7 +412,7 @@ const MongoQueryDialog = () => {
                   </Box>
 
                   <Collapse in={showResults}>
-                    {queryResults.results.length > 0 ? (
+                    {results.data?.length > 0 ? (
                       <TableContainer
                         component={Paper}
                         sx={{
@@ -450,7 +449,7 @@ const MongoQueryDialog = () => {
                         >
                           <TableHead>
                             <TableRow>
-                              {Object.keys(queryResults.results[0] || {})
+                              {Object.keys(results.data[0] || {})
                                 .filter((key) => key !== "_id")
                                 .map((key) => (
                                   <TableCell
@@ -471,7 +470,7 @@ const MongoQueryDialog = () => {
                             </TableRow>
                           </TableHead>
                           <TableBody>
-                            {queryResults.results
+                            {results.data
                               .slice(0, 50)
                               .map((row, rowIndex) => (
                                 <TableRow key={rowIndex}>
@@ -547,12 +546,12 @@ const MongoQueryDialog = () => {
                               ))}
                           </TableBody>
                         </Table>
-                        {queryResults.results.length > 50 && (
+                        {results.data?.length > 50 && (
                           <Typography
                             variant="caption"
                             sx={{ p: 1, display: "block", textAlign: "center" }}
                           >
-                            Showing first 50 of {queryResults.resultCount}{" "}
+                            Showing first 50 of {results.data.length}{" "}
                             results
                           </Typography>
                         )}
