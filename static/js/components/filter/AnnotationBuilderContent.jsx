@@ -30,7 +30,7 @@ import {
   useFilterBuilder,
   useAnnotationBuilder,
 } from "../../hooks/useContexts";
-import { FilterBuilderContext } from "../../contexts/FilterBuilderContext";
+import { UnifiedBuilderContext } from "../../contexts/UnifiedBuilderContext";
 import {
   fieldOptions,
   getArrayFieldSubOptions,
@@ -44,11 +44,6 @@ import { filterBuilderStyles } from "../../styles/componentStyles";
 import { styled, lighten, darken } from "@mui/system";
 import { latexToMongoConverter } from "../../utils/robustLatexConverter";
 import CloseIcon from "@mui/icons-material/Close";
-import {
-  fetchSavedBlocks,
-  fetchSavedVariables,
-  fetchSavedListVariables,
-} from "../../services/filterApi";
 
 const GroupHeader = styled("div")(({ theme }) => {
   const primaryMain = theme.palette?.primary?.main || "#1976d2";
@@ -84,9 +79,6 @@ const useAnnotationBuilderData = (builderContext) => {
   const {
     filters,
     setFilters,
-    setCustomBlocks,
-    setCustomVariables,
-    setCustomListVariables,
     createDefaultBlock,
   } = builderContext;
 
@@ -96,32 +88,6 @@ const useAnnotationBuilderData = (builderContext) => {
       setFilters([createDefaultBlock("And")]);
     }
   }, [filters.length, createDefaultBlock, setFilters]);
-
-  // Load saved data on mount
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        // Load all saved data in parallel
-        const [blocks, variables, listVariables] = await Promise.all([
-          fetchSavedBlocks().catch(() => []),
-          fetchSavedVariables().catch(() => []),
-          fetchSavedListVariables().catch(() => []),
-        ]);
-
-        setCustomBlocks(blocks);
-        setCustomVariables(variables);
-        setCustomListVariables(listVariables);
-      } catch (error) {
-        console.error("Error loading annotation builder data:", error);
-        // Set empty arrays as fallback
-        setCustomBlocks([]);
-        setCustomVariables([]);
-        setCustomListVariables([]);
-      }
-    };
-
-    loadData();
-  }, [setCustomBlocks, setCustomVariables, setCustomListVariables]);
 
   return;
 };
@@ -249,10 +215,9 @@ const MapAnnotationsDialog = ({
                 {/* Field Selection: autocomplete with subfields only */}
                 <Autocomplete
                   value={
-                    subFields.find((opt) => opt === mapField.fieldName) || {
-                      label: mapField.fieldName,
-                      name: mapField.fieldName,
-                    }
+                    mapField.fieldName 
+                      ? subFields.map((sf) => ({ label: sf, name: sf })).find((opt) => opt.name === mapField.fieldName) || null
+                      : null
                   }
                   onChange={(_, newValue) => {
                     setMapProjectionFields((fields) =>
@@ -270,6 +235,9 @@ const MapAnnotationsDialog = ({
                     );
                   }}
                   options={subFields.map((sf) => ({ label: sf, name: sf }))}
+                  isOptionEqualToValue={(option, value) => 
+                    option.name === value?.name
+                  }
                   getOptionLabel={(option) => {
                     if (
                       typeof option.label === "object" &&
@@ -406,23 +374,11 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
 
   // State for expandable groups
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
-  // State for custom variables fetched from DB
-  const [customVariables, setCustomVariables] = useState([]);
 
   // State for map dialog
   const [mapDialogOpen, setMapDialogOpen] = useState(false);
   const [mapDialogFieldId, setMapDialogFieldId] = useState(null);
   const [mapProjectionFields, setMapProjectionFields] = useState([]);
-
-  // Fetch custom variables from DB on mount
-  useEffect(() => {
-    fetch("http://localhost:3001/api/custom-variables")
-      .then((res) => res.json())
-      .then((data) => {
-        setCustomVariables(data.variables || []);
-      })
-      .catch(() => setCustomVariables([]));
-  }, []);
 
   // Initialize projection fields with objectId if not already present
   React.useEffect(() => {
@@ -463,7 +419,7 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
         // For arithmetic variables, get expression from customVariables DB if available
         let expression = field.expression;
         if (field.isVariable) {
-          const dbVar = customVariables.find((v) => v.name === fieldName);
+          const dbVar = (filterContext.customVariables || []).find((v) => v.name === fieldName);
           if (dbVar && dbVar.variable) {
             expression = latexToMongoConverter.convertToMongo(
               dbVar.variable.split("=")[1].trim(),
@@ -682,101 +638,9 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
     return projection;
   };
 
-  // Update the filter context to include projection
-  const generateCombinedQuery = () => {
-    const filterQuery = filterContext.generateMongoQuery();
-    const projectionStage = generateProjectionStage();
-
-    // Check for missing fields in previous project stage
-    // Find all fields used in annotation expressions (excluding $map internal references)
-    const annotationFields = [];
-    Object.values(projectionStage.annotations || {}).forEach((val) => {
-      // Recursively extract field dependencies from annotation expressions
-      const extractFields = (obj, isInsideMap = false) => {
-        if (typeof obj === "string" && obj.startsWith("$")) {
-          // Don't add fields that are inside $map operations to the dependency list
-          // These refer to array element fields, not external document fields
-          if (!isInsideMap) {
-            annotationFields.push(obj.replace(/^\$/, ""));
-          }
-        } else if (Array.isArray(obj)) {
-          obj.forEach((item) => extractFields(item, isInsideMap));
-        } else if (typeof obj === "object" && obj !== null) {
-          // Check if this is a $map operation
-          if (obj.$map) {
-            // For $map, only the 'input' field references external data
-            // The 'in' expression refers to array elements via $$this or $$<as>
-            if (obj.$map.input) {
-              extractFields(obj.$map.input, false); // input is external
-            }
-            // Don't extract fields from 'in' expression as they reference array elements
-          } else {
-            // For other operations, continue normally
-            Object.values(obj).forEach((value) =>
-              extractFields(value, isInsideMap),
-            );
-          }
-        }
-      };
-      extractFields(val);
-    });
-
-    // Get previous project stage fields (if any)
-    let previousProjectFields = [];
-    let previousProjectStageIndex = -1;
-    for (let i = filterQuery.length - 1; i >= 0; i--) {
-      if (filterQuery[i].$project) {
-        previousProjectFields = Object.keys(filterQuery[i].$project);
-        previousProjectStageIndex = i;
-        break;
-      }
-    }
-
-    // Find missing fields that need to be added to previous project stage
-    const missingFields = annotationFields.filter((f) => {
-      if (!previousProjectFields.includes(f)) {
-        // Check if this is a nested field and its parent is defined in previous stage
-        if (f.includes(".")) {
-          const parentField = f.split(".")[0];
-          if (previousProjectFields.includes(parentField)) {
-            // Parent is defined in previous stage, so nested field is automatically available
-            // No need to add it anywhere
-            return false;
-          }
-        }
-        return true; // This field is missing and needs to be added
-      }
-      return false; // Field is already present
-    });
-
-    // Add missing fields to the previous project stage
-    if (missingFields.length > 0 && previousProjectStageIndex >= 0) {
-      missingFields.forEach((f) => {
-        filterQuery[previousProjectStageIndex].$project[f] = 1;
-      });
-    }
-
-    if (Object.keys(projectionStage).length > 0) {
-      return [...filterQuery, { $project: projectionStage }];
-    }
-    return filterQuery;
-  };
-
-  const getFormattedCombinedQuery = () => {
-    const pipeline = generateCombinedQuery();
-    return JSON.stringify(pipeline, null, 2);
-  };
-
-  // Enhanced filter context with projection
-  const enhancedFilterContext = {
-    ...filterContext,
-    generateMongoQuery: generateCombinedQuery,
-    getFormattedMongoQuery: getFormattedCombinedQuery,
-  };
-
   const handleShowMongoQuery = () => {
-    // Use enhanced context that includes projection
-    enhancedFilterContext.setMongoDialog({ open: true });
+    // Use the unified context directly (same as filter builder)
+    filterContext.setMongoDialog({ open: true });
   };
 
   const handleBackToFilters = () => {
@@ -921,9 +785,9 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
                   {/* Field Selection */}
                   <Autocomplete
                     value={
-                      availableFields.find(
-                        (opt) => opt.name === field.fieldName,
-                      ) || { name: field.fieldName, label: field.fieldName }
+                      field.fieldName 
+                        ? availableFields.find((opt) => opt.name === field.fieldName) || null
+                        : null
                     }
                     onChange={(_, newValue) => {
                       // If array field, ensure subFields are populated from schema if missing
@@ -951,6 +815,9 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
                     options={availableFields}
                     groupBy={(option) => option.group}
                     getOptionLabel={(option) => option.label || option.name}
+                    isOptionEqualToValue={(option, value) => 
+                      option.name === value?.name
+                    }
                     sx={{ minWidth: 250 }}
                     renderInput={(params) => (
                       <TextField {...params} label="Field" size="small" />
@@ -1248,12 +1115,8 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
         }}
       />
 
-      {/* MongoDB Query Dialog with enhanced context */}
-      {enhancedFilterContext.mongoDialog?.open && (
-        <FilterBuilderContext.Provider value={enhancedFilterContext}>
-          <MongoQueryDialog />
-        </FilterBuilderContext.Provider>
-      )}
+      {/* MongoDB Query Dialog - use same context as filter builder */}
+      <MongoQueryDialog />
     </Box>
   );
 };

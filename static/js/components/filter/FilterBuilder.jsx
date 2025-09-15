@@ -1,12 +1,12 @@
 import React from "react";
-import { FilterBuilderProvider } from "../contexts/FilterBuilderContext";
+import { UnifiedBuilderProvider } from "../../contexts/UnifiedBuilderContext";
 import FilterBuilderContent from "./FilterBuilderContent.jsx";
 
 const FilterBuilder = () => {
   return (
-    <FilterBuilderProvider>
+    <UnifiedBuilderProvider mode="filter">
       <FilterBuilderContent />
-    </FilterBuilderProvider>
+    </UnifiedBuilderProvider>
   );
 };
 

@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from "react";
 import PropTypes from "prop-types";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { Button, Box, Typography } from "@mui/material";
 import {
   Code as CodeIcon,
@@ -20,6 +20,7 @@ import { filterBuilderStyles } from "../../styles/componentStyles";
 import { showNotification } from "baselayer/components/Notifications";
 
 import { updateGroupFilter } from "../../ducks/boom_filter";
+import { fetchSchema } from "../../ducks/boom_filter_modules";
 
 const FilterBuilderContent = ({
   onToggleAnnotationBuilder,
@@ -41,6 +42,21 @@ const FilterBuilderContent = ({
   // Local editable filter state
   const [localFilterData, setLocalFilterData] = useState(null);
   const [hasBeenModified, setHasBeenModified] = useState(false);
+  const filter_stream = useSelector((state) => state.filter_v.stream.name.split(" ")[0]);
+  const test = useSelector((state) => state.filter_modules?.schema);
+  const active_id = useSelector((state) => state.filter_modules.schema?.active_id);
+  const versions = useSelector((state) => state.filter_modules.schema?.versions);
+  let schema;
+  if (versions) {
+    const filteredVersions = versions.filter((v) => v.vid === active_id);
+    schema = JSON.parse(filteredVersions[0].schema);
+  }
+  // const schema = temp?.find((v) => v.vid === active_id);
+
+  console.log("Bonjour:", test);
+  console.log("Active ID:", active_id);
+  console.log("Versions:", versions);
+  console.log("Current schema:", schema);
 
   // Load initial data
   useFilterBuilderData();
@@ -143,6 +159,10 @@ const FilterBuilderContent = ({
       setFilters(localFilterData);
     }
   }, [localFilterData, setFilters]);
+
+  useEffect(() => {
+      dispatch(fetchSchema({ name: filter_stream, elements: "schema" }));
+    }, [filter_stream]);
 
   // Callback to handle filter updates from child components
   const handleFilterUpdate = (updatedFilters) => {

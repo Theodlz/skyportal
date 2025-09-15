@@ -2,8 +2,7 @@ import { useContext, useEffect, useCallback, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { v4 as uuidv4 } from "uuid";
-import { FilterBuilderContext } from "../contexts/FilterBuilderContext";
-import { AnnotationBuilderContext } from "../contexts/AnnotationBuilderContext";
+import { UnifiedBuilderContext } from "../contexts/UnifiedBuilderContext";
 import {
   fetchSavedBlocks,
   fetchSavedVariables,
@@ -13,37 +12,15 @@ import { fetchAllElements } from "../ducks/boom_filter_modules";
 import { useFilterBuilder } from "./useContexts";
 
 export const useCurrentBuilder = () => {
-  const location = useLocation();
-  const annotationContext = useContext(AnnotationBuilderContext);
-  const filterContext = useContext(FilterBuilderContext);
+  const context = useContext(UnifiedBuilderContext);
 
-  // Determine which context to use based on the current route
-  if (location.pathname === "/annotations") {
-    if (annotationContext && filterContext) {
-      // For annotation page, use annotation context for most things,
-      // but use filter context for MongoDB query functionality
-      return {
-        ...annotationContext,
-        // Override MongoDB-related functions to use filter context
-        mongoDialog: filterContext.mongoDialog,
-        setMongoDialog: filterContext.setMongoDialog,
-        generateMongoQuery: filterContext.generateMongoQuery,
-        getFormattedMongoQuery: filterContext.getFormattedMongoQuery,
-        hasValidQuery: filterContext.hasValidQuery,
-      };
-    }
+  if (!context) {
     throw new Error(
-      "useCurrentBuilder: AnnotationBuilderProvider or FilterBuilderProvider not found on annotation page",
-    );
-  } else {
-    // Default to filter context for all other routes (including '/')
-    if (filterContext) {
-      return filterContext;
-    }
-    throw new Error(
-      "useCurrentBuilder: FilterBuilderProvider not found on filter page",
+      "useCurrentBuilder must be used within a UnifiedBuilderProvider",
     );
   }
+
+  return context;
 };
 
 export const useFilterBuilderData = () => {

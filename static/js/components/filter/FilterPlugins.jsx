@@ -38,8 +38,9 @@ import { CopyToClipboard } from "react-copy-to-clipboard";
 import TextField from "@mui/material/TextField";
 import Form from "@rjsf/mui";
 import validator from "@rjsf/validator-ajv8";
-import { FilterBuilderProvider } from "../../contexts/FilterBuilderContext";
-import { AnnotationBuilderProvider } from "../../contexts/AnnotationBuilderContext";
+import { 
+  UnifiedBuilderProvider
+} from "../../contexts/UnifiedBuilderContext";
 import FilterBuilderContent from "./FilterBuilderContent.jsx";
 import AnnotationBuilderContent from "./AnnotationBuilderContent.jsx";
 
@@ -851,69 +852,67 @@ const FilterPlugins = ({ group }) => {
                   >
                     <Controller
                       render={({ field: { onChange, value } }) => (
-                        <FilterBuilderProvider>
-                          <AnnotationBuilderProvider>
-                            <Box
-                              sx={{
-                                width: "100%",
-                                maxWidth: "100%",
-                                overflow: "visible", // Allow child dropdowns to overflow
-                                "& > .MuiBox-root": {
-                                  width: "100% !important",
-                                  maxWidth: "100% !important",
-                                  minHeight: "auto !important",
-                                  padding: {
-                                    xs: "0.5rem !important",
-                                    md: "1rem !important",
-                                  },
-                                  boxSizing: "border-box !important",
-                                  overflow: "visible !important", // Ensure FilterBuilderContent container allows overflow
+                        <UnifiedBuilderProvider mode={showAnnotationBuilder ? "annotation" : "filter"}>
+                          <Box
+                            sx={{
+                              width: "100%",
+                              maxWidth: "100%",
+                              overflow: "visible", // Allow child dropdowns to overflow
+                              "& > .MuiBox-root": {
+                                width: "100% !important",
+                                maxWidth: "100% !important",
+                                minHeight: "auto !important",
+                                padding: {
+                                  xs: "0.5rem !important",
+                                  md: "1rem !important",
                                 },
-                                "& h2": {
-                                  fontSize: {
-                                    xs: "1.125rem !important",
-                                    md: "1.25rem !important",
-                                  },
-                                  marginBottom: "1rem !important",
+                                boxSizing: "border-box !important",
+                                overflow: "visible !important", // Ensure FilterBuilderContent container allows overflow
+                              },
+                              "& h2": {
+                                fontSize: {
+                                  xs: "1.125rem !important",
+                                  md: "1.25rem !important",
                                 },
-                                "& .MuiButton-root": {
-                                  fontSize: {
-                                    xs: "0.75rem !important",
-                                    md: "0.875rem !important",
-                                  },
+                                marginBottom: "1rem !important",
+                              },
+                              "& .MuiButton-root": {
+                                fontSize: {
+                                  xs: "0.75rem !important",
+                                  md: "0.875rem !important",
                                 },
-                                // Ensure block components and paper components allow overflow for dropdowns
-                                "& .MuiBox-root": {
-                                  overflow: "visible !important",
-                                },
-                              }}
-                            >
-                              {showAnnotationBuilder ? (
-                                <AnnotationBuilderContent
-                                  onBackToFilterBuilder={() =>
-                                    setShowAnnotationBuilder(false)
-                                  }
-                                  filter={filter_v}
-                                  setInlineNewVersion={setInlineNewVersion}
-                                  setShowAnnotationBuilder={
-                                    setShowAnnotationBuilder
-                                  }
-                                />
-                              ) : (
-                                <FilterBuilderContent
-                                  onToggleAnnotationBuilder={() =>
-                                    setShowAnnotationBuilder(true)
-                                  }
-                                  filter={filter_v}
-                                  setInlineNewVersion={setInlineNewVersion}
-                                  setShowAnnotationBuilder={
-                                    setShowAnnotationBuilder
-                                  }
-                                />
-                              )}
-                            </Box>
-                          </AnnotationBuilderProvider>
-                        </FilterBuilderProvider>
+                              },
+                              // Ensure block components and paper components allow overflow for dropdowns
+                              "& .MuiBox-root": {
+                                overflow: "visible !important",
+                              },
+                            }}
+                          >
+                            {showAnnotationBuilder ? (
+                              <AnnotationBuilderContent
+                                onBackToFilterBuilder={() =>
+                                  setShowAnnotationBuilder(false)
+                                }
+                                filter={filter_v}
+                                setInlineNewVersion={setInlineNewVersion}
+                                setShowAnnotationBuilder={
+                                  setShowAnnotationBuilder
+                                }
+                              />
+                            ) : (
+                              <FilterBuilderContent
+                                onToggleAnnotationBuilder={() =>
+                                  setShowAnnotationBuilder(true)
+                                }
+                                filter={filter_v}
+                                setInlineNewVersion={setInlineNewVersion}
+                                setShowAnnotationBuilder={
+                                  setShowAnnotationBuilder
+                                }
+                              />
+                            )}
+                          </Box>
+                        </UnifiedBuilderProvider>
                       )}
                       name="pipeline"
                       control={control}
@@ -978,210 +977,6 @@ const FilterPlugins = ({ group }) => {
                     >
                       {inlineNewVersion ? "Cancel new version" : "Show Filter"}
                     </Button>
-                    {/* {!inlineNewVersion && (
-                <Dialog
-                  fullWidth
-                  maxWidth="md"
-                  open={openNew}
-                  onClose={handleCloseNew}
-                  aria-labelledby="max-width-dialog-title"
-                >
-                  <DialogTitle id="max-width-dialog-title">
-                    Save new filter version
-                  </DialogTitle>
-                  <form onSubmit={handleSubmit(onSubmitSaveFilterVersion)}>
-                    <DialogContent>
-                      <DialogContentText>
-                        boom filter definition. For a detailed discussion,
-                        please refer to the&nbsp;
-                        <a
-                          href="https://docs.fritz.science/user_guide.html#alert-filters-in-fritz"
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          docs
-                        </a>
-                      </DialogContentText>
-                      <Controller
-                        render={({ field: { onChange, value } }) => (
-                          <FilterBuilderProvider>
-                            <AnnotationBuilderProvider>
-                              <FilterBuilderContent />
-                            </AnnotationBuilderProvider>
-                          </FilterBuilderProvider>
-                          // <TextareaAutosize
-                          //   maxRows={30}
-                          //   minRows={6}
-                          //   placeholder=""
-                          //   name="pipeline"
-                          //   style={{ width: "100%" }}
-                          //   ref={register("pipeline")}
-                          //   onChange={onChange}
-                          //   value={value}
-                          // />
-                        )}
-                        name="pipeline"
-                        control={control}
-                      />
-                    </DialogContent>
-                    <DialogActions>
-                      <Button
-                        variant="contained"
-                        color="primary"
-                        type="submit"
-                        className={classes.button_add}
-                      >
-                        Save
-                      </Button>
-                      <Button autoFocus onClick={handleCloseNew}>
-                        Dismiss
-                      </Button>
-                    </DialogActions>
-                  </form>
-                </Dialog>
-                )} */}
-                    {/* {filter_v?.fv && !inlineNewVersion && (
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    onClick={handleDiff}
-                    className={classes.button_add}
-                  >
-                    Inspect versions/diff
-                  </Button>
-                )} */}
-                    {/* {filter_v?.fv && (
-                  <Dialog fullScreen open={openDiff} onClose={handleCloseDiff}>
-                    <AppBar className={classes.appBar}>
-                      <Toolbar>
-                        <IconButton
-                          edge="start"
-                          color="inherit"
-                          onClick={handleCloseDiff}
-                          aria-label="close"
-                          size="large"
-                        >
-                          <CloseIcon />
-                        </IconButton>
-                        <Typography variant="h6" className={classes.marginLeft}>
-                          Inspect filter versions and diffs
-                        </Typography>
-                      </Toolbar>
-                    </AppBar>
-                    <Paper className={classes.paperDiv}>
-                      <Grid container spacing={2}>
-                        <Grid item xs={6} align="center">
-                          <FormControl className={classes.formControl}>
-                            <Select
-                              labelId="fv-diff-label"
-                              id="fv-diff"
-                              name="filter_diff"
-                              value={otherVersion}
-                              onChange={handleSelectFilterVersionDiff}
-                              className={classes.marginTop}
-                            >
-                              {filter_v.fv.map((fv) => (
-                                <MenuItem key={fv.fid} value={fv.fid}>
-                                  {fv.fid}: {fv.created_at.toString().slice(0, 19)}
-                                </MenuItem>
-                              ))}
-                            </Select>
-                            <FormHelperText>
-                              Select version to diff
-                            </FormHelperText>
-                          </FormControl>
-                          {otherVersion.length > 0 && (
-                            <CopyToClipboard
-                              text={JSON.stringify(
-                                JSON.parse(
-                                  filter_v.fv.filter(
-                                    (fv) => fv.fid === otherVersion,
-                                  )[0].pipeline,
-                                ),
-                                null,
-                                2,
-                              )}
-                            >
-                              <IconButton
-                                color="primary"
-                                aria-label="Copy def to clipboard"
-                                className={classes.marginTop}
-                                size="large"
-                              >
-                                <FileCopyIcon />
-                              </IconButton>
-                            </CopyToClipboard>
-                          )}
-                        </Grid>
-                        <Grid item xs={6} align="center">
-                          <Typography
-                            className={classes.big_font}
-                            color="textSecondary"
-                            gutterBottom
-                          >
-                            Active version:
-                          </Typography>
-                          <Typography
-                            className={classes.big_font}
-                            color="textPrimary"
-                            gutterBottom
-                          >
-                            {`${filter_v.active_fid}: ${filter_v.fv.filter((fv) => fv.fid === filter_v.active_fid)[0].created_at.toString().slice(0, 19)}`}
-                            <CopyToClipboard
-                              text={JSON.stringify(
-                                JSON.parse(
-                                  filter_v.fv.filter(
-                                    (fv) => fv.fid === filter_v.active_fid,
-                                  )[0]?.pipeline,
-                                ),
-                                null,
-                                2,
-                              )}
-                            >
-                              <IconButton
-                                color="primary"
-                                aria-label="Copy def to clipboard"
-                                size="large"
-                              >
-                                <FileCopyIcon />
-                              </IconButton>
-                            </CopyToClipboard>
-                          </Typography>
-                        </Grid>
-                        <Grid item xs={12}>
-                          <ReactDiffViewer
-                            newValue={JSON.stringify(
-                              JSON.parse(
-                                filter_v.fv.filter(
-                                  (fv) => fv.fid === filter_v.active_fid,
-                                )[0]?.pipeline,
-                              ),
-                              null,
-                              2,
-                            )}
-                            oldValue={
-                              otherVersion.length > 0
-                                ? JSON.stringify(
-                                    JSON.parse(
-                                      filter_v.fv.filter(
-                                        (fv) => fv.fid === otherVersion,
-                                      )[0].pipeline,
-                                    ),
-                                    null,
-                                    2,
-                                  )
-                                : otherVersion
-                            }
-                            splitView
-                            showDiffOnly={false}
-                            useDarkTheme={darkTheme}
-                            renderContent={highlightSyntax}
-                          />
-                        </Grid>
-                      </Grid>
-                    </Paper>
-                  </Dialog>
-                )} */}
                   </>
                 </div>
                 <div className={classes.divider} />

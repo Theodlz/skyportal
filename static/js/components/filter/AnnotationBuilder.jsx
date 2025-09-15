@@ -1,12 +1,12 @@
 import React from "react";
-import { FilterBuilderProvider } from "../contexts/FilterBuilderContext";
+import { UnifiedBuilderProvider } from "../../contexts/UnifiedBuilderContext";
 import AnnotationBuilderContent from "./AnnotationBuilderContent.jsx";
 
 const AnnotationBuilder = () => {
   return (
-    <FilterBuilderProvider>
+    <UnifiedBuilderProvider mode="annotation">
       <AnnotationBuilderContent />
-    </FilterBuilderProvider>
+    </UnifiedBuilderProvider>
   );
 };
 

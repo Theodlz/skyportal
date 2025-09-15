@@ -138,8 +138,6 @@ const MongoQueryDialog = () => {
 
   const loadCollections = async () => {
     try {
-      const collections = await mongoQueryService.getCollections();
-      setAvailableCollections(collections);
       setConnectionStatus("connected");
     } catch (error) {
       console.error("Failed to load collections:", error);
