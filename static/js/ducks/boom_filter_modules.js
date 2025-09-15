@@ -1,3 +1,4 @@
+import { element } from "prop-types";
 import * as API from "../API";
 import store from "../store";
 
@@ -8,6 +9,9 @@ export const FETCH_ALL_ELEMENTS_FAIL = "skyportal/FETCH_ALL_ELEMENTS_FAIL";
 
 export const FETCH_ELEMENT = "skyportal/FETCH_ELEMENT";
 export const FETCH_ELEMENT_OK = "skyportal/FETCH_ELEMENT_OK";
+
+export const FETCH_SCHEMA = "skyportal/FETCH_SCHEMA";
+export const FETCH_SCHEMA_OK = "skyportal/FETCH_SCHEMA_OK";
 
 export const POST_ELEMENT = "skyportal/POST_ELEMENT";
 export const POST_ELEMENT_OK = "skyportal/POST_ELEMENT_OK";
@@ -20,6 +24,10 @@ export function fetchElement({ name, elements }) {
   return API.GET(`/api/filter_modules/${name}`, FETCH_ELEMENT, { elements });
 }
 
+export function fetchSchema({ name, elements }) {
+  return API.GET(`/api/filter_modules/${name}`, FETCH_SCHEMA, { elements });
+}
+
 export function postElement({ name, data, elements }) {
   return API.POST(`/api/filter_modules/${name}`, POST_ELEMENT, {
     data,
@@ -30,6 +38,7 @@ export function postElement({ name, data, elements }) {
 const reducer = (state = {}, action) => {
   switch (action.type) {
     case FETCH_ELEMENT_OK:
+    case FETCH_SCHEMA_OK:
     case FETCH_ALL_ELEMENTS_OK: {
       return action.data;
     }

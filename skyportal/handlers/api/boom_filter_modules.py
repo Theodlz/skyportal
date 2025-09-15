@@ -44,31 +44,23 @@ class BoomFilterModulesHandler(BaseHandler):
     def get(self, name=None):
         elements = self.get_query_argument("elements")
 
-        if name is None:
-            with self.Session() as session:
-                client = MongoClient(uri)
-                try:
-                    db = client[queryDbName]
-                    collection = db[elements]
+        with self.Session() as session:
+            client = MongoClient(uri)
+            try:
+                db = client[queryDbName]
+                collection = db[elements]
+                if name is None:
                     result = list(collection.find())
-                except Exception as e:
-                    traceback.print_exc()
-                    return self.error(f"Error fetching data from MongoDB: {e}")
-                finally:
-                    client.close()
-        else:
-            with self.Session() as session:
-                client = MongoClient(uri)
-                try:
-                    db = client[queryDbName]
-                    collection = db[elements]
+                elif elements == "schema":
+                    result = collection.find_one({"instrument_name": name})
+                else:
                     result = collection.find_one({"name": name})
-                except Exception as e:
-                    traceback.print_exc()
-                    return self.error(f"Error fetching data from MongoDB: {e}")
-                finally:
-                    client.close()
-
+            except Exception as e:
+                traceback.print_exc()
+                return self.error(f"Error fetching data from MongoDB: {e}")
+            finally:
+                client.close()
+                
         return self.success(data={str(elements): result})
 
     @auth_or_token
