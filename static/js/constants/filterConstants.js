@@ -1,16 +1,340 @@
 import {
   defaultFieldOptions,
-  flattenFieldOptions,
-  getExpandableArrayFields,
 } from "./fieldSchema.js";
 
-// Re-export fieldOptions for backward compatibility
+const flattenFieldOptions = (avroSchema) => {
+  const flattenedOptions = [];
+
+  // Helper to resolve named types
+  const resolveNamedType = (typeName, schema) => {
+    if (typeof typeName !== "string") return null;
+
+    const findNamedType = (fields) => {
+      for (const field of fields) {
+        const fieldType = Array.isArray(field.type)
+          ? field.type.find((t) => t !== "null")
+          : field.type;
+
+        if (typeof fieldType === "object" && fieldType.name === typeName) {
+          return fieldType;
+        }
+
+        // Recursively search in nested records
+        if (
+          typeof fieldType === "object" &&
+          fieldType.type === "record" &&
+          fieldType.fields
+        ) {
+          const found = findNamedType(fieldType.fields);
+          if (found) return found;
+        }
+
+        if (
+          typeof fieldType === "object" &&
+          fieldType.type === "array" &&
+          typeof fieldType.items === "object" &&
+          fieldType.items.fields
+        ) {
+          const found = findNamedType(fieldType.items.fields);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    return findNamedType(schema.fields || []);
+  };
+
+  const getSimpleType = (avroType) => {
+    if (typeof avroType === "string") {
+      // Map Avro primitive types to our system types
+      switch (avroType) {
+        case "double":
+        case "float":
+        case "int":
+        case "long":
+          return "number";
+        case "string":
+          return "string";
+        case "boolean":
+          return "boolean";
+        default:
+          return "string";
+      }
+    }
+
+    if (Array.isArray(avroType)) {
+      // Handle union types - get the non-null type
+      const nonNullType = avroType.find((t) => t !== "null");
+      return getSimpleType(nonNullType);
+    }
+
+    if (typeof avroType === "object") {
+      if (avroType.type === "array") return "array";
+      if (avroType.type === "record") return "object";
+      return getSimpleType(avroType.type);
+    }
+
+    return "string";
+  };
+
+  const processField = (field, parentPath = "") => {
+    const currentPath = parentPath ? `${parentPath}.${field.name}` : field.name;
+    const fieldType = field.type;
+
+    // Handle union types (e.g., ["null", {...}])
+    let actualType = fieldType;
+    if (Array.isArray(fieldType)) {
+      actualType = fieldType.find((t) => t !== "null") || fieldType[0];
+    }
+
+    if (typeof actualType === "object") {
+      if (actualType.type === "record" && actualType.fields) {
+        // For record fields, recursively process nested fields
+        actualType.fields.forEach((nestedField) => {
+          processField(nestedField, currentPath);
+        });
+      } else if (actualType.type === "array" && actualType.items) {
+        // Handle array items - check if it's a named type reference
+        let itemsType = actualType.items;
+
+        // If items is a string, it's a named type reference
+        if (typeof itemsType === "string") {
+          const resolvedType = resolveNamedType(itemsType, avroSchema);
+          if (resolvedType) {
+            itemsType = resolvedType;
+          }
+        }
+
+        // Automatically detect the array type based on structure:
+        // - Cross_matches-style: arrays with record items that have union type fields (catalog fields)
+        // - Expandable arrays: arrays with simple record items (no union types)
+        const isCrossMatchStyle =
+          typeof itemsType === "object" &&
+          itemsType.type === "record" &&
+          itemsType.fields &&
+          itemsType.fields.some((catalogField) =>
+            Array.isArray(catalogField.type),
+          );
+
+        if (isCrossMatchStyle) {
+          // For cross_matches-style arrays, create entries for each catalog/database
+          // These appear as "arrayName.catalogName" in the main autocomplete
+          itemsType.fields.forEach((catalogField) => {
+            flattenedOptions.push({
+              label: `${currentPath}.${catalogField.name}`,
+              type: "array", // Mark as array type since it represents an array element
+              group: field.name, // Use the actual field name as group
+              parentArray: currentPath,
+              arrayObject: catalogField.name,
+              catalogName: catalogField.name,
+            });
+          });
+        } else if (
+          typeof itemsType === "object" &&
+          itemsType.type === "record"
+        ) {
+          // For expandable arrays (simple record arrays), only show the array itself as selectable
+          // The nested fields will be available in the list condition dialog
+          flattenedOptions.push({
+            label: currentPath,
+            type: "array",
+            group: parentPath ? parentPath.split(".")[0] : "Simple",
+            arrayItems: itemsType,
+            isExpandableArray: true, // Mark as expandable for UI behavior
+          });
+
+          // Do NOT process the record fields for the main autocomplete
+          // They will be handled separately in the list condition dialog
+        } else {
+          // Array of primitives
+          flattenedOptions.push({
+            label: currentPath,
+            type: "array",
+            group: parentPath ? parentPath.split(".")[0] : "Simple",
+            itemType: getSimpleType(itemsType),
+          });
+        }
+      } else {
+        // Other complex types, treat as objects
+        flattenedOptions.push({
+          label: currentPath,
+          type: getSimpleType(actualType),
+          group: parentPath ? parentPath.split(".")[0] : "Simple",
+        });
+      }
+    } else {
+      // Simple field types
+      flattenedOptions.push({
+        label: currentPath,
+        type: getSimpleType(actualType),
+        group: parentPath ? parentPath.split(".")[0] : "Simple",
+      });
+    }
+  };
+
+  if (avroSchema && avroSchema.fields) {
+    avroSchema.fields.forEach((field) => processField(field));
+  }
+
+  return flattenedOptions;
+};
+
+const getExpandableArrayFields = (avroSchema, arrayFieldName) => {
+  if (!avroSchema || !avroSchema.fields) return [];
+
+  const arrayField = avroSchema.fields.find((f) => f.name === arrayFieldName);
+  if (!arrayField) return [];
+
+  let fieldType = arrayField.type;
+
+  // Handle union types
+  if (Array.isArray(fieldType)) {
+    fieldType = fieldType.find((t) => t !== "null") || fieldType[0];
+  }
+
+  if (fieldType.type !== "array" || !fieldType.items) return [];
+
+  let itemsType = fieldType.items;
+
+  // Helper to resolve named types
+  const resolveNamedType = (typeName, schema) => {
+    if (typeof typeName !== "string") return null;
+
+    const findNamedType = (fields) => {
+      for (const field of fields) {
+        const fieldTypeName = Array.isArray(field.type)
+          ? field.type.find((t) => t !== "null")
+          : field.type;
+
+        if (
+          typeof fieldTypeName === "object" &&
+          fieldTypeName.name === typeName
+        ) {
+          return fieldTypeName;
+        }
+
+        if (
+          typeof fieldTypeName === "object" &&
+          fieldTypeName.type === "record" &&
+          fieldTypeName.fields
+        ) {
+          const found = findNamedType(fieldTypeName.fields);
+          if (found) return found;
+        }
+
+        if (
+          typeof fieldTypeName === "object" &&
+          fieldTypeName.type === "array" &&
+          typeof fieldTypeName.items === "object" &&
+          fieldTypeName.items.fields
+        ) {
+          const found = findNamedType(fieldTypeName.items.fields);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    return findNamedType(schema.fields || []);
+  };
+
+  // If items is a string, it's a named type reference
+  if (typeof itemsType === "string") {
+    const resolvedType = resolveNamedType(itemsType, avroSchema);
+    if (resolvedType) {
+      itemsType = resolvedType;
+    }
+  }
+
+  if (
+    typeof itemsType !== "object" ||
+    itemsType.type !== "record" ||
+    !itemsType.fields
+  ) {
+    return [];
+  }
+
+  const getSimpleType = (avroType) => {
+    if (typeof avroType === "string") {
+      switch (avroType) {
+        case "double":
+        case "float":
+        case "int":
+        case "long":
+          return "number";
+        case "string":
+          return "string";
+        case "boolean":
+          return "boolean";
+        default:
+          return "string";
+      }
+    }
+
+    if (Array.isArray(avroType)) {
+      const nonNullType = avroType.find((t) => t !== "null");
+      return getSimpleType(nonNullType);
+    }
+
+    if (typeof avroType === "object") {
+      if (avroType.type === "array") return "array";
+      if (avroType.type === "record") return "object";
+      return getSimpleType(avroType.type);
+    }
+
+    return "string";
+  };
+
+  // Convert fields to flattened options
+  const nestedFields = [];
+
+  const processNestedField = (field, parentPath = "") => {
+    const currentPath = parentPath ? `${parentPath}.${field.name}` : field.name;
+    const fieldItemsType = field.type;
+
+    let actualType = fieldItemsType;
+    if (Array.isArray(fieldItemsType)) {
+      actualType =
+        fieldItemsType.find((t) => t !== "null") || fieldItemsType[0];
+    }
+
+    if (typeof actualType === "object") {
+      if (actualType.type === "record" && actualType.fields) {
+        // For nested records, recursively process fields
+        actualType.fields.forEach((nestedField) => {
+          processNestedField(nestedField, currentPath);
+        });
+      } else if (actualType.type === "array") {
+        // Handle nested arrays
+        nestedFields.push({
+          label: currentPath,
+          type: "array",
+          itemType: getSimpleType(actualType.items),
+        });
+      } else {
+        nestedFields.push({
+          label: currentPath,
+          type: getSimpleType(actualType),
+        });
+      }
+    } else {
+      nestedFields.push({
+        label: currentPath,
+        type: getSimpleType(actualType),
+      });
+    }
+  };
+
+  itemsType.fields.forEach((field) => processNestedField(field));
+
+  return nestedFields.sort((a, b) => a.label.localeCompare(b.label));
+};
+
 export const fieldOptions = flattenFieldOptions(defaultFieldOptions);
 
-// Export the original nested field options for schema operations
 export const nestedFieldOptions = defaultFieldOptions;
 
-// Add operator types
 export const mongoOperatorLabels = {
   $eq: "=",
   $ne: "≠",
@@ -143,7 +467,7 @@ export function getArrayFieldSubOptions(arrayFieldLabel) {
     const catalogName = arrayFieldLabel.replace("cross_matches.", "");
 
     // Find the cross_matches field in the Avro schema
-    const crossMatchesField = nestedFieldOptions.fields?.find(
+    const crossMatchesField = defaultFieldOptions.fields?.find(
       (field) => field.name === "cross_matches",
     );
     if (!crossMatchesField) return [];
@@ -246,7 +570,7 @@ export function getArrayFieldSubOptions(arrayFieldLabel) {
   if (!arrayFieldLabel.includes(".")) {
     // Try to get expandable array fields for any single field name
     const expandableFields = getExpandableArrayFields(
-      nestedFieldOptions,
+      defaultFieldOptions,
       arrayFieldLabel,
     );
     if (expandableFields.length > 0) {
