@@ -1,18 +1,149 @@
-import {
-  fieldOptions,
-  nestedFieldOptions,
-} from "../constants/filterConstants.js";
+import { useSelector } from "react-redux";
+
+// Custom hook to get nested field options from Redux store
+export const useNestedFieldOptions = () => {
+  const active_id = useSelector(
+    (state) => state.filter_modules.schema?.active_id,
+  );
+  const versions = useSelector(
+    (state) => state.filter_modules.schema?.versions,
+  );
+
+  let schema;
+  if (versions && active_id) {
+    const filteredVersions = versions.filter((v) => v.vid === active_id); // Use v.vid to match active_id
+
+    if (filteredVersions.length > 0) {
+      const rawSchema = filteredVersions[0].schema;
+
+      try {
+        schema = JSON.parse(rawSchema);
+      } catch (error) {
+        console.error("Error parsing schema JSON:", error);
+      }
+    }
+  }
+  return schema;
+};
+
+// Function to convert schema fields to field options format
+export const convertSchemaToFieldOptions = (schema) => {
+  if (!schema || !schema.fields) {
+    return [];
+  }
+
+  const schemaFieldOptions = [];
+
+  const processField = (field, parentPath = "") => {
+    const fieldPath = parentPath ? `${parentPath}.${field.name}` : field.name;
+
+    // Handle different type formats
+    let fieldType = field.type;
+
+    // Handle simple types (string, int, double, etc.)
+    if (typeof fieldType === "string") {
+      schemaFieldOptions.push({
+        label: fieldPath,
+        type: fieldType,
+        isSchemaField: true,
+      });
+      return;
+    }
+
+    // Handle complex types (objects with type property)
+    if (typeof fieldType === "object") {
+      // Handle Avro record types
+      if (fieldType.type === "record" && fieldType.fields) {
+        // Add the parent field
+        schemaFieldOptions.push({
+          label: fieldPath,
+          type: "record",
+          isSchemaField: true,
+        });
+        // Process nested fields
+        fieldType.fields.forEach((nestedField) => {
+          processField(nestedField, fieldPath);
+        });
+      }
+      // Handle Avro array types
+      else if (fieldType.type === "array") {
+        schemaFieldOptions.push({
+          label: fieldPath,
+          type: "array",
+          isSchemaField: true,
+        });
+
+        // Process array items if they are records
+        if (fieldType.items && typeof fieldType.items === "object") {
+          if (fieldType.items.type === "record" && fieldType.items.fields) {
+            fieldType.items.fields.forEach((itemField) => {
+              processField(itemField, fieldPath);
+            });
+          }
+        } else if (typeof fieldType.items === "string") {
+          // Handle reference to another record type (like "Candidate")
+          // Reference type handling
+        }
+      }
+      // Handle Avro union types (like ["null", {...}])
+      else if (Array.isArray(fieldType)) {
+        // Find the non-null type in the union
+        const nonNullType = fieldType.find(
+          (t) => t !== "null" && typeof t === "object",
+        );
+        if (nonNullType) {
+          if (nonNullType.type === "record" && nonNullType.fields) {
+            schemaFieldOptions.push({
+              label: fieldPath,
+              type: "record",
+              isSchemaField: true,
+            });
+            nonNullType.fields.forEach((nestedField) => {
+              processField(nestedField, fieldPath);
+            });
+          } else {
+            schemaFieldOptions.push({
+              label: fieldPath,
+              type: nonNullType.type || "unknown",
+              isSchemaField: true,
+            });
+          }
+        }
+      }
+      // Handle other object types
+      else {
+        schemaFieldOptions.push({
+          label: fieldPath,
+          type: fieldType.type || "object",
+          isSchemaField: true,
+        });
+      }
+    }
+  };
+
+  schema.fields.forEach((field) => processField(field));
+  return schemaFieldOptions;
+};
 
 // Helper functions for field type checking
 export const getFieldType = (
   field,
   customVariables,
+  schema,
+  fallbackFieldOptions,
   fieldOptionsList,
   customListVariables = [],
 ) => {
-  // First check custom variables and list variables
-  const fieldVar = customVariables?.find((v) => v.name === field);
-  const listVar = customListVariables?.find((lv) => lv.name === field);
+  // First check custom variables and list variables - ensure they are arrays
+  const safeCustomVariables = Array.isArray(customVariables)
+    ? customVariables
+    : [];
+  const safeCustomListVariables = Array.isArray(customListVariables)
+    ? customListVariables
+    : [];
+
+  const fieldVar = safeCustomVariables.find((v) => v.name === field);
+  const listVar = safeCustomListVariables.find((lv) => lv.name === field);
   const fieldObjList = fieldOptionsList
     ? fieldOptionsList.find((f) => f.label === field)
     : null;
@@ -22,7 +153,8 @@ export const getFieldType = (
   if (fieldObjList?.type) return fieldObjList.type;
 
   // Check for exact match first (backward compatibility)
-  const exactMatch = fieldOptions.find((f) => f.label === field);
+  const safeFieldOptions = fallbackFieldOptions || [];
+  const exactMatch = safeFieldOptions.find((f) => f.label === field);
   if (exactMatch?.type) return exactMatch.type;
 
   // Handle nested field paths (e.g., "Candidate.isdiffpos", "cross_matches.NED_BetaV3.z")
@@ -33,7 +165,7 @@ export const getFieldType = (
     const nestedPath = fieldParts.slice(1);
 
     // Find the root field in the nested schema - access fields array from the schema
-    const schemaFields = nestedFieldOptions.fields || [];
+    const schemaFields = schema?.fields || [];
     const rootFieldObj = schemaFields.find((f) => f.name === rootField);
 
     if (rootFieldObj) {
@@ -127,6 +259,8 @@ export const isFieldType = (
   field,
   type,
   customVariables,
+  schema,
+  fallbackFieldOptions,
   fieldOptionsList,
   customListVariables = [],
 ) => {
@@ -134,6 +268,8 @@ export const isFieldType = (
     getFieldType(
       field,
       customVariables,
+      schema,
+      fallbackFieldOptions,
       fieldOptionsList,
       customListVariables,
     ) === type
@@ -144,6 +280,8 @@ export const isFieldType = (
 export const getOperatorsForField = (
   field,
   customVariables,
+  schema,
+  fallbackFieldOptions,
   fieldOptionsList,
   customListVariables = [],
 ) => {
@@ -151,6 +289,8 @@ export const getOperatorsForField = (
   const type = getFieldType(
     field,
     customVariables,
+    schema,
+    fallbackFieldOptions,
     fieldOptionsList,
     customListVariables,
   );
@@ -204,6 +344,7 @@ export const getFieldOptionsWithVariable = (
   fieldOptionsList,
   customVariables,
   customListVariables,
+  schemaFieldOptions = [], // Add schema field options parameter
 ) => {
   const listVariableOptions =
     customListVariables?.map((lv) => {
@@ -228,9 +369,17 @@ export const getFieldOptionsWithVariable = (
     })) || [];
 
   // Use fieldOptionsList if provided, otherwise use the imported fieldOptions from constants
-  const baseOptions = fieldOptionsList || baseFieldOptions || fieldOptions;
+  const baseOptions = fieldOptionsList || baseFieldOptions;
 
-  return [...baseOptions, ...variableOptions, ...listVariableOptions];
+  // Always include schema fields regardless of which base options are used
+  const combined = [
+    ...baseOptions,
+    ...schemaFieldOptions,
+    ...variableOptions,
+    ...listVariableOptions,
+  ];
+
+  return combined;
 };
 
 // Helper function to update conditions in the filter tree

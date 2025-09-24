@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect } from "react";
+import { useSelector } from "react-redux";
 import PropTypes from "prop-types";
 import { FormControlLabel, Switch } from "@mui/material";
 import {
   mongoOperatorLabels,
-  fieldOptions,
+  flattenFieldOptions,
 } from "../../../constants/filterConstants";
 import { getOperatorsForField } from "../../../utils/conditionHelpers";
 import { useConditionContext } from "../../../hooks/useContexts";
@@ -94,6 +95,9 @@ const isBooleanField = (
   customVariables,
   fieldOptionsList,
 ) => {
+  const schema = useSelector((state) => state.filter_modules?.schema);
+  const fieldOptions = flattenFieldOptions(schema);
+
   const fieldVar = customVariables?.find(
     (v) => v.name === conditionOrBlock.field,
   );
@@ -182,6 +186,8 @@ const ListVariableOperator = ({
 }) => {
   const { customVariables, fieldOptionsList, customListVariables } =
     useConditionContext();
+  const schema = useSelector((state) => state.filter_modules?.schema);
+  const fieldOptions = flattenFieldOptions(schema);
 
   const handleOperatorChange = useCallback(
     (op) => {
@@ -253,6 +259,8 @@ const ListVariableOperator = ({
     const standardOperators = getOperatorsForField(
       conditionOrBlock.field,
       customVariables,
+      schema,
+      fieldOptions,
       fieldOptionsList,
       customListVariables,
     );

@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from "react";
+import { useSelector } from "react-redux";
 import PropTypes from "prop-types";
 import {
   useFilterBuilder,
@@ -47,7 +48,7 @@ import "katex/dist/katex.min.css";
 import Latex from "react-latex-next";
 import {
   mongoOperatorTypes,
-  fieldOptions,
+  flattenFieldOptions,
 } from "../../../constants/filterConstants";
 
 const useBlockState = (block, isRoot) => {
@@ -815,6 +816,9 @@ const isBooleanField = (
   customVariables,
   fieldOptionsList,
 ) => {
+  const schema = useSelector((state) => state.filter_modules?.schema);
+  const fieldOptions = flattenFieldOptions(schema);
+
   const fieldVar = customVariables?.find(
     (v) => v.name === conditionOrBlock.field,
   );
@@ -847,6 +851,9 @@ const isArrayFieldWithArrayOperator = (
   customVariables,
   fieldOptionsList,
 ) => {
+  const schema = useSelector((state) => state.filter_modules?.schema);
+  const fieldOptions = flattenFieldOptions(schema);
+
   const fieldVar = customVariables?.find(
     (v) => v.name === conditionOrBlock.field,
   );
@@ -1415,7 +1422,6 @@ const BlockHeader = ({
                       };
                       return updateBlockOperator(currentBlock);
                     });
-                    console.log("Updated filters:", updatedFilters);
                     setLocalFilters(updatedFilters);
                   } else {
                     // Fallback to context update
@@ -1862,6 +1868,11 @@ const ConditionComponentInner = ({
   const [selectedChip, setSelectedChip] = useState("");
   const [listPopoverAnchor, setListPopoverAnchor] = useState(null);
   const [equationAnchor, setEquationAnchor] = useState(null);
+  const schema = useSelector((state) => state.filter_modules?.schema);
+  const final_schema = schema?.versions?.find(
+    (v) => v.vid === schema.active_id,
+  ).schema;
+  const fieldOptions = flattenFieldOptions(final_schema);
 
   // Custom hooks
   usePopoverRegistry(
@@ -1878,10 +1889,10 @@ const ConditionComponentInner = ({
     filters,
     setFilters,
     createDefaultCondition,
-  ); // Fixed: use createDefaultCondition
+  );
   const fieldOptionsWithVariable = getFieldOptionsWithVariable(
-    fieldOptions, // Keep as fallback
-    fieldOptionsList, // Use the passed prop as primary source
+    fieldOptions,
+    fieldOptionsList,
     customVariables,
     customListVariables,
   );
@@ -1889,6 +1900,8 @@ const ConditionComponentInner = ({
     ? getOperatorsForField(
         conditionOrBlock.field,
         customVariables,
+        schema,
+        fieldOptions, // fallbackFieldOptions
         fieldOptionsList,
         customListVariables,
       )
@@ -1898,6 +1911,8 @@ const ConditionComponentInner = ({
     const ops = getOperatorsForField(
       newField,
       customVariables,
+      schema,
+      fieldOptions, // fallbackFieldOptions
       fieldOptionsList,
       customListVariables,
     );
@@ -1905,6 +1920,8 @@ const ConditionComponentInner = ({
       newField,
       "boolean",
       customVariables,
+      schema,
+      fieldOptions, // This is the local variable, not the import
       fieldOptionsList,
       customListVariables,
     );

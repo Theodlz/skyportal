@@ -38,9 +38,7 @@ import { CopyToClipboard } from "react-copy-to-clipboard";
 import TextField from "@mui/material/TextField";
 import Form from "@rjsf/mui";
 import validator from "@rjsf/validator-ajv8";
-import { 
-  UnifiedBuilderProvider
-} from "../../contexts/UnifiedBuilderContext";
+import { UnifiedBuilderProvider } from "../../contexts/UnifiedBuilderContext";
 import FilterBuilderContent from "./FilterBuilderContent.jsx";
 import AnnotationBuilderContent from "./AnnotationBuilderContent.jsx";
 
@@ -783,112 +781,116 @@ const FilterPlugins = ({ group }) => {
           >
             {inlineNewVersion ? (
               // Inline new version mode - show only filter info and builder
-              <div
-                style={{
-                  width: "100%",
-                  maxWidth: "100%",
-                  overflow: "hidden",
-                  boxSizing: "border-box",
-                }}
+              <UnifiedBuilderProvider
+                mode={showAnnotationBuilder ? "annotation" : "filter"}
               >
-                {/* Filter basic info */}
-                {filter_v?.fv && (
-                  <div style={{ marginBottom: "2rem" }}>
-                    <Typography variant="h6" gutterBottom>
-                      Creating New Filter Version
-                    </Typography>
-                    <div className={classes.infoLine}>
-                      <FormControlLabel
-                        // className={classes.formControl}
-                        style={{
-                          marginLeft: theme.spacing(0.5),
-                          marginTop: theme.spacing(1),
-                        }}
-                        control={
-                          <Switch
-                            checked={filter_v.active}
-                            size="small"
-                            onChange={handleChangeActiveFilter}
-                            name="filterActive"
-                          />
-                        }
-                        label="Active"
-                      />
-                      <Button
-                        variant="outlined"
-                        color="primary"
-                        onClick={() => {
-                          setInlineNewVersion(false);
-                          setShowAnnotationBuilder(false);
-                        }}
-                        style={{ marginRight: "1rem" }}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Inline Filter Builder */}
-                <Box
-                  sx={{
+                <div
+                  style={{
                     width: "100%",
                     maxWidth: "100%",
-                    overflow: "visible", // Allow dropdowns to overflow
+                    overflow: "hidden",
                     boxSizing: "border-box",
-                    mt: 1,
-                    border: "1px solid",
-                    borderColor: "divider",
-                    borderRadius: 1,
-                    backgroundColor: "background.paper",
-                    // Responsive sizing
-                    maxHeight: { xs: "70vh", md: "80vh" },
-                    overflowY: "auto", // Only hide vertical overflow for scrolling
                   }}
                 >
-                  <form
-                    id="inline-filter-form"
-                    onSubmit={handleSubmit(onSubmitSaveFilterVersion)}
+                  {/* Filter basic info */}
+                  {filter_v?.fv && (
+                    <div style={{ marginBottom: "2rem" }}>
+                      <Typography variant="h6" gutterBottom>
+                        Creating New Filter Version
+                      </Typography>
+                      <div className={classes.infoLine}>
+                        <FormControlLabel
+                          // className={classes.formControl}
+                          style={{
+                            marginLeft: theme.spacing(0.5),
+                            marginTop: theme.spacing(1),
+                          }}
+                          control={
+                            <Switch
+                              checked={filter_v.active}
+                              size="small"
+                              onChange={handleChangeActiveFilter}
+                              name="filterActive"
+                            />
+                          }
+                          label="Active"
+                        />
+                        <Button
+                          variant="outlined"
+                          color="primary"
+                          onClick={() => {
+                            setInlineNewVersion(false);
+                            setShowAnnotationBuilder(false);
+                          }}
+                          style={{ marginRight: "1rem" }}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Inline Filter Builder */}
+                  <Box
+                    sx={{
+                      width: "100%",
+                      maxWidth: "100%",
+                      overflow: "visible", // Allow dropdowns to overflow
+                      boxSizing: "border-box",
+                      mt: 1,
+                      border: "1px solid",
+                      borderColor: "divider",
+                      borderRadius: 1,
+                      backgroundColor: "background.paper",
+                      // Responsive sizing
+                      maxHeight: { xs: "70vh", md: "80vh" },
+                      overflowY: "auto", // Only hide vertical overflow for scrolling
+                    }}
                   >
-                    <Controller
-                      render={({ field: { onChange, value } }) => (
-                        <UnifiedBuilderProvider mode={showAnnotationBuilder ? "annotation" : "filter"}>
-                          <Box
-                            sx={{
-                              width: "100%",
-                              maxWidth: "100%",
-                              overflow: "visible", // Allow child dropdowns to overflow
-                              "& > .MuiBox-root": {
-                                width: "100% !important",
-                                maxWidth: "100% !important",
-                                minHeight: "auto !important",
-                                padding: {
-                                  xs: "0.5rem !important",
-                                  md: "1rem !important",
+                    <form
+                      id="inline-filter-form"
+                      onSubmit={handleSubmit(onSubmitSaveFilterVersion)}
+                    >
+                      <Controller
+                        render={({ field: { onChange, value } }) => (
+                          <>
+                            <Box
+                              sx={{
+                                display: showAnnotationBuilder
+                                  ? "block"
+                                  : "none",
+                                width: "100%",
+                                maxWidth: "100%",
+                                overflow: "visible",
+                                "& > .MuiBox-root": {
+                                  width: "100% !important",
+                                  maxWidth: "100% !important",
+                                  minHeight: "auto !important",
+                                  padding: {
+                                    xs: "0.5rem !important",
+                                    md: "1rem !important",
+                                  },
+                                  boxSizing: "border-box !important",
+                                  overflow: "visible !important",
                                 },
-                                boxSizing: "border-box !important",
-                                overflow: "visible !important", // Ensure FilterBuilderContent container allows overflow
-                              },
-                              "& h2": {
-                                fontSize: {
-                                  xs: "1.125rem !important",
-                                  md: "1.25rem !important",
+                                "& h2": {
+                                  fontSize: {
+                                    xs: "1.125rem !important",
+                                    md: "1.25rem !important",
+                                  },
+                                  marginBottom: "1rem !important",
                                 },
-                                marginBottom: "1rem !important",
-                              },
-                              "& .MuiButton-root": {
-                                fontSize: {
-                                  xs: "0.75rem !important",
-                                  md: "0.875rem !important",
+                                "& .MuiButton-root": {
+                                  fontSize: {
+                                    xs: "0.75rem !important",
+                                    md: "0.875rem !important",
+                                  },
                                 },
-                              },
-                              // Ensure block components and paper components allow overflow for dropdowns
-                              "& .MuiBox-root": {
-                                overflow: "visible !important",
-                              },
-                            }}
-                          >
-                            {showAnnotationBuilder ? (
+                                "& .MuiBox-root": {
+                                  overflow: "visible !important",
+                                },
+                              }}
+                            >
                               <AnnotationBuilderContent
                                 onBackToFilterBuilder={() =>
                                   setShowAnnotationBuilder(false)
@@ -899,7 +901,44 @@ const FilterPlugins = ({ group }) => {
                                   setShowAnnotationBuilder
                                 }
                               />
-                            ) : (
+                            </Box>
+                            <Box
+                              sx={{
+                                display: showAnnotationBuilder
+                                  ? "none"
+                                  : "block",
+                                width: "100%",
+                                maxWidth: "100%",
+                                overflow: "visible",
+                                "& > .MuiBox-root": {
+                                  width: "100% !important",
+                                  maxWidth: "100% !important",
+                                  minHeight: "auto !important",
+                                  padding: {
+                                    xs: "0.5rem !important",
+                                    md: "1rem !important",
+                                  },
+                                  boxSizing: "border-box !important",
+                                  overflow: "visible !important",
+                                },
+                                "& h2": {
+                                  fontSize: {
+                                    xs: "1.125rem !important",
+                                    md: "1.25rem !important",
+                                  },
+                                  marginBottom: "1rem !important",
+                                },
+                                "& .MuiButton-root": {
+                                  fontSize: {
+                                    xs: "0.75rem !important",
+                                    md: "0.875rem !important",
+                                  },
+                                },
+                                "& .MuiBox-root": {
+                                  overflow: "visible !important",
+                                },
+                              }}
+                            >
                               <FilterBuilderContent
                                 onToggleAnnotationBuilder={() =>
                                   setShowAnnotationBuilder(true)
@@ -910,16 +949,16 @@ const FilterPlugins = ({ group }) => {
                                   setShowAnnotationBuilder
                                 }
                               />
-                            )}
-                          </Box>
-                        </UnifiedBuilderProvider>
-                      )}
-                      name="pipeline"
-                      control={control}
-                    />
-                  </form>
-                </Box>
-              </div>
+                            </Box>
+                          </>
+                        )}
+                        name="pipeline"
+                        control={control}
+                      />
+                    </form>
+                  </Box>
+                </div>
+              </UnifiedBuilderProvider>
             ) : (
               // Normal mode - show all controls
               <>

@@ -62,8 +62,6 @@ const AutocompleteFields = ({
   // Group by category and collect unique group names
   const { options, allGroups } = useMemo(() => {
     const baseOptions = fieldOptions || [];
-
-    // Group by category (origin, "Simple", "Arithmetic Variables", or "Database List Variables")
     let processedOptions = baseOptions.map((option) => ({
       ...option,
       group:
@@ -74,20 +72,30 @@ const AutocompleteFields = ({
             ? "Database List Variables"
             : option.label?.split(".").length > 1
               ? option.label?.split(".")[0]
-              : "Simple"),
+              : "Other Fields"),
     }));
 
-    // Sort options by group to avoid duplicated headers warning
+    // Sort options by group alphabetically to avoid duplicated headers warning
     processedOptions = processedOptions.sort((a, b) => {
       if (a.group < b.group) return -1;
       if (a.group > b.group) return 1;
       return 0;
     });
 
-    // Collect all unique group names
+    // Collect all unique group names and sort them alphabetically
     const uniqueGroups = [
       ...new Set(processedOptions.map((option) => option.group)),
-    ];
+    ].sort();
+
+    const schemaFieldCount = processedOptions.filter(
+      (opt) => opt.isSchemaField,
+    ).length;
+
+    uniqueGroups.forEach((group) => {
+      const groupOptions = processedOptions.filter(
+        (opt) => opt.group === group,
+      );
+    });
 
     return { options: processedOptions, allGroups: uniqueGroups };
   }, [fieldOptions]);
@@ -146,7 +154,7 @@ const AutocompleteFields = ({
       parts.push(`Full path: ${fieldOption.label}`);
     }
 
-    if (fieldOption.group && fieldOption.group !== "Simple") {
+    if (fieldOption.group && fieldOption.group !== "Other Fields") {
       parts.push(`Category: ${fieldOption.group}`);
     }
 
@@ -307,7 +315,7 @@ const AutocompleteFields = ({
               displayText = `${option.label}`;
             } else if (
               option.group !== "Arithmetic Variables" &&
-              option.group !== "Simple"
+              option.group !== "Other Fields"
             ) {
               // For other grouped options, show only the last part after the dot
               displayText = option.label.includes(option.group)
@@ -492,7 +500,8 @@ const AutocompleteFields = ({
           );
           if (arrayFieldOption) {
             const hasCategory =
-              arrayFieldOption.group && arrayFieldOption.group !== "Simple";
+              arrayFieldOption.group &&
+              arrayFieldOption.group !== "Other Fields";
             const displayText = () => {
               if (showFullPath && hasCategory) {
                 return `${arrayFieldOption.group}.${getDisplayName(
@@ -679,7 +688,7 @@ const AutocompleteFields = ({
           if (fieldOption) {
             const hasCategory =
               fieldOption.group &&
-              !["candidate", "Simple"].includes(fieldOption.group);
+              !["candidate", "Other Fields"].includes(fieldOption.group);
             const displayText = () => {
               if (showFullPath && hasCategory) {
                 return `${fieldOption.group}.${getDisplayName(
@@ -734,7 +743,7 @@ const AutocompleteFields = ({
           );
           if (listOption) {
             const hasCategory =
-              listOption.group && listOption.group !== "Simple";
+              listOption.group && listOption.group !== "Other Fields";
             const displayText = () => {
               if (showFullPath && hasCategory) {
                 return `${listOption.group}.${getDisplayName(

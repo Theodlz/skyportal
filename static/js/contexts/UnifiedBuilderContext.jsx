@@ -1,6 +1,6 @@
 import React, { useState, createContext, useEffect } from "react";
 import PropTypes from "prop-types";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { useFilterManipulation, useFilterFactories } from "../hooks/useFilter";
 import { useDialogStates } from "../hooks/useDialog";
 import { fetchAllElements } from "../ducks/boom_filter_modules";
@@ -9,17 +9,23 @@ import {
   formatMongoAggregation,
   isValidPipeline,
 } from "../utils/mongoConverter";
+import { schemaParser } from "@rjsf/utils";
+import { flattenFieldOptions } from "../constants/filterConstants";
 
 export const UnifiedBuilderContext = createContext();
 
 export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
   const dispatch = useDispatch();
-  
+
   // Core state - can be used for both filters and annotations
   const [filters, setFilters] = useState([]);
   const [annotations, setAnnotations] = useState([]);
   const [collapsedBlocks, setCollapsedBlocks] = useState({});
   const [hasInitialized, setHasInitialized] = useState(false);
+
+  // Local filter state management to persist across view changes
+  const [localFilterData, setLocalFilterData] = useState(null);
+  const [hasBeenModified, setHasBeenModified] = useState(false);
 
   // Projection fields state (primarily for annotations)
   const [projectionFields, setProjectionFields] = useState([]);
@@ -32,6 +38,9 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
   // Local filters updater function reference (for FilterBuilderContent)
   const [localFiltersUpdater, setLocalFiltersUpdater] = useState(null);
 
+  const schema = useSelector((state) => state.filter_modules?.schema);
+  const fieldOptions = flattenFieldOptions(schema);
+
   // Load saved data on mount (similar to useFilterBuilderData)
   useEffect(() => {
     const loadData = async () => {
@@ -39,12 +48,11 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
         // Load all saved data in parallel using the same pattern as FilterBuilderData
         const blocks = await dispatch(fetchAllElements({ elements: "blocks" }));
         const variables = await dispatch(
-          fetchAllElements({ elements: "variables" })
+          fetchAllElements({ elements: "variables" }),
         );
         const listVariables = await dispatch(
-          fetchAllElements({ elements: "listVariables" })
+          fetchAllElements({ elements: "listVariables" }),
         );
-
         setCustomBlocks(blocks.data.blocks || []);
         setCustomVariables(variables.data.variables || []);
         setCustomListVariables(listVariables.data.listVariables || []);
@@ -75,6 +83,8 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
     // This ensures annotations show both filters + projections
     const baseQuery = convertToMongoAggregation(
       filters,
+      schema,
+      fieldOptions,
       customVariables,
       customListVariables,
     );
@@ -112,7 +122,8 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
         projection.annotations = annotations;
       }
 
-      if (Object.keys(projection).length > 1) { // More than just objectId
+      if (Object.keys(projection).length > 1) {
+        // More than just objectId
         return [...baseQuery, { $project: projection }];
       }
     }
@@ -144,6 +155,12 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
     setCollapsedBlocks,
     hasInitialized,
     setHasInitialized,
+
+    // Local filter state management
+    localFilterData,
+    setLocalFilterData,
+    hasBeenModified,
+    setHasBeenModified,
 
     // Projection fields state
     projectionFields,

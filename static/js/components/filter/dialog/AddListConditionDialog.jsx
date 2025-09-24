@@ -23,9 +23,9 @@ import {
 } from "../../../hooks/useDialog";
 import { useCurrentBuilder } from "../../../hooks/useContexts";
 import BlockComponent from "../block/BlockComponent";
-import { fieldOptions } from "../../../constants/filterConstants";
 import { postElement } from "../../../ducks/boom_filter_modules";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
+import { flattenFieldOptions } from "../../../constants/filterConstants";
 
 const SubFieldSelector = ({
   selectedSubField,
@@ -240,6 +240,9 @@ const ConditionBuilderSection = ({
   setLocalFilters,
   subFieldOptions,
 }) => {
+  const schema = useSelector((state) => state.filter_modules?.schema);
+  const fieldOptions = flattenFieldOptions(schema);
+
   const shouldShowConditionBuilder = [
     "$anyElementTrue",
     "$allElementsTrue",
@@ -331,9 +334,11 @@ const AddListConditionDialog = () => {
     customListVariables,
     localFiltersUpdater,
   } = useCurrentBuilder();
+  const schema = useSelector((state) => state.filter_modules?.schema);
+  const fieldOptions = flattenFieldOptions(schema);
 
   // Use our custom hooks
-  const form = useListConditionForm(customListVariables);
+  const form = useListConditionForm(fieldOptions, customListVariables);
   const dialog = useListConditionDialog(
     listConditionDialog,
     filters,

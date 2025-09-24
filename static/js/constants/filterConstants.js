@@ -1,9 +1,12 @@
-import {
-  defaultFieldOptions,
-} from "./fieldSchema.js";
-
-const flattenFieldOptions = (avroSchema) => {
+export const flattenFieldOptions = (avroSchema) => {
   const flattenedOptions = [];
+  const defaultGroupName = "Other Fields";
+
+  // Helper function to capitalize first letter of group names
+  const capitalizeGroup = (groupName) => {
+    if (!groupName || typeof groupName !== "string") return groupName;
+    return groupName.charAt(0).toUpperCase() + groupName.slice(1);
+  };
 
   // Helper to resolve named types
   const resolveNamedType = (typeName, schema) => {
@@ -124,7 +127,7 @@ const flattenFieldOptions = (avroSchema) => {
             flattenedOptions.push({
               label: `${currentPath}.${catalogField.name}`,
               type: "array", // Mark as array type since it represents an array element
-              group: field.name, // Use the actual field name as group
+              group: capitalizeGroup(field.name), // Use the actual field name as group
               parentArray: currentPath,
               arrayObject: catalogField.name,
               catalogName: catalogField.name,
@@ -139,7 +142,9 @@ const flattenFieldOptions = (avroSchema) => {
           flattenedOptions.push({
             label: currentPath,
             type: "array",
-            group: parentPath ? parentPath.split(".")[0] : "Simple",
+            group: parentPath
+              ? capitalizeGroup(parentPath.split(".")[0])
+              : defaultGroupName,
             arrayItems: itemsType,
             isExpandableArray: true, // Mark as expandable for UI behavior
           });
@@ -151,7 +156,9 @@ const flattenFieldOptions = (avroSchema) => {
           flattenedOptions.push({
             label: currentPath,
             type: "array",
-            group: parentPath ? parentPath.split(".")[0] : "Simple",
+            group: parentPath
+              ? capitalizeGroup(parentPath.split(".")[0])
+              : defaultGroupName,
             itemType: getSimpleType(itemsType),
           });
         }
@@ -160,7 +167,9 @@ const flattenFieldOptions = (avroSchema) => {
         flattenedOptions.push({
           label: currentPath,
           type: getSimpleType(actualType),
-          group: parentPath ? parentPath.split(".")[0] : "Simple",
+          group: parentPath
+            ? capitalizeGroup(parentPath.split(".")[0])
+            : defaultGroupName,
         });
       }
     } else {
@@ -168,7 +177,9 @@ const flattenFieldOptions = (avroSchema) => {
       flattenedOptions.push({
         label: currentPath,
         type: getSimpleType(actualType),
-        group: parentPath ? parentPath.split(".")[0] : "Simple",
+        group: parentPath
+          ? capitalizeGroup(parentPath.split(".")[0])
+          : defaultGroupName,
       });
     }
   };
@@ -331,9 +342,9 @@ const getExpandableArrayFields = (avroSchema, arrayFieldName) => {
   return nestedFields.sort((a, b) => a.label.localeCompare(b.label));
 };
 
-export const fieldOptions = flattenFieldOptions(defaultFieldOptions);
+// export const nestedFieldOptions = defaultFieldOptions;
 
-export const nestedFieldOptions = defaultFieldOptions;
+// export const fieldOptions = flattenFieldOptions(defaultFieldOptions);
 
 export const mongoOperatorLabels = {
   $eq: "=",
@@ -455,7 +466,7 @@ export function getComparisonOperators() {
 }
 
 // Helper to extract array field subkeys for list condition dialog
-export function getArrayFieldSubOptions(arrayFieldLabel) {
+export function getArrayFieldSubOptions(arrayFieldLabel, schema) {
   // Handle null/undefined input
   if (!arrayFieldLabel || typeof arrayFieldLabel !== "string") {
     return [];
@@ -467,7 +478,7 @@ export function getArrayFieldSubOptions(arrayFieldLabel) {
     const catalogName = arrayFieldLabel.replace("cross_matches.", "");
 
     // Find the cross_matches field in the Avro schema
-    const crossMatchesField = defaultFieldOptions.fields?.find(
+    const crossMatchesField = schema?.fields?.find(
       (field) => field.name === "cross_matches",
     );
     if (!crossMatchesField) return [];
@@ -569,10 +580,7 @@ export function getArrayFieldSubOptions(arrayFieldLabel) {
   // Check if this is an expandable array (direct array field name without dots)
   if (!arrayFieldLabel.includes(".")) {
     // Try to get expandable array fields for any single field name
-    const expandableFields = getExpandableArrayFields(
-      defaultFieldOptions,
-      arrayFieldLabel,
-    );
+    const expandableFields = getExpandableArrayFields(schema, arrayFieldLabel);
     if (expandableFields.length > 0) {
       return expandableFields;
     }

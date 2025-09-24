@@ -9,8 +9,7 @@ import {
 } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
 import { useFilterBuilder } from "../../hooks/useContexts";
-import { useFilterBuilderData } from "../../hooks/useFilter";
-import { fieldOptions } from "../../constants/filterConstants";
+import { flattenFieldOptions } from "../../constants/filterConstants";
 import AddVariableDialog from "./dialog/AddVariableDialog";
 import BlockComponent from "./block/BlockComponent";
 import AddListConditionDialog from "./dialog/AddListConditionDialog";
@@ -35,31 +34,21 @@ const FilterBuilderContent = ({
     generateMongoQuery,
     setFilters,
     setLocalFiltersUpdater,
+    // Use context state for local filter management
+    localFilterData,
+    setLocalFilterData,
+    hasBeenModified,
+    setHasBeenModified,
   } = useFilterBuilder();
   const navigate = useNavigate();
   const dispatch = useDispatch();
+  const filter_stream = useSelector(
+    (state) => state.filter_v.stream.name.split(" ")[0],
+  );
+  const store_schema = useSelector((state) => state.filter_modules?.schema);
 
-  // Local editable filter state
-  const [localFilterData, setLocalFilterData] = useState(null);
-  const [hasBeenModified, setHasBeenModified] = useState(false);
-  const filter_stream = useSelector((state) => state.filter_v.stream.name.split(" ")[0]);
-  const test = useSelector((state) => state.filter_modules?.schema);
-  const active_id = useSelector((state) => state.filter_modules.schema?.active_id);
-  const versions = useSelector((state) => state.filter_modules.schema?.versions);
-  let schema;
-  if (versions) {
-    const filteredVersions = versions.filter((v) => v.vid === active_id);
-    schema = JSON.parse(filteredVersions[0].schema);
-  }
-  // const schema = temp?.find((v) => v.vid === active_id);
-
-  console.log("Bonjour:", test);
-  console.log("Active ID:", active_id);
-  console.log("Versions:", versions);
-  console.log("Current schema:", schema);
-
-  // Load initial data
-  useFilterBuilderData();
+  const [schema, setSchema] = useState(null);
+  const [fieldOptions, setFieldOptions] = useState([]);
 
   // Initialize local filter data when filter prop changes
   useEffect(() => {
@@ -161,8 +150,15 @@ const FilterBuilderContent = ({
   }, [localFilterData, setFilters]);
 
   useEffect(() => {
-      dispatch(fetchSchema({ name: filter_stream, elements: "schema" }));
-    }, [filter_stream]);
+    dispatch(fetchSchema({ name: filter_stream, elements: "schema" }));
+  }, [filter_stream]);
+
+  useEffect(() => {
+    if (store_schema) {
+      setSchema(store_schema);
+      setFieldOptions(flattenFieldOptions(store_schema));
+    }
+  }, [store_schema]);
 
   // Callback to handle filter updates from child components
   const handleFilterUpdate = (updatedFilters) => {

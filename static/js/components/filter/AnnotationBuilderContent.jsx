@@ -26,15 +26,11 @@ import {
   ChevronRight as ChevronRightIcon,
 } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
+import { useDispatch, useSelector } from "react-redux";
 import {
   useFilterBuilder,
   useAnnotationBuilder,
 } from "../../hooks/useContexts";
-import { UnifiedBuilderContext } from "../../contexts/UnifiedBuilderContext";
-import {
-  fieldOptions,
-  getArrayFieldSubOptions,
-} from "../../constants/filterConstants";
 import { getFieldOptionsWithVariable } from "../../utils/conditionHelpers";
 import AddVariableDialog from "./dialog/AddVariableDialog";
 import AddListConditionDialog from "./dialog/AddListConditionDialog";
@@ -44,6 +40,11 @@ import { filterBuilderStyles } from "../../styles/componentStyles";
 import { styled, lighten, darken } from "@mui/system";
 import { latexToMongoConverter } from "../../utils/robustLatexConverter";
 import CloseIcon from "@mui/icons-material/Close";
+import {
+  flattenFieldOptions,
+  getArrayFieldSubOptions,
+} from "../../constants/filterConstants";
+import { fetchSchema } from "../../ducks/boom_filter_modules";
 
 const GroupHeader = styled("div")(({ theme }) => {
   const primaryMain = theme.palette?.primary?.main || "#1976d2";
@@ -76,11 +77,7 @@ const GroupItems = styled("ul")({
 });
 
 const useAnnotationBuilderData = (builderContext) => {
-  const {
-    filters,
-    setFilters,
-    createDefaultBlock,
-  } = builderContext;
+  const { filters, setFilters, createDefaultBlock } = builderContext;
 
   // Initialize filters if empty
   useEffect(() => {
@@ -215,8 +212,11 @@ const MapAnnotationsDialog = ({
                 {/* Field Selection: autocomplete with subfields only */}
                 <Autocomplete
                   value={
-                    mapField.fieldName 
-                      ? subFields.map((sf) => ({ label: sf, name: sf })).find((opt) => opt.name === mapField.fieldName) || null
+                    mapField.fieldName
+                      ? subFields
+                          .map((sf) => ({ label: sf, name: sf }))
+                          .find((opt) => opt.name === mapField.fieldName) ||
+                        null
                       : null
                   }
                   onChange={(_, newValue) => {
@@ -235,7 +235,7 @@ const MapAnnotationsDialog = ({
                     );
                   }}
                   options={subFields.map((sf) => ({ label: sf, name: sf }))}
-                  isOptionEqualToValue={(option, value) => 
+                  isOptionEqualToValue={(option, value) =>
                     option.name === value?.name
                   }
                   getOptionLabel={(option) => {
@@ -371,6 +371,16 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
   const annotationContext = useAnnotationBuilder();
   const filterContext = useFilterBuilder(); // Get full filter context
   const navigate = useNavigate();
+  const dispatch = useDispatch();
+
+  // Use the same schema fetching approach as FilterBuilder
+  const filter_stream = useSelector(
+    (state) => state.filter_v.stream.name.split(" ")[0],
+  );
+  const store_schema = useSelector((state) => state.filter_modules?.schema);
+
+  const [schema, setSchema] = useState(null);
+  const [fieldOptions, setFieldOptions] = useState([]);
 
   // State for expandable groups
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
@@ -400,26 +410,47 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
   // Load initial data using annotation context
   useAnnotationBuilderData(annotationContext);
 
+  // Fetch schema using the same approach as FilterBuilder
+  useEffect(() => {
+    dispatch(fetchSchema({ name: filter_stream, elements: "schema" }));
+  }, [filter_stream, dispatch]);
+
+  useEffect(() => {
+    if (store_schema) {
+      setSchema(store_schema);
+      setFieldOptions(flattenFieldOptions(store_schema));
+    }
+  }, [store_schema]);
+
   // Get available field options from schema and variables, matching filter page
   const getFieldOptions = () => {
+    // Don't return options until fieldOptions are loaded from schema
+    if (!fieldOptions || fieldOptions.length === 0) {
+      return [];
+    }
+
     // Use the same helper as filter page for unified options
+    // Pass empty array as schemaFieldOptions since fieldOptions already contains them
     return getFieldOptionsWithVariable(
       fieldOptions,
       fieldOptions,
       filterContext.customVariables || [],
       filterContext.customListVariables || [],
+      [], // Empty array to avoid duplication since fieldOptions already contains schema fields
     )
       .map((field) => {
         const fieldName = field.label || field.name;
         let subFields = field.subFields || [];
         // Use getArrayFieldSubOptions for array fields to match AddListConditionDialog
         if (field.type === "array") {
-          subFields = getArrayFieldSubOptions(fieldName);
+          subFields = getArrayFieldSubOptions(fieldName, schema);
         }
         // For arithmetic variables, get expression from customVariables DB if available
         let expression = field.expression;
         if (field.isVariable) {
-          const dbVar = (filterContext.customVariables || []).find((v) => v.name === fieldName);
+          const dbVar = (filterContext.customVariables || []).find(
+            (v) => v.name === fieldName,
+          );
           if (dbVar && dbVar.variable) {
             expression = latexToMongoConverter.convertToMongo(
               dbVar.variable.split("=")[1].trim(),
@@ -442,7 +473,7 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
               : field.group ||
                 (fieldName.split(".").length > 1
                   ? fieldName.split(".")[0]
-                  : "Simple"),
+                  : `${filter_stream} fields`),
           isArray: field.type === "array",
           isArrayVariable: field.type === "array_variable",
           subFields:
@@ -785,8 +816,10 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
                   {/* Field Selection */}
                   <Autocomplete
                     value={
-                      field.fieldName 
-                        ? availableFields.find((opt) => opt.name === field.fieldName) || null
+                      field.fieldName
+                        ? availableFields.find(
+                            (opt) => opt.name === field.fieldName,
+                          ) || null
                         : null
                     }
                     onChange={(_, newValue) => {
@@ -815,7 +848,7 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
                     options={availableFields}
                     groupBy={(option) => option.group}
                     getOptionLabel={(option) => option.label || option.name}
-                    isOptionEqualToValue={(option, value) => 
+                    isOptionEqualToValue={(option, value) =>
                       option.name === value?.name
                     }
                     sx={{ minWidth: 250 }}
@@ -827,7 +860,7 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
                       let displayText = option.name;
                       if (
                         option.group !== "Arithmetic Variables" &&
-                        option.group !== "Simple"
+                        option.group !== "Other Fields"
                       ) {
                         displayText = option.name.includes(option.group)
                           ? option.name.split(".").slice(-1)[0]

@@ -1,4 +1,3 @@
-import { element } from "prop-types";
 import * as API from "../API";
 import store from "../store";
 
@@ -37,8 +36,16 @@ export function postElement({ name, data, elements }) {
 
 const reducer = (state = {}, action) => {
   switch (action.type) {
+    case FETCH_SCHEMA_OK: {
+      const schema_from_db = JSON.parse(
+        action.data.schema.versions.find(
+          (e) => e.vid === action.data.schema.active_id,
+        ).schema,
+      );
+      const res = { schema: schema_from_db };
+      return res;
+    }
     case FETCH_ELEMENT_OK:
-    case FETCH_SCHEMA_OK:
     case FETCH_ALL_ELEMENTS_OK: {
       return action.data;
     }

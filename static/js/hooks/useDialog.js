@@ -1,9 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
-import {
-  getArrayFieldSubOptions,
-  fieldOptions,
-} from "../constants/filterConstants";
+import { getArrayFieldSubOptions } from "../constants/filterConstants";
 
 export const useDialogStates = () => {
   // Dialog states
@@ -243,7 +240,10 @@ export const useListConditionDialog = (
   };
 };
 
-export const useListConditionForm = (customListVariables = []) => {
+export const useListConditionForm = (
+  fieldOptions,
+  customListVariables = [],
+) => {
   const [selectedArrayField, setSelectedArrayField] = useState("");
   const [selectedOperator, setSelectedOperator] = useState("");
   const [selectedSubField, setSelectedSubField] = useState("");

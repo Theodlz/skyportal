@@ -1,8 +1,34 @@
 import { latexToMongoConverter } from "./robustLatexConverter.js";
 import { getFieldType } from "./conditionHelpers.js";
 
+// Helper function for numeric comparison operators
+const getNumericComparison = (operator) => {
+  switch (operator) {
+    case "$gt":
+    case "greater than":
+    case ">":
+      return "$gt";
+    case "$gte":
+    case "greater than or equal":
+    case ">=":
+      return "$gte";
+    case "$lt":
+    case "less than":
+    case "<":
+      return "$lt";
+    case "$lte":
+    case "less than or equal":
+    case "<=":
+      return "$lte";
+    default:
+      return null;
+  }
+};
+
 export const convertToMongoAggregation = (
   filters,
+  schema = {},
+  fieldOptions = [],
   customVariables = [],
   customListVariables = [],
 ) => {
@@ -19,9 +45,6 @@ export const convertToMongoAggregation = (
     customVariables,
     customListVariables,
   );
-
-  // Add $project stage for field optimization and variable computation
-  const hasMultiUseVariables = false; // Always inline arithmetic variables instead of projecting them
 
   // Check if we have any list operation variables that should be projected
   // Only project filter variables if they're actually used in the conditions
@@ -68,7 +91,6 @@ export const convertToMongoAggregation = (
 
   // Check if we need a project stage for field optimization or custom blocks
   const needsProjectStage =
-    hasMultiUseVariables ||
     hasListOperationVariables ||
     usedFields.baseFields.length > 0 ||
     customBlocksWithFalseValue.length > 0;
@@ -92,6 +114,8 @@ export const convertToMongoAggregation = (
       // Convert the custom block conditions to a MongoDB expression
       const blockCondition = convertBlockToMongoExpr(
         customBlock.block,
+        schema,
+        fieldOptions,
         customVariables,
         customListVariables,
         customBlocksWithFalseValue,
@@ -126,6 +150,8 @@ export const convertToMongoAggregation = (
           // Convert nested conditions for the filter
           const filterCondition = convertBlockToMongo(
             listCondition.value,
+            schema,
+            fieldOptions,
             customVariables,
             customListVariables,
             true,
@@ -181,11 +207,12 @@ export const convertToMongoAggregation = (
     const variableName = `${customBlock.name.replace(/[^a-zA-Z0-9]/g, "_")}`;
     matchStage.$match[variableName] = false;
   });
-
   // Convert each root filter block (skip those with isTrue: false as they're handled above)
   filters.forEach((block) => {
     const blockCondition = convertBlockToMongo(
       block,
+      schema,
+      fieldOptions,
       customVariables,
       customListVariables,
       false,
@@ -208,6 +235,8 @@ export const convertToMongoAggregation = (
 
 const convertBlockToMongo = (
   block,
+  schema = {},
+  fieldOptions = [],
   customVariables = [],
   customListVariables = [],
   isInArrayFilter = false,
@@ -232,11 +261,15 @@ const convertBlockToMongo = (
         block,
         customVariables,
         customListVariables,
+        schema,
+        fieldOptions,
       );
     } else {
       // For regular conditions, use standard format
       condition = convertConditionToMongo(
         block,
+        schema,
+        fieldOptions,
         customVariables,
         customListVariables,
         isInArrayFilter,
@@ -259,6 +292,8 @@ const convertBlockToMongo = (
       // Recursively handle nested blocks
       const nestedCondition = convertBlockToMongo(
         child,
+        schema,
+        fieldOptions,
         customVariables,
         customListVariables,
         isInArrayFilter,
@@ -277,11 +312,15 @@ const convertBlockToMongo = (
           child,
           customVariables,
           customListVariables,
+          schema,
+          fieldOptions,
         );
       } else {
         // For regular conditions, use standard format
         condition = convertConditionToMongo(
           child,
+          schema,
+          fieldOptions,
           customVariables,
           customListVariables,
           isInArrayFilter,
@@ -313,6 +352,8 @@ const convertBlockToMongo = (
 
 const convertConditionToMongo = (
   condition,
+  schema,
+  fieldOptions = [],
   customVariables = [],
   customListVariables = [],
   isInArrayFilter = false,
@@ -443,6 +484,8 @@ const convertConditionToMongo = (
     };
     return convertListConditionToMongo(
       listConditionWithBooleanSwitch,
+      schema,
+      fieldOptions,
       customVariables,
       customListVariables,
       variableUsageCounts,
@@ -465,6 +508,8 @@ const convertConditionToMongo = (
   ) {
     return convertListConditionToMongo(
       condition,
+      schema,
+      fieldOptions,
       customVariables,
       customListVariables,
       variableUsageCounts,
@@ -496,6 +541,8 @@ const convertConditionToMongo = (
       const fieldType = getFieldType(
         condition.field,
         customVariables,
+        schema,
+        fieldOptions,
         [],
         customListVariables,
       );
@@ -513,6 +560,8 @@ const convertConditionToMongo = (
       const fieldType = getFieldType(
         condition.field,
         customVariables,
+        schema,
+        fieldOptions,
         [],
         customListVariables,
       );
@@ -526,22 +575,18 @@ const convertConditionToMongo = (
     case "$gt":
     case "greater than":
     case ">":
-      return { [field]: { $gt: parseNumberIfNeeded(value) } };
-
     case "$gte":
     case "greater than or equal":
     case ">=":
-      return { [field]: { $gte: parseNumberIfNeeded(value) } };
-
     case "$lt":
     case "less than":
     case "<":
-      return { [field]: { $lt: parseNumberIfNeeded(value) } };
-
     case "$lte":
     case "less than or equal":
-    case "<=":
-      return { [field]: { $lte: parseNumberIfNeeded(value) } };
+    case "<=": {
+      const mongoOp = getNumericComparison(operator);
+      return { [field]: { [mongoOp]: parseNumberIfNeeded(value) } };
+    }
 
     case "$regex":
     case "contains":
@@ -650,6 +695,8 @@ const convertConditionToMongo = (
 // Helper function to convert blocks to MongoDB $expr format (for use in project stage)
 const convertBlockToMongoExpr = (
   block,
+  schema = {},
+  fieldOptions = [],
   customVariables = [],
   customListVariables = [],
   customBlocksWithFalseValue = [],
@@ -662,6 +709,7 @@ const convertBlockToMongoExpr = (
   if (block.type === "condition" || block.category === "condition") {
     return convertConditionToProjectExpr(
       block,
+      fieldOptions,
       customVariables,
       customListVariables,
     );
@@ -688,6 +736,8 @@ const convertBlockToMongoExpr = (
       // Recursively handle nested blocks
       const nestedCondition = convertBlockToMongoExpr(
         child,
+        schema,
+        fieldOptions,
         customVariables,
         customListVariables,
         customBlocksWithFalseValue,
@@ -699,6 +749,7 @@ const convertBlockToMongoExpr = (
       // Handle individual conditions
       const condition = convertConditionToProjectExpr(
         child,
+        fieldOptions,
         customVariables,
         customListVariables,
       );
@@ -728,6 +779,7 @@ const convertBlockToMongoExpr = (
 // Helper function to convert conditions to MongoDB $expr format for project stage
 const convertConditionToProjectExpr = (
   condition,
+  fieldOptions = [],
   customVariables = [],
   customListVariables = [],
 ) => {
@@ -826,6 +878,8 @@ const convertConditionToProjectExpr = (
         // Convert the nested conditions to a proper condition for $anyElementTrue using array context
         const conditionsForMap = convertBlockToMongo(
           value,
+          schema,
+          fieldOptions,
           customVariables,
           customListVariables,
           true,
@@ -890,6 +944,8 @@ const convertConditionToProjectExpr = (
         // Convert the nested conditions to a proper condition for $allElementsTrue using array context
         const conditionsForMap = convertBlockToMongo(
           value,
+          schema,
+          fieldOptions,
           customVariables,
           customListVariables,
           true,
@@ -953,6 +1009,8 @@ const convertConditionToProjectExpr = (
         // Convert the nested conditions to a proper condition for $filter using array context
         const filterCondition = convertBlockToMongo(
           value,
+          schema,
+          fieldOptions,
           customVariables,
           customListVariables,
           true,
@@ -1009,6 +1067,8 @@ const convertConditionToMongoExpr = (
   condition,
   customVariables = [],
   customListVariables = [],
+  schema = {},
+  fieldOptions = [],
 ) => {
   if (!condition.field || !condition.operator) {
     return {};
@@ -1018,25 +1078,41 @@ const convertConditionToMongoExpr = (
   const value = condition.value;
   const field = condition.field;
 
+  // Ensure customVariables is an array
+  const safeCustomVariables = Array.isArray(customVariables)
+    ? customVariables
+    : [];
+
   // Check if this field is a custom variable with a LaTeX expression
-  const customVar = customVariables.find((v) => v.name === field);
+  const customVar = safeCustomVariables.find((v) => v.name === field);
   let fieldPath;
 
   if (customVar && customVar.variable) {
-    // Always inline arithmetic variables in array context
     const eqParts = customVar.variable.split("=");
     if (eqParts.length === 2) {
       const latexExpression = eqParts[1].trim();
-      // Get the MongoDB expression and convert it to array context
-      const mongoExpression =
-        latexToMongoConverter.convertToMongo(latexExpression);
-      fieldPath = convertToArrayContext(mongoExpression);
+      try {
+        // Get the MongoDB expression and convert it to array context
+        const mongoExpression =
+          latexToMongoConverter.convertToMongo(latexExpression);
+        if (mongoExpression) {
+          fieldPath = convertToArrayContext(mongoExpression);
+        } else {
+          // Fallback if conversion fails
+          fieldPath = `$$this.${field}`;
+        }
+      } catch (error) {
+        console.warn(
+          `Failed to convert LaTeX expression for variable ${field}:`,
+          error,
+        );
+        fieldPath = `$$this.${field}`;
+      }
     } else {
-      // Fallback to field path if expression parsing fails
       fieldPath = `$$this.${field}`;
     }
   } else {
-    // Regular field path for array element context (using $$this)
+    // Regular field path for array element context
     fieldPath = `$$this.${field}`;
   }
 
@@ -1044,11 +1120,63 @@ const convertConditionToMongoExpr = (
   const fieldType = getFieldType(
     field,
     customVariables,
+    schema,
+    fieldOptions,
     [],
     customListVariables,
   );
   const isBooleanField = fieldType === "boolean";
   const isBooleanValue = typeof value === "boolean";
+
+  // Helper function for boolean-aware comparison operations
+  const createComparison = (
+    operator,
+    fieldPath,
+    value,
+    isBooleanField,
+    isBooleanValue,
+  ) => {
+    const isBoolean = isBooleanField || isBooleanValue;
+    const mongoOp = getNumericComparison(operator);
+
+    // Handle numeric comparisons
+    if (mongoOp) {
+      return { [mongoOp]: [fieldPath, parseNumberIfNeeded(value)] };
+    }
+
+    switch (operator) {
+      case "$eq":
+        if (isBoolean && Array.isArray(value)) {
+          return { $in: [fieldPath, value] };
+        }
+        return {
+          $eq: [fieldPath, isBoolean ? value : parseNumberIfNeeded(value)],
+        };
+
+      case "$ne":
+        if (isBoolean && Array.isArray(value)) {
+          return { $nin: [fieldPath, value] };
+        }
+        return {
+          $ne: [fieldPath, isBoolean ? value : parseNumberIfNeeded(value)],
+        };
+
+      case "$in":
+        return { $in: [fieldPath, Array.isArray(value) ? value : [value]] };
+
+      case "$nin":
+        return isBoolean
+          ? { $nin: [fieldPath, Array.isArray(value) ? value : [value]] }
+          : {
+              $not: {
+                $in: [fieldPath, Array.isArray(value) ? value : [value]],
+              },
+            };
+
+      default:
+        return { [operator]: [fieldPath, parseNumberIfNeeded(value)] };
+    }
+  };
 
   // If fieldPath is a MongoDB expression (object), we need to wrap the comparison in $expr
   if (typeof fieldPath === "object" && fieldPath !== null) {
@@ -1056,29 +1184,25 @@ const convertConditionToMongoExpr = (
     switch (operator) {
       case "$eq":
       case "equals":
-      case "=": {
-        if (isBooleanField || isBooleanValue) {
-          // Use $eq for single boolean values, $in for arrays
-          if (Array.isArray(value)) {
-            return { $in: [fieldPath, value] };
-          }
-          return { $eq: [fieldPath, value] };
-        }
-        return { $eq: [fieldPath, parseNumberIfNeeded(value)] };
-      }
+      case "=":
+        return createComparison(
+          "$eq",
+          fieldPath,
+          value,
+          isBooleanField,
+          isBooleanValue,
+        );
 
       case "$ne":
       case "not equals":
-      case "!=": {
-        if (isBooleanField || isBooleanValue) {
-          // Use $ne for single boolean values, $nin for arrays
-          if (Array.isArray(value)) {
-            return { $nin: [fieldPath, value] };
-          }
-          return { $ne: [fieldPath, value] };
-        }
-        return { $ne: [fieldPath, parseNumberIfNeeded(value)] };
-      }
+      case "!=":
+        return createComparison(
+          "$ne",
+          fieldPath,
+          value,
+          isBooleanField,
+          isBooleanValue,
+        );
 
       case "$gt":
       case "greater than":
@@ -1102,11 +1226,23 @@ const convertConditionToMongoExpr = (
 
       case "$in":
       case "in":
-        return { $in: [fieldPath, Array.isArray(value) ? value : [value]] };
+        return createComparison(
+          "$in",
+          fieldPath,
+          value,
+          isBooleanField,
+          isBooleanValue,
+        );
 
       case "$nin":
       case "not in":
-        return { $nin: [fieldPath, Array.isArray(value) ? value : [value]] };
+        return createComparison(
+          "$nin",
+          fieldPath,
+          value,
+          isBooleanField,
+          isBooleanValue,
+        );
 
       case "between":
         if (Array.isArray(value) && value.length === 2) {
@@ -1139,71 +1275,65 @@ const convertConditionToMongoExpr = (
   switch (operator) {
     case "$eq":
     case "equals":
-    case "=": {
-      // For boolean fields or boolean values in array context, use $eq for single values
-      if (isBooleanField || isBooleanValue) {
-        // Use $eq for single boolean values, $in for arrays
-        if (Array.isArray(value)) {
-          return { $in: [fieldPath, value] };
-        }
-        return { $eq: [fieldPath, value] };
-      }
-      return { $eq: [fieldPath, parseNumberIfNeeded(value)] };
-    }
+    case "=":
+      return createComparison(
+        "$eq",
+        fieldPath,
+        value,
+        isBooleanField,
+        isBooleanValue,
+      );
 
     case "$ne":
     case "not equals":
-    case "!=": {
-      // For boolean fields or boolean values in array context, use $ne for single values
-      if (isBooleanField || isBooleanValue) {
-        // Use $ne for single boolean values, $nin for arrays
-        if (Array.isArray(value)) {
-          return { $nin: [fieldPath, value] };
-        }
-        return { $ne: [fieldPath, value] };
-      }
-      return { $ne: [fieldPath, parseNumberIfNeeded(value)] };
-    }
+    case "!=":
+      return createComparison(
+        "$ne",
+        fieldPath,
+        value,
+        isBooleanField,
+        isBooleanValue,
+      );
 
     case "$gt":
     case "greater than":
     case ">":
-      return { $gt: [fieldPath, parseNumberIfNeeded(value)] };
-
     case "$gte":
     case "greater than or equal":
     case ">=":
-      return { $gte: [fieldPath, parseNumberIfNeeded(value)] };
-
     case "$lt":
     case "less than":
     case "<":
-      return { $lt: [fieldPath, parseNumberIfNeeded(value)] };
-
     case "$lte":
     case "less than or equal":
     case "<=":
-      return { $lte: [fieldPath, parseNumberIfNeeded(value)] };
+      return createComparison(
+        operator,
+        fieldPath,
+        value,
+        isBooleanField,
+        isBooleanValue,
+      );
 
     case "$in":
-    case "in": {
-      // For boolean fields in $expr context, use $in directly
-      if (isBooleanField || isBooleanValue) {
-        return { $in: [fieldPath, Array.isArray(value) ? value : [value]] };
-      }
-      return { $in: [fieldPath, Array.isArray(value) ? value : [value]] };
-    }
+    case "in":
+      return createComparison(
+        "$in",
+        fieldPath,
+        value,
+        isBooleanField,
+        isBooleanValue,
+      );
 
     case "$nin":
-    case "not in": {
-      // For boolean fields in $expr context, use $nin directly
-      if (isBooleanField || isBooleanValue) {
-        return { $nin: [fieldPath, Array.isArray(value) ? value : [value]] };
-      }
-      return {
-        $not: { $in: [fieldPath, Array.isArray(value) ? value : [value]] },
-      };
-    }
+    case "not in":
+      return createComparison(
+        "$nin",
+        fieldPath,
+        value,
+        isBooleanField,
+        isBooleanValue,
+      );
 
     case "$exists":
     case "$isNumber":
@@ -1271,62 +1401,63 @@ const convertConditionToMongoExpr = (
 };
 
 const getFieldPath = (field, customVariables = [], isInArrayFilter = false) => {
-  // Handle different field formats
-  if (typeof field === "string") {
-    // Check if this field is a custom variable with a LaTeX expression
-    const customVar = customVariables.find((v) => v.name === field);
-    if (customVar && customVar.variable) {
-      // Always inline arithmetic variables instead of referencing projected variables
-      const eqParts = customVar.variable.split("=");
-      if (eqParts.length === 2) {
-        const latexExpression = eqParts[1].trim();
-        // Convert to MongoDB expression with array context awareness
-        return latexToMongoConverter.convertToMongo(
-          latexExpression,
-          isInArrayFilter,
-        );
-      }
-      // Fallback to field name if expression parsing fails
-      return isInArrayFilter ? `$$this.${field}` : field;
-    }
-    return isInArrayFilter ? `$$this.${field}` : field;
-  }
+  // Ensure customVariables is an array
+  const safeCustomVariables = Array.isArray(customVariables)
+    ? customVariables
+    : [];
 
-  if (field && typeof field === "object") {
-    const fieldPath = field.value || field.name || field.field || String(field);
-    // Check if this is a custom variable
-    const customVar = customVariables.find((v) => v.name === fieldPath);
-    if (customVar && customVar.variable) {
-      // Always inline arithmetic variables
-      const eqParts = customVar.variable.split("=");
-      if (eqParts.length === 2) {
-        const latexExpression = eqParts[1].trim();
-        return latexToMongoConverter.convertToMongo(
-          latexExpression,
-          isInArrayFilter,
-        );
-      }
-      return isInArrayFilter ? `$$this.${fieldPath}` : fieldPath;
-    }
-    return isInArrayFilter ? `$$this.${fieldPath}` : fieldPath;
-  }
+  // Helper function to format field path for array context
+  const formatFieldPath = (fieldName) =>
+    isInArrayFilter ? `$$this.${fieldName}` : fieldName;
 
-  const fieldPath = String(field);
-  // Check if this is a custom variable
-  const customVar = customVariables.find((v) => v.name === fieldPath);
-  if (customVar && customVar.variable) {
-    // Always inline arithmetic variables
-    const eqParts = customVar.variable.split("=");
-    if (eqParts.length === 2) {
-      const latexExpression = eqParts[1].trim();
-      return latexToMongoConverter.convertToMongo(
+  // Helper function to safely convert LaTeX expressions
+  const safeConvertLatex = (
+    latexExpression,
+    fieldName,
+    isInArrayFilter = false,
+  ) => {
+    try {
+      const mongoExpression = latexToMongoConverter.convertToMongo(
         latexExpression,
         isInArrayFilter,
       );
+      return mongoExpression || formatFieldPath(fieldName);
+    } catch (error) {
+      console.warn(
+        `Failed to convert LaTeX expression for field ${fieldName}:`,
+        error,
+      );
+      return formatFieldPath(fieldName);
     }
-    return isInArrayFilter ? `$$this.${fieldPath}` : fieldPath;
+  };
+
+  // Helper function to handle custom variable conversion
+  const convertCustomVariable = (fieldName, customVar) => {
+    const eqParts = customVar.variable.split("=");
+    if (eqParts.length === 2) {
+      const latexExpression = eqParts[1].trim();
+      return safeConvertLatex(latexExpression, fieldName, isInArrayFilter);
+    }
+    return formatFieldPath(fieldName);
+  };
+
+  // Normalize field to string
+  let fieldName;
+  if (typeof field === "string") {
+    fieldName = field;
+  } else if (field && typeof field === "object") {
+    fieldName = field.value || field.name || field.field || String(field);
+  } else {
+    fieldName = String(field);
   }
-  return isInArrayFilter ? `$$this.${fieldPath}` : fieldPath;
+
+  // Check if this is a custom variable with a LaTeX expression
+  const customVar = safeCustomVariables.find((v) => v.name === fieldName);
+  if (customVar && customVar.variable) {
+    return convertCustomVariable(fieldName, customVar);
+  }
+
+  return formatFieldPath(fieldName);
 };
 
 const parseNumberIfNeeded = (value) => {
@@ -1430,7 +1561,7 @@ export const isValidPipeline = (pipeline) => {
     return false;
   }
 
-  // Empty pipeline is valid (represents no filters)
+  // Empty pipeline is invalid (no filters to process)
   if (pipeline.length === 0) {
     return false;
   }
@@ -1515,6 +1646,8 @@ export const isValidPipeline = (pipeline) => {
 // Helper function to convert list conditions to MongoDB
 const convertListConditionToMongo = (
   condition,
+  schema = {},
+  fieldOptions = [],
   customVariables = [],
   customListVariables = [],
   variableUsageCounts = {},
@@ -1524,6 +1657,8 @@ const convertListConditionToMongo = (
   if (condition.type === "array" && condition.field && condition.operator) {
     return convertListConditionDefinitionToMongo(
       condition,
+      schema,
+      fieldOptions,
       customVariables,
       customListVariables,
       variableUsageCounts,
@@ -1581,6 +1716,8 @@ const convertListConditionToMongo = (
                       ? !condition.negate
                       : true, // Default to true (no negation)
       },
+      schema,
+      fieldOptions,
       customVariables,
       customListVariables,
       variableUsageCounts,
@@ -1594,6 +1731,8 @@ const convertListConditionToMongo = (
 // Helper function to convert a list condition definition to MongoDB
 const convertListConditionDefinitionToMongo = (
   listCondition,
+  schema = {},
+  fieldOptions = [],
   customVariables = [],
   customListVariables = [],
   variableUsageCounts = {},
@@ -1613,6 +1752,8 @@ const convertListConditionDefinitionToMongo = (
         // Convert the nested conditions to a proper condition for $anyElementTrue
         const conditionsForMap = convertBlockToMongo(
           nestedConditions,
+          schema,
+          fieldOptions,
           customVariables,
           customListVariables,
           true,
@@ -1647,6 +1788,8 @@ const convertListConditionDefinitionToMongo = (
         // Convert the nested conditions to a proper condition for $allElementsTrue
         const conditionsForMap = convertBlockToMongo(
           nestedConditions,
+          schema,
+          fieldOptions,
           customVariables,
           customListVariables,
           true,
@@ -1680,6 +1823,8 @@ const convertListConditionDefinitionToMongo = (
       if (nestedConditions && nestedConditions.children) {
         const filterCondition = convertBlockToMongo(
           nestedConditions,
+          schema,
+          fieldOptions,
           customVariables,
           customListVariables,
           true,
@@ -1899,6 +2044,8 @@ const convertArrayValueToMongo = (
         // Use proper MongoDB $anyElementTrue with $map
         const conditionsForMap = convertBlockToMongo(
           nestedConditions,
+          {},
+          [],
           customVariables,
           customListVariables,
           true,
@@ -1923,6 +2070,8 @@ const convertArrayValueToMongo = (
         // Use proper MongoDB $allElementsTrue with $map
         const conditionsForMap = convertBlockToMongo(
           nestedConditions,
+          {},
+          [],
           customVariables,
           customListVariables,
           true,
@@ -1946,6 +2095,8 @@ const convertArrayValueToMongo = (
       if (nestedConditions && nestedConditions.children) {
         const filterCondition = convertBlockToMongo(
           nestedConditions,
+          {},
+          [],
           customVariables,
           customListVariables,
           true,
@@ -2086,38 +2237,43 @@ const convertToArrayContext = (mongoExpression) => {
     return mongoExpression;
   }
 
-  // Clone the expression to avoid modifying the original
-  const clonedExpression = JSON.parse(JSON.stringify(mongoExpression));
-  // Recursively convert field references from $field to $$this.field
-  const convertFields = (obj) => {
-    if (typeof obj === "string" && !obj.startsWith("$$")) {
-      if (obj.startsWith("$this")) {
-        // If the field is $this, convert it to $$this
-        return `$$${obj.substring(1)}`;
-      } else if (obj.startsWith("$")) {
-        // If the field is $field, convert it to $$this.field
-        return `$${obj.substring(1)}`;
+  try {
+    // Clone the expression to avoid modifying the original
+    const clonedExpression = JSON.parse(JSON.stringify(mongoExpression));
+    // Recursively convert field references from $field to $$this.field
+    const convertFields = (obj) => {
+      if (typeof obj === "string" && !obj.startsWith("$$")) {
+        if (obj.startsWith("$this")) {
+          // If the field is $this, convert it to $$this
+          return `$$${obj.substring(1)}`;
+        } else if (obj.startsWith("$")) {
+          // If the field is $field, convert it to $$this.field
+          return `$${obj.substring(1)}`;
+        }
+        // Convert $field to $$this.field
+        return `$$this.${obj.substring(1)}`;
       }
-      // Convert $field to $$this.field
-      return `$$this.${obj.substring(1)}`;
-    }
 
-    if (Array.isArray(obj)) {
-      return obj.map(convertFields);
-    }
-
-    if (typeof obj === "object" && obj !== null) {
-      const result = {};
-      for (const [key, value] of Object.entries(obj)) {
-        result[key] = convertFields(value);
+      if (Array.isArray(obj)) {
+        return obj.map(convertFields);
       }
-      return result;
-    }
 
-    return obj;
-  };
+      if (typeof obj === "object" && obj !== null) {
+        const result = {};
+        for (const [key, value] of Object.entries(obj)) {
+          result[key] = convertFields(value);
+        }
+        return result;
+      }
 
-  return convertFields(clonedExpression);
+      return obj;
+    };
+
+    return convertFields(clonedExpression);
+  } catch (error) {
+    console.warn("Failed to convert expression to array context:", error);
+    return mongoExpression; // Return original if conversion fails
+  }
 };
 
 // Helper function to handle conditions where variables are inlined as MongoDB expressions
@@ -2348,6 +2504,8 @@ const collectUsedFieldsInCondition = (
       try {
         const mongoCondition = convertBlockToMongo(
           listVariable.listCondition.value,
+          {},
+          [],
           customVariables,
           customListVariables,
           true,
@@ -2474,6 +2632,8 @@ const collectUsedFieldsInCondition = (
       try {
         const mongoCondition = convertBlockToMongo(
           condition.value,
+          {},
+          [],
           customVariables,
           customListVariables,
           true,
