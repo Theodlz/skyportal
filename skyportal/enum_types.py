@@ -1,47 +1,17 @@
-import inspect
 from enum import Enum
 
-import astropy.units as u
-import numpy as np
-import sncosmo
 import sqlalchemy as sa
-from sncosmo.bandpasses import _BANDPASSES
 from sncosmo.magsystems import _MAGSYSTEMS
 
 from baselayer.app.env import load_env
 from baselayer.log import make_log
 
 from .facility_apis import APIS, LISTENERS
+from .utils.photometry import ALLOWED_BANDPASSES
 
 log = make_log("enum_types")
 
 _, cfg = load_env()
-
-# load additional bandpasses into the SN comso registry
-existing_bandpasses_names = [val["name"] for val in _BANDPASSES.get_loaders_metadata()]
-additional_bandpasses_names = []
-for additional_bandpasses in cfg.get("additional_bandpasses", []):
-    name = additional_bandpasses.get("name")
-    if not name:
-        continue
-    if name in existing_bandpasses_names:
-        log(
-            f"Additional Bandpass name={name} is already in the sncosmo registry. Skipping."
-        )
-    try:
-        wavelength = np.array(additional_bandpasses.get("wavelength"))
-        transmission = np.array(additional_bandpasses.get("transmission"))
-        band = sncosmo.Bandpass(wavelength, transmission, name=name, wave_unit=u.AA)
-    except Exception as e:
-        log(f"Could not make bandpass for {name}: {e}")
-        continue
-
-    sncosmo.registry.register(band)
-    additional_bandpasses_names.append(name)
-
-if len(additional_bandpasses_names) > 0:
-    log(f"registered custom bandpasses: {additional_bandpasses_names}")
-
 
 def force_render_enum_markdown(values):
     return ", ".join([f"`{v}`" for v in values])
@@ -50,7 +20,6 @@ def force_render_enum_markdown(values):
 ALLOWED_SPECTRUM_TYPES = tuple(cfg["spectrum_types.types"])
 ALLOWED_MAGSYSTEMS = tuple(val["name"] for val in _MAGSYSTEMS.get_loaders_metadata())
 # though in the registry, the additional bandpass names are not in the _BANDPASSES list
-ALLOWED_BANDPASSES = tuple(existing_bandpasses_names + additional_bandpasses_names)
 TIME_STAMP_ALIGNMENT_TYPES = ("start", "middle", "end")
 
 THUMBNAIL_TYPES = (

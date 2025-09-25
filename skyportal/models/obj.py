@@ -6,14 +6,12 @@ import uuid
 
 import astroplan
 import conesearch_alchemy
-import dustmaps.sfd
 import healpix_alchemy
 import numpy as np
 import requests
 import sqlalchemy as sa
 from astropy import coordinates as ap_coord
 from astropy import units as u
-from dustmaps.config import config
 from sqlalchemy import event
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
@@ -34,6 +32,7 @@ from .photometric_series import PhotometricSeries
 from .photometry import Photometry
 from .spectrum import Spectrum
 from .thumbnail import Thumbnail
+from ..utils.dustmap import SFDQuery
 
 _, cfg = load_env()
 log = make_log("models.obj")
@@ -42,19 +41,6 @@ log = make_log("models.obj")
 PHOT_DETECTION_THRESHOLD = cfg["misc.photometry_detection_threshold_nsigma"]
 
 PS1_CUTOUT_TIMEOUT = 15  # seconds
-
-# download dustmap if required
-config["data_dir"] = cfg["misc.dustmap_folder"]
-required_files = ["sfd/SFD_dust_4096_ngp.fits", "sfd/SFD_dust_4096_sgp.fits"]
-if any(
-    not os.path.isfile(os.path.join(config["data_dir"], required_file))
-    for required_file in required_files
-):
-    try:
-        dustmaps.sfd.fetch()
-    except requests.exceptions.HTTPError:
-        pass
-
 
 def delete_obj_if_all_data_owned(cls, user_or_token):
     from .source import Source
@@ -742,7 +728,7 @@ class Obj(Base, conesearch_alchemy.Point):
 
         coord = ap_coord.SkyCoord(self.ra, self.dec, unit="deg")
         try:
-            return float(dustmaps.sfd.SFDQuery()(coord))
+            return float(SFDQuery(coord))
         except Exception:
             return None
 

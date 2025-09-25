@@ -47,7 +47,6 @@ from marshmallow.exceptions import ValidationError
 from matplotlib import animation, dates
 from simsurvey.models import AngularTimeSeriesSource
 from simsurvey.utils import model_tools
-from sncosmo import get_bandpass
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, scoped_session, sessionmaker, undefer
 from tornado.ioloop import IOLoop
@@ -89,6 +88,7 @@ from ...models.schema import ObservationPlanPost
 from ...utils.earthquake import COUNTRIES_FILE
 from ...utils.parse import get_page_and_n_per_page
 from ...utils.simsurvey import get_simsurvey_parameters, random_parameters_notheta
+from ...utils.photometry import TREASUREMAP_FILTERS
 from ..base import BaseHandler
 
 env, cfg = load_env()
@@ -120,53 +120,6 @@ TREASUREMAP_INSTRUMENT_IDS = {  # https://treasuremap.space/search_instruments
     "MOSFIRE": 74,
     "KAIT": 75,
 }
-
-# this is the list of filters that are available in the treasuremap
-TREASUREMAP_FILTERS = {
-    "U": "U",
-    "B": "B",
-    "V": "V",
-    "R": "R",
-    "I": "I",
-    "J": "J",
-    "H": "H",
-    "K": "K",
-    "u": "u",
-    "g": "g",
-    "r": "r",
-    "i": "i",
-    "z": "z",
-    "UVW1": "UVW1",
-    "UVM2": "UVM2",
-    "XRT": "XRT",
-    "clear": "clear",
-    "open": "open",
-    "UHF": "UHF",
-    "VHF": "VHF",
-    "L": "L",
-    "S": "S",
-    "C": "C",
-    "X": "X",
-    "other": "other",
-    "TESS": "TESS",
-    "BAT": "BAT",
-    "HESS": "HESS",
-    "WISEL": "WISEL",
-}
-# to it, we add mappers for sncosmo bandpasses
-for bandpass_name in ALLOWED_BANDPASSES:
-    try:
-        bandpass = get_bandpass(bandpass_name)
-        central_wavelength = (bandpass.minwave() + bandpass.maxwave()) / 2
-        bandwidth = bandpass.maxwave() - bandpass.minwave()
-        TREASUREMAP_FILTERS[bandpass_name] = [central_wavelength, bandwidth]
-    except Exception as e:
-        log(f"Error adding bandpass {bandpass_name} to treasuremap filters: {e}")
-
-# overwrite the filters for ZTF, as i-band is will otherwise be matched to TESS by treasuremap
-TREASUREMAP_FILTERS["ztfg"] = "g"
-TREASUREMAP_FILTERS["ztfr"] = "r"
-TREASUREMAP_FILTERS["ztfi"] = "i"
 
 op_options = [
     "lt",

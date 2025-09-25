@@ -7,7 +7,6 @@ __all__ = [
 
 import datetime
 
-import dustmaps.sfd
 import healpix_alchemy
 import healpy
 import ligo.skymap.bayestar as ligo_bayestar
@@ -32,6 +31,7 @@ from baselayer.app.models import AccessibleIfUserMatches, Base
 from baselayer.log import make_log
 
 from ..utils.files import delete_file_data, save_file_data
+from ..utils.dustmap import SFDQuery
 
 _, cfg = load_env()
 config["data_dir"] = cfg["misc.dustmap_folder"]
@@ -242,7 +242,7 @@ class Localization(Base):
         center_info["gal_lon"] = coord.galactic.l.deg
 
         try:
-            ebv = float(dustmaps.sfd.SFDQuery()(coord))
+            ebv = float(SFDQuery(coord))
         except Exception:
             ebv = None
         center_info["ebv"] = ebv

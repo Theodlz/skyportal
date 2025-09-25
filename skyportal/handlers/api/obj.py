@@ -1,4 +1,3 @@
-import dustmaps.sfd
 import numpy as np
 import sqlalchemy as sa
 from astropy import coordinates as ap_coord
@@ -19,6 +18,7 @@ from ...models import (
 )
 from ...utils.calculations import great_circle_distance
 from ...utils.offset import _calculate_best_position_for_offset_stars
+from ...utils.dustmap import SFDQuery
 from ..base import BaseHandler
 
 _, cfg = load_env()
@@ -301,7 +301,7 @@ class ObjPositionHandler(BaseHandler):
                         "dec": dec,
                         "gal_lon": skycoord.galactic.l.deg,
                         "gal_lat": skycoord.galactic.b.deg,
-                        "ebv": float(dustmaps.sfd.SFDQuery()(skycoord)),
+                        "ebv": float(SFDQuery(skycoord)),
                         "separation": float(
                             great_circle_distance(ra, dec, obj.ra, obj.dec) * 3600
                         ),
