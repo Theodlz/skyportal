@@ -1952,19 +1952,28 @@ const ConditionComponentInner = ({
                   ...child,
                   field: newField,
                   variableName: undefined,
-                  // Only change operator if current operator is not valid for new field
                   operator:
                     child.operator && ops.includes(child.operator)
                       ? child.operator
                       : defaultOperator,
-                  // Only reset value if it's a boolean field change or if current operator is invalid
-                  value: isBooleanField
-                    ? typeof child.value === "boolean"
-                      ? child.value
-                      : true
-                    : child.operator && ops.includes(child.operator)
-                      ? child.value
-                      : undefined,
+                  value: (() => {
+                    const currentIsBool = typeof child.value === "boolean";
+                    const newIsBool = isBooleanField;
+                    
+                    if (newIsBool) {
+                      // Switching to boolean field - use boolean value or default to true
+                      return currentIsBool ? child.value : true;
+                    } else {
+                      if (currentIsBool) {
+                        // Clear boolean value when switching to non-boolean field
+                        return undefined;
+                      } else {
+                        return child.operator && ops.includes(child.operator)
+                          ? child.value
+                          : undefined;
+                      }
+                    }
+                  })(),
                 }
               : child,
           ),
