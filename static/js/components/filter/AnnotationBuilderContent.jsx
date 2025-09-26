@@ -375,7 +375,7 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
 
   // Use the same schema fetching approach as FilterBuilder
   const filter_stream = useSelector(
-    (state) => state.filter_v.stream.name.split(" ")[0],
+    (state) => state.filter_v.stream?.name.split(" ")[0],
   );
   const store_schema = useSelector((state) => state.filter_modules?.schema);
 

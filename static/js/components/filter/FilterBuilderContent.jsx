@@ -54,7 +54,6 @@ const FilterBuilderContent = ({
   useEffect(() => {
     // Don't override if user has already made modifications
     if (hasBeenModified) {
-      console.log("Skipping filter initialization - user has modifications");
       return;
     }
 
