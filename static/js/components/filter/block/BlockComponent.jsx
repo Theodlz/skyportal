@@ -715,25 +715,23 @@ const ValueInput = ({
 }) => {
   const { customListVariables, customVariables, fieldOptionsList } =
     useConditionContext();
+  
+  // Check if this is an array field with an array operator that should show "+ List Variable" button
+  const isArrayWithOperator = isArrayFieldWithArrayOperator(
+    conditionOrBlock,
+    customVariables,
+    fieldOptionsList,
+  );
 
-  // Check for operators that have their own UI components - don't show autocomplete fields for these
   if (shouldSkipValueInput(conditionOrBlock)) {
     return null;
   }
 
-  // Check if this is a boolean field - don't show right autocomplete for boolean fields
   if (isBooleanField(conditionOrBlock, customVariables, fieldOptionsList)) {
     return null;
   }
 
-  // Check if this is an array field with an array operator that should show "+ List Variable" button
-  if (
-    isArrayFieldWithArrayOperator(
-      conditionOrBlock,
-      customVariables,
-      fieldOptionsList,
-    )
-  ) {
+  if (isArrayWithOperator) {
     return (
       <ArrayFieldInput conditionOrBlock={conditionOrBlock} block={block} />
     );
