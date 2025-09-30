@@ -8,44 +8,55 @@ export const flattenFieldOptions = (avroSchema) => {
     return groupName.charAt(0).toUpperCase() + groupName.slice(1);
   };
 
-  // Helper to resolve named types
+  // Helper to resolve named types - optimized for large schemas
   const resolveNamedType = (typeName, schema) => {
     if (typeof typeName !== "string") return null;
 
-    const findNamedType = (fields) => {
+    // First, do a direct search for top-level named types
+    const findNamedTypeOptimized = (fields) => {
+      // Step 1: Quick scan for direct matches (most common case)
       for (const field of fields) {
         const fieldType = Array.isArray(field.type)
           ? field.type.find((t) => t !== "null")
           : field.type;
 
+        // Direct match in field type
         if (typeof fieldType === "object" && fieldType.name === typeName) {
           return fieldType;
         }
+      }
 
-        // Recursively search in nested records
+      // Step 2: Search in nested structures only if not found in step 1
+      for (const field of fields) {
+        const fieldType = Array.isArray(field.type)
+          ? field.type.find((t) => t !== "null")
+          : field.type;
+
+        // Search in nested records (but don't go too deep to avoid performance issues)
         if (
           typeof fieldType === "object" &&
           fieldType.type === "record" &&
-          fieldType.fields
+          fieldType.fields &&
+          fieldType.name === typeName
         ) {
-          const found = findNamedType(fieldType.fields);
-          if (found) return found;
+          return fieldType;
         }
 
+        // Search in array items
         if (
           typeof fieldType === "object" &&
           fieldType.type === "array" &&
           typeof fieldType.items === "object" &&
-          fieldType.items.fields
+          fieldType.items.name === typeName
         ) {
-          const found = findNamedType(fieldType.items.fields);
-          if (found) return found;
+          return fieldType.items;
         }
       }
+
       return null;
     };
 
-    return findNamedType(schema.fields || []);
+    return findNamedTypeOptimized(schema.fields || []);
   };
 
   const getSimpleType = (avroType) => {
@@ -106,18 +117,36 @@ export const flattenFieldOptions = (avroSchema) => {
           const resolvedType = resolveNamedType(itemsType, avroSchema);
           if (resolvedType) {
             itemsType = resolvedType;
+          } else {
+            // If we can't resolve the named type, still treat it as an expandable array
+            flattenedOptions.push({
+              label: currentPath,
+              type: "array",
+              group: parentPath
+                ? capitalizeGroup(parentPath.split(".")[0])
+                : defaultGroupName,
+              isExpandableArray: true,
+              unresolvedTypeName: actualType.items, // Store the unresolved type name for debugging
+            });
+            return; // Don't process further
           }
         }
 
         // Automatically detect the array type based on structure:
         // - Cross_matches-style: arrays with record items that have union type fields (catalog fields)
         // - Expandable arrays: arrays with simple record items (no union types)
+        
+        // More specific cross-match detection: should have fields that are themselves records or null
+        // (not just primitive union types like ["null", "float"])
         const isCrossMatchStyle =
           typeof itemsType === "object" &&
           itemsType.type === "record" &&
           itemsType.fields &&
           itemsType.fields.some((catalogField) =>
-            Array.isArray(catalogField.type),
+            Array.isArray(catalogField.type) &&
+            catalogField.type.some(unionType => 
+              typeof unionType === "object" && unionType.type === "record"
+            )
           );
 
         if (isCrossMatchStyle) {
@@ -151,6 +180,7 @@ export const flattenFieldOptions = (avroSchema) => {
 
           // Do NOT process the record fields for the main autocomplete
           // They will be handled separately in the list condition dialog
+          return; // Stop processing here - don't recurse into the array item fields
         } else {
           // Array of primitives
           flattenedOptions.push({

@@ -252,7 +252,10 @@ export const useListConditionForm = (
 
   // Get all available array fields (including list variables)
   const availableArrayFields = [
-    ...fieldOptions.filter((field) => field.type === "array"),
+    // Include schema array fields - check for both type "array" and isExpandableArray
+    ...(fieldOptions || []).filter((field) => 
+      field.type === "array" || field.isExpandableArray
+    ),
     ...customListVariables.map((lv) => ({
       label: lv.name,
       type: "array_variable",

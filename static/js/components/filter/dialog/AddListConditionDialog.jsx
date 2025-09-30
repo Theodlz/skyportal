@@ -24,8 +24,7 @@ import {
 import { useCurrentBuilder } from "../../../hooks/useContexts";
 import BlockComponent from "../block/BlockComponent";
 import { postElement } from "../../../ducks/boom_filter_modules";
-import { useDispatch, useSelector } from "react-redux";
-import { flattenFieldOptions } from "../../../constants/filterConstants";
+import { useDispatch } from "react-redux";
 
 const SubFieldSelector = ({
   selectedSubField,
@@ -239,10 +238,8 @@ const ConditionBuilderSection = ({
   localFilters,
   setLocalFilters,
   subFieldOptions,
+  fieldOptions, // Receive as prop instead of computing
 }) => {
-  const schema = useSelector((state) => state.filter_modules?.schema);
-  const fieldOptions = flattenFieldOptions(schema);
-
   const shouldShowConditionBuilder = [
     "$anyElementTrue",
     "$allElementsTrue",
@@ -255,7 +252,7 @@ const ConditionBuilderSection = ({
   }
 
   const fieldOptionsList = [
-    ...fieldOptions,
+    ...(fieldOptions || []),
     ...subFieldOptions.map((subField) => ({
       ...subField,
       block: selectedArrayField, // Block sub-fields under the array field name
@@ -333,12 +330,12 @@ const AddListConditionDialog = () => {
     setCustomListVariables,
     customListVariables,
     localFiltersUpdater,
+    fieldOptions, // Get fieldOptions from context instead of computing it here
   } = useCurrentBuilder();
-  const schema = useSelector((state) => state.filter_modules?.schema);
-  const fieldOptions = flattenFieldOptions(schema);
 
   // Use our custom hooks
   const form = useListConditionForm(fieldOptions, customListVariables);
+  
   const dialog = useListConditionDialog(
     listConditionDialog,
     filters,
@@ -352,15 +349,7 @@ const AddListConditionDialog = () => {
   useEffect(() => {
     if (listConditionDialog.open && listConditionDialog.conditionId) {
       // Auto-set the array field from the condition
-      console.log(
-        "Auto-setting array field from condition:",
-        dialog.listFieldNameFromCondition,
-      );
       if (dialog.listFieldNameFromCondition && !form.selectedArrayField) {
-        console.log(
-          "Auto-setting array field from condition:",
-          dialog.listFieldNameFromCondition,
-        );
         form.setSelectedArrayField(dialog.listFieldNameFromCondition);
         dialog.handleFieldSelection(
           dialog.listFieldNameFromCondition,
@@ -557,6 +546,7 @@ const AddListConditionDialog = () => {
                 localFilters={dialog.localFilters}
                 setLocalFilters={dialog.setLocalFilters}
                 subFieldOptions={dialog.subFieldOptions}
+                fieldOptions={fieldOptions}
               />
             </>
           )}

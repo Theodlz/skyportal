@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
 import PropTypes from "prop-types";
 import { useDispatch, useSelector } from "react-redux";
 import { Button, Box, Typography } from "@mui/material";
@@ -39,6 +39,8 @@ const FilterBuilderContent = ({
     setLocalFilterData,
     hasBeenModified,
     setHasBeenModified,
+    // Get the factory function for creating default conditions
+    createDefaultCondition,
   } = useFilterBuilder();
   const navigate = useNavigate();
   const dispatch = useDispatch();
@@ -49,6 +51,16 @@ const FilterBuilderContent = ({
 
   const [schema, setSchema] = useState(null);
   const [fieldOptions, setFieldOptions] = useState([]);
+
+  // Helper function to create an empty filter with a default empty condition
+  const createEmptyFilterWithDefaultCondition = useCallback(() => [
+    {
+      id: "root-block",
+      category: "block",
+      operator: "and",
+      children: [createDefaultCondition()],
+    },
+  ], [createDefaultCondition]);
 
   // Initialize local filter data when filter prop changes
   useEffect(() => {
@@ -98,48 +110,27 @@ const FilterBuilderContent = ({
           }
         } catch (error) {
           console.error("Error parsing pipeline data:", error);
-          const emptyFilter = [
-            {
-              id: "root-block",
-              category: "block",
-              operator: "and",
-              children: [],
-            },
-          ];
+          const emptyFilter = createEmptyFilterWithDefaultCondition();
           setLocalFilterData(emptyFilter);
           if (setFilters) {
             setFilters(emptyFilter);
           }
         }
       } else {
-        const emptyFilter = [
-          {
-            id: "root-block",
-            category: "block",
-            operator: "and",
-            children: [],
-          },
-        ];
+        const emptyFilter = createEmptyFilterWithDefaultCondition();
         setLocalFilterData(emptyFilter);
         if (setFilters) {
           setFilters(emptyFilter);
         }
       }
     } else if (!localFilterData) {
-      const emptyFilter = [
-        {
-          id: "root-block",
-          category: "block",
-          operator: "and",
-          children: [],
-        },
-      ];
+      const emptyFilter = createEmptyFilterWithDefaultCondition();
       setLocalFilterData(emptyFilter);
       if (setFilters) {
         setFilters(emptyFilter);
       }
     }
-  }, [filter, setFilters, hasBeenModified]);
+  }, [filter, setFilters, hasBeenModified, createEmptyFilterWithDefaultCondition]);
 
   // Update context filters when local filter data changes
   useEffect(() => {

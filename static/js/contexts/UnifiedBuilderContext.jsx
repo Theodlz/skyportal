@@ -38,8 +38,19 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
   // Local filters updater function reference (for FilterBuilderContent)
   const [localFiltersUpdater, setLocalFiltersUpdater] = useState(null);
 
-  const schema = useSelector((state) => state.filter_modules?.schema);
-  const fieldOptions = flattenFieldOptions(schema);
+  const store_schema = useSelector((state) => state.filter_modules?.schema);
+
+  const [schema, setSchema] = useState(null);
+  const [fieldOptions, setFieldOptions] = useState([]);
+
+  useEffect(() => {
+    if (store_schema) {
+      setSchema(store_schema);
+      setFieldOptions(flattenFieldOptions(store_schema));
+    }
+  }, [store_schema]);
+
+  // const schema = useSelector((state) => state.filter_modules?.schema);
 
   // Load saved data on mount (similar to useFilterBuilderData)
   useEffect(() => {
@@ -145,6 +156,10 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
   const value = {
     // Mode
     mode,
+
+    // Schema and field options
+    schema,
+    fieldOptions,
 
     // Core state - provide both for backward compatibility
     filters: currentData,
