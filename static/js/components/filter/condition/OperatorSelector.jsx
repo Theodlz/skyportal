@@ -64,6 +64,14 @@ const AutocompleteOperators = ({
         onChange && onChange(newValue ? newValue.value : "")
       }
       renderInput={(params) => <TextField {...params} label="Operator" />}
+      renderOption={(props, option) => {
+        const { key, ...otherProps } = props;
+        return (
+          <li key={option.value} {...otherProps}>
+            {option.label}
+          </li>
+        );
+      }}
       renderGroup={(params) => (
         <li key={params.key}>
           <GroupHeader>{params.group}</GroupHeader>
