@@ -26,6 +26,40 @@ import BlockComponent from "../block/BlockComponent";
 import { postElement } from "../../../ducks/boom_filter_modules";
 import { useDispatch } from "react-redux";
 
+// Import utility function for type mapping
+const getSimpleType = (avroType) => {
+  if (typeof avroType === "string") {
+    // Map Avro primitive types to our system types
+    switch (avroType) {
+      case "double":
+      case "float":
+      case "int":
+      case "long":
+        return "number";
+      case "string":
+        return "string";
+      case "boolean":
+        return "boolean";
+      default:
+        return "string";
+    }
+  }
+
+  if (Array.isArray(avroType)) {
+    // Handle union types - get the non-null type
+    const nonNullType = avroType.find((t) => t !== "null");
+    return getSimpleType(nonNullType);
+  }
+
+  if (typeof avroType === "object") {
+    if (avroType.type === "array") return "array";
+    if (avroType.type === "record") return "object";
+    return getSimpleType(avroType.type);
+  }
+
+  return "string";
+};
+
 const SubFieldSelector = ({
   selectedSubField,
   onSubFieldChange,
@@ -78,16 +112,19 @@ const SubFieldSelector = ({
             )} operation on`}
           />
         )}
-        renderOption={(props, option) => (
-          <li {...props} key={option.label}>
-            <div>
-              <div style={{ fontWeight: "bold" }}>{option.label}</div>
-              <div style={{ fontSize: "0.8em", color: "#666" }}>
-                Type: {option.type}
+        renderOption={(props, option) => {
+          const { key, ...otherProps } = props;
+          return (
+            <li key={option.label} {...otherProps}>
+              <div>
+                <div style={{ fontWeight: "bold" }}>{option.label}</div>
+                <div style={{ fontSize: "0.8em", color: "#666" }}>
+                  Type: {option.type}
+                </div>
               </div>
-            </div>
-          </li>
-        )}
+            </li>
+          );
+        }}
         noOptionsText="No numeric fields found"
         clearOnBlur={false}
         selectOnFocus
@@ -140,18 +177,21 @@ const ArrayFieldSelector = ({
             helperText="Start typing to filter available fields"
           />
         )}
-        renderOption={(props, option) => (
-          <li {...props} key={option.label}>
-            <div>
-              <div>{option.label}</div>
-              {option.isDbVariable && (
-                <div style={{ fontSize: "0.8em", color: "#666" }}>
-                  Database List Variable
-                </div>
-              )}
-            </div>
-          </li>
-        )}
+        renderOption={(props, option) => {
+          const { key, ...otherProps } = props;
+          return (
+            <li key={option.label} {...otherProps}>
+              <div>
+                <div>{option.label}</div>
+                {option.isDbVariable && (
+                  <div style={{ fontSize: "0.8em", color: "#666" }}>
+                    Database List Variable
+                  </div>
+                )}
+              </div>
+            </li>
+          );
+        }}
         noOptionsText="No array fields found"
         clearOnBlur={false}
         selectOnFocus
@@ -251,12 +291,26 @@ const ConditionBuilderSection = ({
     return null;
   }
 
+  // Get the array field and its subfields
+  const arrayField = fieldOptions.find((f) => f.type === "array" && f.label === selectedArrayField);
+  if (!arrayField || !arrayField.arrayItems || !arrayField.arrayItems.fields) {
+    return null;
+  }
+
+  // Create subfield options with consistent structure and proper type mapping
+  const subFieldOptionsConsistent = arrayField.arrayItems.fields.map((sub) => {
+    // Create a new object without the 'name' property to avoid conflicts
+    const { name, ...subWithoutName } = sub;
+    return {
+      ...subWithoutName,
+      label: `${selectedArrayField}.${name}`,
+      type: getSimpleType(sub.type), // Ensure proper type mapping for operator selection
+    };
+  });
+
   const fieldOptionsList = [
     ...(fieldOptions || []),
-    ...subFieldOptions.map((subField) => ({
-      ...subField,
-      block: selectedArrayField, // Block sub-fields under the array field name
-    })),
+    ...subFieldOptionsConsistent,
   ];
 
   return (
@@ -538,7 +592,7 @@ const AddListConditionDialog = () => {
                 onNameChange={form.handleNameChange}
                 nameError={form.nameError}
               />
-
+              
               <ConditionBuilderSection
                 selectedOperator={form.selectedOperator}
                 selectedArrayField={form.selectedArrayField}
