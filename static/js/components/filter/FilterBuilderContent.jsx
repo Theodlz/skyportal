@@ -31,6 +31,7 @@ const FilterBuilderContent = ({
     setMongoDialog,
     hasValidQuery,
     collapsedBlocks,
+    setCollapsedBlocks,
     generateMongoQuery,
     setFilters,
     setLocalFiltersUpdater,
@@ -45,7 +46,7 @@ const FilterBuilderContent = ({
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const filter_stream = useSelector(
-    (state) => state.filter_v.stream.name.split(" ")[0],
+    (state) => state.filter_v.stream?.name?.split(" ")[0],
   );
   const store_schema = useSelector((state) => state.filter_modules?.schema);
 
@@ -53,14 +54,41 @@ const FilterBuilderContent = ({
   const [fieldOptions, setFieldOptions] = useState([]);
 
   // Helper function to create an empty filter with a default empty condition
-  const createEmptyFilterWithDefaultCondition = useCallback(() => [
-    {
-      id: "root-block",
-      category: "block",
-      operator: "and",
-      children: [createDefaultCondition()],
-    },
-  ], [createDefaultCondition]);
+  const createEmptyFilterWithDefaultCondition = useCallback(
+    () => [
+      {
+        id: "root-block",
+        category: "block",
+        operator: "and",
+        children: [createDefaultCondition()],
+      },
+    ],
+    [createDefaultCondition],
+  );
+
+  // Helper function to recursively collect all block IDs (excluding root blocks)
+  const collectAllBlockIds = useCallback((blocks, isRoot = true) => {
+    const blockIds = [];
+
+    if (!blocks || !Array.isArray(blocks)) return blockIds;
+
+    blocks.forEach((block) => {
+      if (!block || block.category !== "block") return;
+
+      // Don't collect root block IDs, only nested ones
+      if (!isRoot && block.id) {
+        blockIds.push(block.id);
+      }
+
+      // Recursively collect from children
+      if (block.children && block.children.length > 0) {
+        const childBlockIds = collectAllBlockIds(block.children, false);
+        blockIds.push(...childBlockIds);
+      }
+    });
+
+    return blockIds;
+  }, []);
 
   // Initialize local filter data when filter prop changes
   useEffect(() => {
@@ -130,7 +158,34 @@ const FilterBuilderContent = ({
         setFilters(emptyFilter);
       }
     }
-  }, [filter, setFilters, hasBeenModified, createEmptyFilterWithDefaultCondition]);
+  }, [
+    filter,
+    setFilters,
+    hasBeenModified,
+    createEmptyFilterWithDefaultCondition,
+  ]);
+
+  // Set all blocks as collapsed by default when filter data changes
+  useEffect(() => {
+    // Only collapse blocks when we have filter data and it's not been modified by user
+    if (localFilterData && !hasBeenModified && setCollapsedBlocks) {
+      const allBlockIds = collectAllBlockIds(localFilterData);
+      if (allBlockIds.length > 0) {
+        setCollapsedBlocks((prev) => {
+          const newCollapsed = { ...prev };
+          allBlockIds.forEach((id) => {
+            newCollapsed[id] = true;
+          });
+          return newCollapsed;
+        });
+      }
+    }
+  }, [
+    localFilterData,
+    hasBeenModified,
+    setCollapsedBlocks,
+    collectAllBlockIds,
+  ]);
 
   // Update context filters when local filter data changes
   useEffect(() => {

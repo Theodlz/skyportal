@@ -81,13 +81,21 @@ const MongoQueryDialog = () => {
     getFormattedMongoQuery,
     hasValidQuery,
   } = useCurrentBuilder();
-  const filter_stream = useSelector((state) => state.filter_v.stream.name.split(" ")[0]);
+  const filter_stream = useSelector(
+    (state) => state.filter_v.stream?.name?.split(" ")[0],
+  );
   const dispatch = useDispatch();
   const results = useSelector((state) => state.query_result);
 
   const [copySuccess, setCopySuccess] = useState(false);
   //set default to "ZTF_alerts" collection if filter_stream is "ZTF" or "LSST_alerts" if filter_stream is "LSST"
-  const [selectedCollection, setSelectedCollection] = useState(filter_stream === "ZTF" ? "ZTF_alerts" : filter_stream === "LSST" ? "LSST_alerts" : "");
+  const [selectedCollection, setSelectedCollection] = useState(
+    filter_stream === "ZTF"
+      ? "ZTF_alerts"
+      : filter_stream === "LSST"
+        ? "LSST_alerts"
+        : "",
+  );
   const [availableCollections, setAvailableCollections] = useState([]);
   const [isRunning, setIsRunning] = useState(false);
   const [queryError, setQueryError] = useState(null);
@@ -279,7 +287,12 @@ const MongoQueryDialog = () => {
       ];
       // Prepend the pipeline with the prepend stages
       pipeline.unshift(...prepend);
-      await dispatch(runBoomFilter({ pipeline: pipeline, selectedCollection: selectedCollection }));
+      await dispatch(
+        runBoomFilter({
+          pipeline: pipeline,
+          selectedCollection: selectedCollection,
+        }),
+      );
     } catch (error) {
       setQueryError(error.message);
     } finally {
@@ -468,80 +481,78 @@ const MongoQueryDialog = () => {
                             </TableRow>
                           </TableHead>
                           <TableBody>
-                            {results.data
-                              .slice(0, 50)
-                              .map((row, rowIndex) => (
-                                <TableRow key={rowIndex}>
-                                  {Object.entries(row)
-                                    .filter(([key]) => key !== "_id")
-                                    .map(([key, value], cellIndex) => {
-                                      const cellKey = `${rowIndex}-${cellIndex}`;
-                                      const isJsonExpanded =
-                                        expandedCells.has(cellKey);
-                                      const hasJsonContent =
-                                        typeof value === "object";
+                            {results.data.slice(0, 50).map((row, rowIndex) => (
+                              <TableRow key={rowIndex}>
+                                {Object.entries(row)
+                                  .filter(([key]) => key !== "_id")
+                                  .map(([key, value], cellIndex) => {
+                                    const cellKey = `${rowIndex}-${cellIndex}`;
+                                    const isJsonExpanded =
+                                      expandedCells.has(cellKey);
+                                    const hasJsonContent =
+                                      typeof value === "object";
 
-                                      return (
-                                        <TableCell
-                                          key={cellIndex}
-                                          sx={{
-                                            verticalAlign: "top",
-                                            minWidth: hasJsonContent
-                                              ? isJsonExpanded
-                                                ? 300
-                                                : 150
-                                              : 100,
-                                            maxWidth: hasJsonContent
-                                              ? isJsonExpanded
-                                                ? 600
-                                                : 300
-                                              : 200,
-                                            width: hasJsonContent
-                                              ? isJsonExpanded
-                                                ? "auto"
-                                                : "auto"
-                                              : "auto",
-                                            padding: 1,
-                                            borderRight: "1px solid",
-                                            borderColor: "divider",
-                                            transition: "all 0.3s ease",
-                                            overflow: "visible",
-                                          }}
-                                        >
-                                          {hasJsonContent ? (
-                                            <Box
-                                              sx={{
-                                                minWidth: isJsonExpanded
-                                                  ? 250
-                                                  : 150,
-                                                maxWidth: isJsonExpanded
-                                                  ? 550
-                                                  : 350,
-                                                width: "100%",
-                                              }}
-                                            >
-                                              <ReactJson
-                                                src={value}
-                                                name={false}
-                                                // theme={darkTheme ? "monokai" : "rjv-default"}
-                                              />
-                                            </Box>
-                                          ) : (
-                                            <Typography
-                                              variant="body2"
-                                              sx={{
-                                                fontFamily: "monospace",
-                                                wordBreak: "break-word",
-                                              }}
-                                            >
-                                              {String(value)}
-                                            </Typography>
-                                          )}
-                                        </TableCell>
-                                      );
-                                    })}
-                                </TableRow>
-                              ))}
+                                    return (
+                                      <TableCell
+                                        key={cellIndex}
+                                        sx={{
+                                          verticalAlign: "top",
+                                          minWidth: hasJsonContent
+                                            ? isJsonExpanded
+                                              ? 300
+                                              : 150
+                                            : 100,
+                                          maxWidth: hasJsonContent
+                                            ? isJsonExpanded
+                                              ? 600
+                                              : 300
+                                            : 200,
+                                          width: hasJsonContent
+                                            ? isJsonExpanded
+                                              ? "auto"
+                                              : "auto"
+                                            : "auto",
+                                          padding: 1,
+                                          borderRight: "1px solid",
+                                          borderColor: "divider",
+                                          transition: "all 0.3s ease",
+                                          overflow: "visible",
+                                        }}
+                                      >
+                                        {hasJsonContent ? (
+                                          <Box
+                                            sx={{
+                                              minWidth: isJsonExpanded
+                                                ? 250
+                                                : 150,
+                                              maxWidth: isJsonExpanded
+                                                ? 550
+                                                : 350,
+                                              width: "100%",
+                                            }}
+                                          >
+                                            <ReactJson
+                                              src={value}
+                                              name={false}
+                                              // theme={darkTheme ? "monokai" : "rjv-default"}
+                                            />
+                                          </Box>
+                                        ) : (
+                                          <Typography
+                                            variant="body2"
+                                            sx={{
+                                              fontFamily: "monospace",
+                                              wordBreak: "break-word",
+                                            }}
+                                          >
+                                            {String(value)}
+                                          </Typography>
+                                        )}
+                                      </TableCell>
+                                    );
+                                  })}
+                              </TableRow>
+                            ))}
                           </TableBody>
                         </Table>
                         {results.data?.length > 50 && (
@@ -549,8 +560,7 @@ const MongoQueryDialog = () => {
                             variant="caption"
                             sx={{ p: 1, display: "block", textAlign: "center" }}
                           >
-                            Showing first 50 of {results.data.length}{" "}
-                            results
+                            Showing first 50 of {results.data.length} results
                           </Typography>
                         )}
                       </TableContainer>

@@ -37,13 +37,30 @@ export function postElement({ name, data, elements }) {
 const reducer = (state = {}, action) => {
   switch (action.type) {
     case FETCH_SCHEMA_OK: {
-      const schema_from_db = JSON.parse(
-        action.data.schema.versions.find(
-          (e) => e.vid === action.data.schema.active_id,
-        ).schema,
+      const schemaVersion = action.data.schema?.versions?.find(
+        (e) => e.vid === action.data.schema?.active_id,
       );
-      const res = { schema: schema_from_db };
-      return res;
+
+      if (!schemaVersion?.schema) {
+        console.warn(
+          "No schema found for active version:",
+          action.data.schema?.active_id,
+        );
+        return { schema: null };
+      }
+
+      try {
+        const schema_from_db = JSON.parse(schemaVersion.schema);
+        const res = { schema: schema_from_db };
+        return res;
+      } catch (error) {
+        console.error(
+          "Error parsing schema JSON:",
+          error,
+          schemaVersion.schema,
+        );
+        return { schema: null };
+      }
     }
     case FETCH_ELEMENT_OK:
     case FETCH_ALL_ELEMENTS_OK: {

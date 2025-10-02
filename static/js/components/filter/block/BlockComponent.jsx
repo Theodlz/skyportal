@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useSelector } from "react-redux";
 import PropTypes from "prop-types";
 import {
@@ -713,9 +713,15 @@ const ValueInput = ({
   setSelectedChip,
   setEquationAnchor = null,
 }) => {
+  // Check conditions that don't require context first
+  if (shouldSkipValueInput(conditionOrBlock)) {
+    return null;
+  }
+
+  // Now call hooks - they must be called in the same order every time
   const { customListVariables, customVariables, fieldOptionsList } =
     useConditionContext();
-  
+
   // Check if this is an array field with an array operator that should show "+ List Variable" button
   const isArrayWithOperator = isArrayFieldWithArrayOperator(
     conditionOrBlock,
@@ -723,10 +729,7 @@ const ValueInput = ({
     fieldOptionsList,
   );
 
-  if (shouldSkipValueInput(conditionOrBlock)) {
-    return null;
-  }
-
+  // Check conditions that require context
   if (isBooleanField(conditionOrBlock, customVariables, fieldOptionsList)) {
     return null;
   }
@@ -958,7 +961,7 @@ const ListVariableInput = ({
       <AutocompleteFields
         key={`${conditionOrBlock.id}.right`}
         fieldOptions={getFieldOptionsWithVariable()}
-        value={conditionOrBlock.value}
+        value={conditionOrBlock.value ? String(conditionOrBlock.value) : ""}
         onChange={(newValue) =>
           updateCondition(block.id, conditionOrBlock.id, "value", newValue)
         }
@@ -1012,7 +1015,7 @@ const ListVariableInput = ({
       <AutocompleteFields
         key={`${conditionOrBlock.id}.right`}
         fieldOptions={getFieldOptionsWithVariable()}
-        value={conditionOrBlock.value}
+        value={conditionOrBlock.value ? String(conditionOrBlock.value) : ""}
         onChange={(newValue) =>
           updateCondition(block.id, conditionOrBlock.id, "value", newValue)
         }
@@ -1137,7 +1140,13 @@ const RegularValueInput = ({
           conditionOrBlock.value.subField &&
           ["$min", "$max", "$avg", "$sum"].includes(conditionOrBlock.operator);
 
-        return isAggregationOnLeft ? "" : conditionOrBlock.value;
+        const rawValue = isAggregationOnLeft ? "" : conditionOrBlock.value;
+
+        // Ensure value is always a string for AutocompleteFields
+        if (rawValue === null || rawValue === undefined) {
+          return "";
+        }
+        return String(rawValue);
       })()}
       onChange={(newValue) => {
         updateCondition(block.id, conditionOrBlock.id, "value", newValue);
@@ -1313,33 +1322,158 @@ const BlockHeader = ({
     }
   };
 
-  // A REVOIR. QUAND LES ID SONT DIFFÉRENTS, RETURNS FALSE WHILE IT SHOULD BE TRUE IF THAT'S THE ONLY DIFFERENCE
-  const isBlockEdited = (block, customBlocks) => {
-    // Only applies to custom blocks
-    const customBlock = customBlocks.find(
-      (cb) => cb.name === block.customBlockName,
-    );
-    if (!customBlock) return false;
-    // Deep compare block and customBlock.block (excluding id, createdAt, customBlockName)
-    const omitMeta = (obj) => {
-      if (Array.isArray(obj)) return obj.map(omitMeta);
-      if (obj && typeof obj === "object") {
-        const { ...rest } = obj;
-        const result = {};
-        for (const k in rest) {
-          result[k] = omitMeta(rest[k]);
+  // Deep comparison function that ignores metadata fields and key order
+  const deepCompareBlocks = (block1, block2) => {
+    // Helper function to create a copy without metadata fields
+    const stripMetadata = (obj) => {
+      if (obj === null || obj === undefined) return obj;
+      if (Array.isArray(obj)) {
+        return obj.map(stripMetadata);
+      }
+      if (typeof obj === "object") {
+        const {
+          id,
+          createdAt,
+          customBlockName,
+          isTrue,
+          booleanSwitch,
+          blockValue,
+          ...rest
+        } = obj;
+        const stripped = {};
+        for (const [key, value] of Object.entries(rest)) {
+          stripped[key] = stripMetadata(value);
         }
-        return result;
+        return stripped;
       }
       return obj;
     };
 
-    const a = omitMeta(block);
-    const b = omitMeta(customBlock.block);
-    return JSON.stringify(a) !== JSON.stringify(b);
+    // Deep equality comparison that ignores key order
+    const deepEqual = (obj1, obj2) => {
+      if (obj1 === obj2) return true;
+      if (obj1 == null || obj2 == null) return obj1 === obj2;
+      if (typeof obj1 !== typeof obj2) return false;
+      if (typeof obj1 !== "object") return obj1 === obj2;
+      if (Array.isArray(obj1) !== Array.isArray(obj2)) return false;
+
+      if (Array.isArray(obj1)) {
+        if (obj1.length !== obj2.length) return false;
+        for (let i = 0; i < obj1.length; i++) {
+          if (!deepEqual(obj1[i], obj2[i])) return false;
+        }
+        return true;
+      }
+
+      const keys1 = Object.keys(obj1);
+      const keys2 = Object.keys(obj2);
+
+      if (keys1.length !== keys2.length) return false;
+
+      for (const key of keys1) {
+        if (!keys2.includes(key)) return false;
+        if (!deepEqual(obj1[key], obj2[key])) return false;
+      }
+
+      return true;
+    };
+
+    return deepEqual(stripMetadata(block1), stripMetadata(block2));
   };
 
-  const edited = isCustomBlock && !isBlockEdited(block, customBlocks);
+  const isBlockEdited = (block, customBlocks) => {
+    // Only compare if this is the top-level custom block (has isTrue)
+    if (!("isTrue" in block)) {
+      // console.log("block", block, customBlocks);
+      return false;
+    }
+
+    const customBlock = customBlocks.find(
+      (cb) => cb.name === block.customBlockName,
+    );
+    if (!customBlock) return false;
+
+    // Check if the current block has been modified
+    const isCurrentBlockModified = !deepCompareBlocks(block, customBlock.block);
+
+    // If the current block is modified, return true immediately
+    if (isCurrentBlockModified) {
+      return true;
+    }
+
+    // Recursively check all child blocks for modifications
+    const hasModifiedChildren = checkChildrenForModifications(
+      block,
+      customBlock.block,
+      customBlocks,
+    );
+
+    return hasModifiedChildren;
+  };
+
+  // Helper function to recursively check children for modifications
+  const checkChildrenForModifications = (
+    currentBlock,
+    originalBlock,
+    customBlocks,
+  ) => {
+    if (!currentBlock.children || !originalBlock.children) {
+      return false;
+    }
+
+    // Check each child in the current block
+    for (let i = 0; i < currentBlock.children.length; i++) {
+      const currentChild = currentBlock.children[i];
+      const originalChild = originalBlock.children[i];
+
+      // If this child is a block (not a condition)
+      if (currentChild.category === "block") {
+        // If this child has a customBlockName, it might be a nested custom block
+        if (currentChild.customBlockName) {
+          // Check if this nested custom block has been modified
+          if (isBlockEdited(currentChild, customBlocks)) {
+            return true;
+          }
+        } else {
+          // For regular nested blocks, compare directly
+          if (!deepCompareBlocks(currentChild, originalChild)) {
+            return true;
+          }
+
+          // Recursively check this block's children
+          if (
+            checkChildrenForModifications(
+              currentChild,
+              originalChild,
+              customBlocks,
+            )
+          ) {
+            return true;
+          }
+        }
+      } else {
+        // For conditions, compare directly
+        if (!deepCompareBlocks(currentChild, originalChild)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  };
+
+  const isRootCustomBlock = "isTrue" in block && isCustomBlock;
+  if (block.customBlockName === "near_brightstar") {
+    console.log(
+      "block",
+      block,
+      "isRootCustomBlock",
+      isRootCustomBlock,
+      "isCustomBlock",
+      isCustomBlock,
+    );
+  }
+  const edited = isBlockEdited(block, customBlocks) && isRootCustomBlock;
 
   return (
     <Box
@@ -1390,7 +1524,7 @@ const BlockHeader = ({
         )}
 
         {/* Controls (except Save) */}
-        {isCustomBlock && isCollapsed ? null : (
+        {isRootCustomBlock && isCollapsed ? null : (
           <>
             <FormControl size="small" sx={{ minWidth: 80 }}>
               <Select
@@ -1450,21 +1584,23 @@ const BlockHeader = ({
       </Box>
 
       <Box
+        id={`block-${block.id}-center`}
         sx={{
           display: "flex",
           alignItems: "center",
-          ...(isCustomBlock &&
-            isCollapsed && { justifyContent: "center", flex: 1 }),
+          justifyContent: "center",
+          flex: 1,
+          minWidth: 200,
         }}
       >
-        {/* Custom block name and switch - centered when collapsed */}
-        {isCustomBlock && (
+        {/* Root custom block: chip + switch grouped and centered */}
+        {isRootCustomBlock && (
           <Box
             sx={{
               display: "flex",
               alignItems: "center",
               gap: 1.5,
-              ...(isCollapsed && { justifyContent: "center" }),
+              justifyContent: "center",
             }}
           >
             <Chip
@@ -1545,14 +1681,68 @@ const BlockHeader = ({
           </Box>
         )}
 
-        {/* Switch for non-custom blocks (keeps original position) */}
-        {!isCustomBlock && (
+        {/* Nested custom block: switch, centered */}
+        {!isRootCustomBlock && isCustomBlock && (
           <Box
             sx={{
-              ...blockHeaderStyles.switchContainer,
               display: "flex",
               alignItems: "center",
               gap: 0.5,
+              justifyContent: "center",
+            }}
+          >
+            <Switch
+              checked={block?.blockValue !== false}
+              onChange={(e) => {
+                // For nested custom blocks, don't add isTrue property
+                // Just toggle the boolean value without making it a root custom block
+                setFilters((prevFilters) => {
+                  const updateBlock = (b) => {
+                    if (b.id !== block.id) {
+                      return {
+                        ...b,
+                        children: b.children
+                          ? b.children.map((child) =>
+                              child.category === "block"
+                                ? updateBlock(child)
+                                : child,
+                            )
+                          : [],
+                      };
+                    }
+                    // For nested custom blocks, use a different property name
+                    // to avoid triggering root custom block behavior
+                    return { ...b, blockValue: e.target.checked };
+                  };
+                  return prevFilters.map(updateBlock);
+                });
+              }}
+              color="primary"
+              size="medium"
+              inputProps={{ "aria-label": "Nested custom block boolean value" }}
+            />
+            <Box
+              component="span"
+              sx={{
+                fontSize: "0.875rem",
+                color: "text.secondary",
+                fontWeight: 500,
+              }}
+            >
+              {block?.blockValue !== false ? "True" : "False"}
+            </Box>
+          </Box>
+        )}
+
+        {/* Regular block: just switch, centered */}
+        {!isRootCustomBlock && !isCustomBlock && (
+          <Box
+            id="block-boolean-switch"
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 0.5,
+              justifyContent: "center",
             }}
           >
             <Switch
@@ -1580,7 +1770,7 @@ const BlockHeader = ({
               }}
               color="primary"
               size="medium"
-              inputProps={{ "aria-label": "Custom block boolean value" }}
+              inputProps={{ "aria-label": "Block boolean value" }}
             />
             <Box
               component="span"
@@ -1959,7 +2149,7 @@ const ConditionComponentInner = ({
                   value: (() => {
                     const currentIsBool = typeof child.value === "boolean";
                     const newIsBool = isBooleanField;
-                    
+
                     if (newIsBool) {
                       // Switching to boolean field - use boolean value or default to true
                       return currentIsBool ? child.value : true;
@@ -2152,7 +2342,7 @@ const FieldSelector = ({
         <AutocompleteFields
           key={`${conditionOrBlock.id}.left`}
           fieldOptions={fieldOptionsWithVariable}
-          value={conditionOrBlock.field || conditionOrBlock.variableName}
+          value={conditionOrBlock.field || conditionOrBlock.variableName || ""}
           onChange={handleFieldChange}
           conditionOrBlock={conditionOrBlock}
           setOpenEquationIds={setOpenEquationIds}

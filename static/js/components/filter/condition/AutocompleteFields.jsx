@@ -809,7 +809,11 @@ AutocompleteFields.propTypes = {
       isListVariable: PropTypes.bool,
     }),
   ).isRequired,
-  value: PropTypes.string,
+  value: PropTypes.oneOfType([
+    PropTypes.string,
+    PropTypes.number,
+    PropTypes.bool,
+  ]),
   onChange: PropTypes.func.isRequired,
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,

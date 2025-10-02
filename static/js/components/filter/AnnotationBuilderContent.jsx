@@ -261,6 +261,14 @@ const MapAnnotationsDialog = ({
                       size="small"
                     />
                   )}
+                  renderOption={(props, option) => {
+                    const { key, ...otherProps } = props;
+                    return (
+                      <li key={option.name || option.label} {...otherProps}>
+                        {option.label || option.name || ""}
+                      </li>
+                    );
+                  }}
                 />
                 {/* Type Selector (MUI Select style) */}
                 <FormControl size="small" sx={{ minWidth: 120 }}>
