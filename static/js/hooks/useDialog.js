@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { getArrayFieldSubOptions } from "../constants/filterConstants";
+import { useCurrentBuilder } from "./useContexts";
 
 export const useDialogStates = () => {
   // Dialog states
@@ -86,6 +87,7 @@ export const useListConditionDialog = (
   customListVariables,
   defaultBlock,
 ) => {
+  const { schema } = useCurrentBuilder(); // Access schema from context
   const [localFilters, setLocalFilters] = useState([]);
   const [listFieldName, setListFieldName] = useState("");
   const [subFieldOptions, setSubFieldOptions] = useState([]);
@@ -160,9 +162,9 @@ export const useListConditionDialog = (
 
   // Update sub-field options when the field name changes
   useEffect(() => {
-    const options = getArrayFieldSubOptions(listFieldNameFromCondition);
+    const options = getArrayFieldSubOptions(listFieldNameFromCondition, schema);
     setSubFieldOptions(options);
-  }, [listFieldNameFromCondition]);
+  }, [listFieldNameFromCondition, schema]);
 
   const handleFieldSelection = (
     fieldLabel,
@@ -180,7 +182,7 @@ export const useListConditionDialog = (
       setSubFieldOptions(listVariable.listCondition.subFieldOptions);
     } else {
       // Use regular array field sub-options
-      const options = getArrayFieldSubOptions(fieldLabel);
+      const options = getArrayFieldSubOptions(fieldLabel, schema);
       setSubFieldOptions(options);
     }
 
@@ -253,8 +255,8 @@ export const useListConditionForm = (
   // Get all available array fields (including list variables)
   const availableArrayFields = [
     // Include schema array fields - check for both type "array" and isExpandableArray
-    ...(fieldOptions || []).filter((field) => 
-      field.type === "array" || field.isExpandableArray
+    ...(fieldOptions || []).filter(
+      (field) => field.type === "array" || field.isExpandableArray,
     ),
     ...customListVariables.map((lv) => ({
       label: lv.name,

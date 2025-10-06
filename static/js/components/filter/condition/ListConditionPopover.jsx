@@ -65,6 +65,13 @@ const ListConditionPopover = ({
     ) {
       return renderAggregationContent(conditionOrBlock);
     }
+    // Priority 2.5: Check for direct aggregation operator with subField in conditionOrBlock
+    if (
+      conditionOrBlock.operator &&
+      ["$min", "$max", "$avg", "$sum"].includes(conditionOrBlock.operator)
+    ) {
+      return renderDirectAggregationContent(conditionOrBlock);
+    }
 
     // Priority 3: Check for reused list variable (from AutocompleteFields chip click)
     if (conditionOrBlock.isListVariable && conditionOrBlock.field) {
@@ -180,7 +187,11 @@ const ListConditionPopover = ({
               fieldOptionsList={listVar.listCondition.subFieldOptions || []}
               customListVariables={customListVariables}
             />
-          ) : listVar.listCondition.subField ? (
+          ) : listVar.listCondition.subField ||
+            (listVar.listCondition.operator &&
+              ["$min", "$max", "$avg", "$sum"].includes(
+                listVar.listCondition.operator,
+              )) ? (
             renderAggregationDisplay(listVar.listCondition)
           ) : (
             <div
@@ -248,32 +259,108 @@ const ListConditionPopover = ({
     );
   };
 
-  const renderAggregationDisplay = (listCondition) => (
-    <div>
+  const renderDirectAggregationContent = (conditionOrBlock) => {
+    const operatorName = conditionOrBlock.operator
+      .replace("$", "")
+      .toUpperCase();
+
+    // Try to get field and subField from different possible locations
+    const arrayField = conditionOrBlock.value?.field || conditionOrBlock.field;
+    const subField =
+      conditionOrBlock.value?.subField || conditionOrBlock.subField;
+    const conditionName =
+      conditionOrBlock.value?.name || conditionOrBlock.name || "Aggregation";
+
+    return (
       <div
         style={{
-          padding: "12px 16px",
-          backgroundColor: "#f0fdf4",
-          borderRadius: 8,
-          fontSize: 16,
-          color: "#166534",
-          border: "1px solid #bbf7d0",
-          fontWeight: 600,
-          fontFamily: "monospace",
-          marginBottom: 12,
+          width: "90vw",
+          maxWidth: 900,
+          minWidth: 300,
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
         }}
       >
-        {listCondition.operator.replace("$", "").toUpperCase()}(
-        {listCondition.field}.{listCondition.subField})
+        <div
+          style={{
+            fontWeight: 600,
+            color: "#166534",
+            fontSize: 17,
+            marginBottom: 8,
+            letterSpacing: 0.2,
+          }}
+        >
+          <span style={{ color: "#059669" }}>{conditionName}</span>
+        </div>
+        <div
+          style={{
+            padding: "12px 16px",
+            backgroundColor: "#f0fdf4",
+            borderRadius: 8,
+            fontSize: 16,
+            color: "#166534",
+            border: "1px solid #bbf7d0",
+            fontWeight: 600,
+            fontFamily: "monospace",
+          }}
+        >
+          {operatorName}({arrayField}.{subField})
+        </div>
+        <div style={{ fontSize: 14, color: "#6b7280" }}>
+          This aggregation operation calculates the {operatorName.toLowerCase()}{" "}
+          value of the "{subField}" field across all elements in the "
+          {arrayField}" array.
+        </div>
       </div>
-      <div style={{ fontSize: 14, color: "#6b7280" }}>
-        This aggregation operation calculates the{" "}
-        {listCondition.operator.replace("$", "").toLowerCase()} value of the "
-        {listCondition.subField}" field across all elements in the "
-        {listCondition.field}" array.
+    );
+  };
+
+  const renderAggregationDisplay = (listCondition) => {
+    // Handle different possible data structures
+    const operator = listCondition.operator || "";
+    const arrayField =
+      listCondition.field ||
+      (listCondition.value && listCondition.value.field) ||
+      "";
+    const subField =
+      listCondition.subField ||
+      (listCondition.value && listCondition.value.subField) ||
+      "";
+
+    if (!operator || !arrayField || !subField) {
+      return (
+        <div style={{ fontSize: 14, color: "#6b7280", fontStyle: "italic" }}>
+          Incomplete aggregation information available.
+        </div>
+      );
+    }
+
+    return (
+      <div>
+        <div
+          style={{
+            padding: "12px 16px",
+            backgroundColor: "#f0fdf4",
+            borderRadius: 8,
+            fontSize: 16,
+            color: "#166534",
+            border: "1px solid #bbf7d0",
+            fontWeight: 600,
+            fontFamily: "monospace",
+            marginBottom: 12,
+          }}
+        >
+          {operator.replace("$", "").toUpperCase()}({arrayField}.{subField})
+        </div>
+        <div style={{ fontSize: 14, color: "#6b7280" }}>
+          This aggregation operation calculates the{" "}
+          {operator.replace("$", "").toLowerCase()} value of the "{subField}"
+          field across all elements in the "{arrayField}" array.
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderRegularListCondition = (
     conditionOrBlock,
