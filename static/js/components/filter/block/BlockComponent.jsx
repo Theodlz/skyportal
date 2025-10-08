@@ -1383,10 +1383,6 @@ const BlockHeader = ({
 
   const isBlockEdited = (block, customBlocks) => {
     // Only compare if this is the top-level custom block (has isTrue)
-    if (!("isTrue" in block)) {
-      // console.log("block", block, customBlocks);
-      return false;
-    }
 
     const customBlock = customBlocks.find(
       (cb) => cb.name === block.customBlockName,
@@ -1463,16 +1459,6 @@ const BlockHeader = ({
   };
 
   const isRootCustomBlock = "isTrue" in block && isCustomBlock;
-  if (block.customBlockName === "near_brightstar") {
-    console.log(
-      "block",
-      block,
-      "isRootCustomBlock",
-      isRootCustomBlock,
-      "isCustomBlock",
-      isCustomBlock,
-    );
-  }
   const edited = isBlockEdited(block, customBlocks) && isRootCustomBlock;
 
   return (
@@ -2280,6 +2266,8 @@ const ConditionComponentInner = ({
         customVariables={customVariables}
         block={block}
         updateCondition={updateCondition}
+        fieldOptions={fieldOptions}
+        fieldOptionsList={fieldOptionsList}
       />
     </Box>
   );

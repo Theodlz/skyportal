@@ -157,6 +157,7 @@ export const convertToMongoAggregation = (
             true,
             variableUsageCounts,
             [],
+            listCondition.field,
           );
           projectStage.$project[listVar.name] = {
             $filter: {
@@ -242,6 +243,7 @@ const convertBlockToMongo = (
   isInArrayFilter = false,
   variableUsageCounts = {},
   customBlocksWithFalseValue = [],
+  arrayFieldName = null, // New parameter to track the array field being filtered
 ) => {
   if (!block) {
     return {};
@@ -263,6 +265,7 @@ const convertBlockToMongo = (
         customListVariables,
         schema,
         fieldOptions,
+        arrayFieldName, // Pass the array field name
       );
     } else {
       // For regular conditions, use standard format
@@ -274,6 +277,7 @@ const convertBlockToMongo = (
         customListVariables,
         isInArrayFilter,
         variableUsageCounts,
+        arrayFieldName, // Pass the array field name down
       );
     }
     return condition || {};
@@ -314,6 +318,7 @@ const convertBlockToMongo = (
           customListVariables,
           schema,
           fieldOptions,
+          arrayFieldName, // Pass the array field name
         );
       } else {
         // For regular conditions, use standard format
@@ -325,6 +330,7 @@ const convertBlockToMongo = (
           customListVariables,
           isInArrayFilter,
           variableUsageCounts,
+          arrayFieldName, // Pass the array field name down
         );
       }
       if (condition && Object.keys(condition).length > 0) {
@@ -885,6 +891,7 @@ const convertConditionToProjectExpr = (
           true,
           {},
           [],
+          field, // Pass the array field name
         );
         if (conditionsForMap && Object.keys(conditionsForMap).length > 0) {
           const anyElementExpr = {
@@ -951,6 +958,7 @@ const convertConditionToProjectExpr = (
           true,
           {},
           [],
+          field, // Pass the array field name
         );
         if (conditionsForMap && Object.keys(conditionsForMap).length > 0) {
           const allElementExpr = {
@@ -1016,6 +1024,7 @@ const convertConditionToProjectExpr = (
           true,
           {},
           [],
+          field, // Pass the array field name
         );
         if (filterCondition && Object.keys(filterCondition).length > 0) {
           return {
@@ -1069,6 +1078,7 @@ const convertConditionToMongoExpr = (
   customListVariables = [],
   schema = {},
   fieldOptions = [],
+  arrayFieldName = null, // New parameter to track the array field being filtered
 ) => {
   if (!condition.field || !condition.operator) {
     return {};
@@ -1099,21 +1109,52 @@ const convertConditionToMongoExpr = (
           fieldPath = convertToArrayContext(mongoExpression);
         } else {
           // Fallback if conversion fails
-          fieldPath = `$$this.${field}`;
+          if (arrayFieldName && field.startsWith(`${arrayFieldName}.`)) {
+            // Field is from the array - strip prefix and use $$this
+            const fieldForArray = field.substring(arrayFieldName.length + 1);
+            fieldPath = `$$this.${fieldForArray}`;
+          } else {
+            // Field is not from the array - use as absolute field reference
+            fieldPath = `$${field}`;
+          }
         }
       } catch (error) {
         console.warn(
           `Failed to convert LaTeX expression for variable ${field}:`,
           error,
         );
-        fieldPath = `$$this.${field}`;
+        if (arrayFieldName && field.startsWith(`${arrayFieldName}.`)) {
+          // Field is from the array - strip prefix and use $$this
+          const fieldForArray = field.substring(arrayFieldName.length + 1);
+          fieldPath = `$$this.${fieldForArray}`;
+        } else {
+          // Field is not from the array - use as absolute field reference
+          fieldPath = `$${field}`;
+        }
       }
     } else {
-      fieldPath = `$$this.${field}`;
+      if (arrayFieldName && field.startsWith(`${arrayFieldName}.`)) {
+        // Field is from the array - strip prefix and use $$this
+        const fieldForArray = field.substring(arrayFieldName.length + 1);
+        fieldPath = `$$this.${fieldForArray}`;
+      } else {
+        // Field is not from the array - use as absolute field reference
+        fieldPath = `$${field}`;
+      }
     }
   } else {
     // Regular field path for array element context
-    fieldPath = `$$this.${field}`;
+    let fieldForArray = field;
+
+    // Check if this field is from the array being filtered
+    if (arrayFieldName && field.startsWith(`${arrayFieldName}.`)) {
+      // Field is from the array - strip the array prefix and use $$this
+      fieldForArray = field.substring(arrayFieldName.length + 1);
+      fieldPath = `$$this.${fieldForArray}`;
+    } else {
+      // Field is not from the array - use as absolute field reference
+      fieldPath = `$${field}`;
+    }
   }
 
   // Check if the field is a boolean field
@@ -1759,6 +1800,7 @@ const convertListConditionDefinitionToMongo = (
           true,
           variableUsageCounts,
           [],
+          arrayField, // Pass the array field name
         );
         const anyElementTrueExpr = {
           $anyElementTrue: {
@@ -1795,6 +1837,7 @@ const convertListConditionDefinitionToMongo = (
           true,
           variableUsageCounts,
           [],
+          arrayField, // Pass the array field name
         );
         const allElementsTrueExpr = {
           $allElementsTrue: {
@@ -1830,6 +1873,7 @@ const convertListConditionDefinitionToMongo = (
           true,
           variableUsageCounts,
           [],
+          arrayField, // Pass the array field name
         );
         return {
           $expr: {
@@ -2051,6 +2095,7 @@ const convertArrayValueToMongo = (
           true,
           variableUsageCounts,
           [],
+          arrayField, // Pass the array field name
         );
         return {
           $expr: {
@@ -2077,6 +2122,7 @@ const convertArrayValueToMongo = (
           true,
           variableUsageCounts,
           [],
+          arrayField, // Pass the array field name
         );
         return {
           $expr: {
@@ -2102,6 +2148,7 @@ const convertArrayValueToMongo = (
           true,
           variableUsageCounts,
           [],
+          arrayField, // Pass the array field name
         );
         return {
           $expr: {

@@ -617,179 +617,206 @@ const MongoQueryDialog = () => {
                     </Tabs>
                   </Box>
 
-                  {/* Complete Pipeline View */}
-                  {pipelineView === "complete" && (
-                    <Box>
+                  {/* Tab Content Container */}
+                  <Box
+                    sx={{
+                      minHeight: "400px",
+                      position: "relative",
+                      backgroundColor: "background.paper",
+                    }}
+                  >
+                    {/* Complete Pipeline View */}
+                    {pipelineView === "complete" && (
                       <Box
                         sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          mb: 2,
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          minHeight: "100%",
+                          backgroundColor: "background.paper",
                         }}
                       >
-                        <Typography variant="subtitle2" fontWeight="bold">
-                          Complete Pipeline JSON:
-                        </Typography>
-                        <Button
-                          variant="outlined"
-                          size="small"
-                          startIcon={<CopyIcon />}
-                          onClick={handleCopy}
+                        <Box
+                          sx={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            mb: 2,
+                          }}
                         >
-                          Copy to Clipboard
-                        </Button>
-                      </Box>
+                          <Typography variant="subtitle2" fontWeight="bold">
+                            Complete Pipeline JSON:
+                          </Typography>
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            startIcon={<CopyIcon />}
+                            onClick={handleCopy}
+                          >
+                            Copy to Clipboard
+                          </Button>
+                        </Box>
 
+                        <Box
+                          sx={{
+                            backgroundColor: "#f5f5f5",
+                            border: "1px solid #ddd",
+                            borderRadius: 1,
+                            p: 2,
+                            maxHeight: "400px",
+                            overflow: "auto",
+                          }}
+                        >
+                          <ReactJson
+                            src={pipeline}
+                            name={false}
+                            // theme={darkTheme ? "monokai" : "rjv-default"}
+                          />
+                        </Box>
+
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ mt: 2, display: "block" }}
+                        >
+                          This aggregation pipeline can be used directly with
+                          MongoDB's aggregate() method.
+                        </Typography>
+                      </Box>
+                    )}
+
+                    {/* Stage by Stage View */}
+                    {pipelineView === "stages" && (
                       <Box
                         sx={{
-                          backgroundColor: "#f5f5f5",
-                          border: "1px solid #ddd",
-                          borderRadius: 1,
-                          p: 2,
-                          maxHeight: "400px",
-                          overflow: "auto",
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          minHeight: "100%",
+                          backgroundColor: "background.paper",
                         }}
                       >
-                        <ReactJson
-                          src={pipeline}
-                          name={false}
-                          // theme={darkTheme ? "monokai" : "rjv-default"}
-                        />
-                      </Box>
+                        {/* Individual Stage Details */}
+                        <Box
+                          sx={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 2,
+                          }}
+                        >
+                          {pipeline.map((stage, index) => {
+                            const stageName = Object.keys(stage)[0];
+                            const stageContent = stage[stageName];
+                            const description = getStageDescription(stageName);
+                            const isStageExpanded = expandedStages.has(index);
 
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        sx={{ mt: 2, display: "block" }}
-                      >
-                        This aggregation pipeline can be used directly with
-                        MongoDB's aggregate() method.
-                      </Typography>
-                    </Box>
-                  )}
-
-                  {/* Stage by Stage View */}
-                  {pipelineView === "stages" && (
-                    <Box>
-                      {/* Individual Stage Details */}
-                      <Box
-                        sx={{
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 2,
-                        }}
-                      >
-                        {pipeline.map((stage, index) => {
-                          const stageName = Object.keys(stage)[0];
-                          const stageContent = stage[stageName];
-                          const description = getStageDescription(stageName);
-                          const isStageExpanded = expandedStages.has(index);
-
-                          return (
-                            <Paper
-                              key={index}
-                              elevation={1}
-                              sx={{
-                                p: 2,
-                                border: "1px solid",
-                                borderColor: "divider",
-                              }}
-                            >
-                              <Box
+                            return (
+                              <Paper
+                                key={index}
+                                elevation={1}
                                 sx={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "space-between",
-                                  mb: 1,
+                                  p: 2,
+                                  border: "1px solid",
+                                  borderColor: "divider",
                                 }}
                               >
                                 <Box
                                   sx={{
                                     display: "flex",
                                     alignItems: "center",
-                                    gap: 1,
+                                    justifyContent: "space-between",
+                                    mb: 1,
                                   }}
                                 >
-                                  <Chip
-                                    label={`Stage ${index + 1}`}
-                                    size="small"
-                                    color="primary"
-                                    variant="outlined"
-                                  />
-                                  <Typography
-                                    variant="h6"
+                                  <Box
                                     sx={{
-                                      color: "primary.main",
-                                      fontFamily: "monospace",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 1,
                                     }}
                                   >
-                                    {stageName}
-                                  </Typography>
-                                  <IconButton
-                                    size="small"
-                                    onClick={() => handleStageToggle(index)}
-                                    sx={{ ml: 1 }}
-                                  >
-                                    {isStageExpanded ? (
-                                      <ExpandLessIcon />
-                                    ) : (
-                                      <ExpandMoreIcon />
-                                    )}
-                                  </IconButton>
+                                    <Chip
+                                      label={`Stage ${index + 1}`}
+                                      size="small"
+                                      color="primary"
+                                      variant="outlined"
+                                    />
+                                    <Typography
+                                      variant="h6"
+                                      sx={{
+                                        color: "primary.main",
+                                        fontFamily: "monospace",
+                                      }}
+                                    >
+                                      {stageName}
+                                    </Typography>
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => handleStageToggle(index)}
+                                      sx={{ ml: 1 }}
+                                    >
+                                      {isStageExpanded ? (
+                                        <ExpandLessIcon />
+                                      ) : (
+                                        <ExpandMoreIcon />
+                                      )}
+                                    </IconButton>
+                                  </Box>
+                                  <Tooltip title={`Copy ${stageName} stage`}>
+                                    <IconButton
+                                      size="small"
+                                      onClick={() =>
+                                        handleCopyStage(stageName, stageContent)
+                                      }
+                                      sx={{
+                                        opacity: 0.7,
+                                        "&:hover": { opacity: 1 },
+                                      }}
+                                    >
+                                      <CopyIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
                                 </Box>
-                                <Tooltip title={`Copy ${stageName} stage`}>
-                                  <IconButton
-                                    size="small"
-                                    onClick={() =>
-                                      handleCopyStage(stageName, stageContent)
-                                    }
-                                    sx={{
-                                      opacity: 0.7,
-                                      "&:hover": { opacity: 1 },
-                                    }}
-                                  >
-                                    <CopyIcon fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-                              </Box>
 
-                              <Typography
-                                variant="body2"
-                                color="text.secondary"
-                                sx={{ mb: 2, fontStyle: "italic" }}
-                              >
-                                {description}
-                              </Typography>
-
-                              <Collapse in={isStageExpanded}>
-                                <Box
-                                  component="pre"
-                                  sx={{
-                                    backgroundColor: "#f8f9fa",
-                                    border: "1px solid #e9ecef",
-                                    borderRadius: 1,
-                                    p: 1.5,
-                                    overflow: "auto",
-                                    maxHeight: "300px",
-                                    fontFamily:
-                                      'Monaco, Consolas, "Courier New", monospace',
-                                    fontSize: "13px",
-                                    lineHeight: 1.4,
-                                    whiteSpace: "pre-wrap",
-                                    wordBreak: "break-word",
-                                    margin: 0,
-                                  }}
+                                <Typography
+                                  variant="body2"
+                                  color="text.secondary"
+                                  sx={{ mb: 2, fontStyle: "italic" }}
                                 >
-                                  {JSON.stringify(stageContent, null, 2)}
-                                </Box>
-                              </Collapse>
-                            </Paper>
-                          );
-                        })}
+                                  {description}
+                                </Typography>
+
+                                <Collapse in={isStageExpanded}>
+                                  <Box
+                                    component="pre"
+                                    sx={{
+                                      backgroundColor: "#f8f9fa",
+                                      border: "1px solid #e9ecef",
+                                      borderRadius: 1,
+                                      p: 1.5,
+                                      overflow: "auto",
+                                      maxHeight: "300px",
+                                      fontFamily:
+                                        'Monaco, Consolas, "Courier New", monospace',
+                                      fontSize: "13px",
+                                      lineHeight: 1.4,
+                                      whiteSpace: "pre-wrap",
+                                      wordBreak: "break-word",
+                                      margin: 0,
+                                    }}
+                                  >
+                                    {JSON.stringify(stageContent, null, 2)}
+                                  </Box>
+                                </Collapse>
+                              </Paper>
+                            );
+                          })}
+                        </Box>
                       </Box>
-                    </Box>
-                  )}
+                    )}
+                  </Box>
                 </Collapse>
               </Box>
             </Box>

@@ -292,7 +292,9 @@ const ConditionBuilderSection = ({
   }
 
   // Get the array field and its subfields
-  const arrayField = fieldOptions.find((f) => f.type === "array" && f.label === selectedArrayField);
+  const arrayField = fieldOptions.find(
+    (f) => f.type === "array" && f.label === selectedArrayField,
+  );
   if (!arrayField || !arrayField.arrayItems || !arrayField.arrayItems.fields) {
     return null;
   }
@@ -389,7 +391,7 @@ const AddListConditionDialog = () => {
 
   // Use our custom hooks
   const form = useListConditionForm(fieldOptions, customListVariables);
-  
+
   const dialog = useListConditionDialog(
     listConditionDialog,
     filters,
@@ -484,8 +486,34 @@ const AddListConditionDialog = () => {
       field: dialog.listFieldName,
       operator: form.selectedOperator,
       value: operatorNeedsConditions ? dialog.localFilters[0] : null,
-      subField: operatorNeedsSubField ? dialog.selectedSubField : null,
-      subFieldOptions: form.subFieldOptions,
+      subField: operatorNeedsSubField ? form.selectedSubField : null,
+      subFieldOptions: (() => {
+        // Use the same comprehensive field options that were used in the dialog
+        if (operatorNeedsConditions) {
+          const arrayField = fieldOptions.find(
+            (f) => f.type === "array" && f.label === dialog.listFieldName,
+          );
+          if (
+            arrayField &&
+            arrayField.arrayItems &&
+            arrayField.arrayItems.fields
+          ) {
+            const subFieldOptionsConsistent = arrayField.arrayItems.fields.map(
+              (sub) => {
+                const { name, ...subWithoutName } = sub;
+                return {
+                  ...subWithoutName,
+                  label: `${dialog.listFieldName}.${name}`,
+                  type: getSimpleType(sub.type),
+                };
+              },
+            );
+            return [...fieldOptions, ...subFieldOptionsConsistent];
+          }
+        }
+        // Fall back to the original subFieldOptions
+        return dialog.subFieldOptions;
+      })(),
       name: form.conditionName.trim(),
     };
 
@@ -503,13 +531,13 @@ const AddListConditionDialog = () => {
       selectedSubField: form.selectedSubField,
       conditionName: form.conditionName,
       localFilters: dialog.localFilters,
-      subFieldOptions: dialog.subFieldOptions,
+      subFieldOptions: listCondition.subFieldOptions,
       saved: apiResult?.status === "success",
       listCondition: listCondition,
       listConditionDialog,
       setCustomListVariables,
       setFilters: setFilters,
-      setLocalFilters: localFiltersUpdater, // Use the updater from context
+      setLocalFilters: localFiltersUpdater,
     });
 
     // Only close if both the API call and the filter update succeeded
@@ -592,7 +620,7 @@ const AddListConditionDialog = () => {
                 onNameChange={form.handleNameChange}
                 nameError={form.nameError}
               />
-              
+
               <ConditionBuilderSection
                 selectedOperator={form.selectedOperator}
                 selectedArrayField={form.selectedArrayField}

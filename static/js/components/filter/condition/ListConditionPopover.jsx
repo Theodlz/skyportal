@@ -11,6 +11,8 @@ const ListConditionPopover = ({
   customVariables,
   block,
   updateCondition,
+  fieldOptions,
+  fieldOptionsList,
 }) => {
   const popoverRef = useRef(null);
   const isOpen = Boolean(listPopoverAnchor);
@@ -63,14 +65,14 @@ const ListConditionPopover = ({
       conditionOrBlock.value.type === "array" &&
       conditionOrBlock.value.subField
     ) {
-      return renderAggregationContent(conditionOrBlock);
+      return renderAggregationDisplay(conditionOrBlock);
     }
     // Priority 2.5: Check for direct aggregation operator with subField in conditionOrBlock
     if (
       conditionOrBlock.operator &&
       ["$min", "$max", "$avg", "$sum"].includes(conditionOrBlock.operator)
     ) {
-      return renderDirectAggregationContent(conditionOrBlock);
+      return renderAggregationDisplay(conditionOrBlock);
     }
 
     // Priority 3: Check for reused list variable (from AutocompleteFields chip click)
@@ -97,14 +99,13 @@ const ListConditionPopover = ({
         createDefaultCondition,
         customVariables,
         customListVariables,
-      ); // Fixed
+      );
     }
 
     return null;
   };
 
   const renderListVariableContent = (listVar) => {
-    // Get the operator label from mongoOperatorLabels
     const getOperatorLabel = (operator) => {
       const operatorLabels = {
         $anyElementTrue: "Any Element True",
@@ -174,17 +175,26 @@ const ListConditionPopover = ({
               customBlocks={[]}
               collapsedBlocks={{}}
               filters={[listVar.listCondition.value]}
-              setFilters={() => {}} // Read-only
+              setFilters={() => {}}
               setCollapsedBlocks={() => {}}
               setSaveDialog={() => {}}
               setSaveName={() => {}}
               setSaveError={() => {}}
-              defaultCondition={createDefaultCondition} // Fixed: use createDefaultCondition
+              defaultCondition={createDefaultCondition}
               defaultBlock={() => ({})}
               setSpecialConditionDialog={() => {}}
               customVariables={customVariables}
               setListConditionDialog={() => {}}
-              fieldOptionsList={listVar.listCondition.subFieldOptions || []}
+              fieldOptionsList={(() => {
+                // Combine subFieldOptions with full field options for comprehensive coverage
+                const subFieldOpts =
+                  listVar.listCondition.subFieldOptions || [];
+                const fullFieldOpts = fieldOptionsList || fieldOptions || [];
+                // If we have subFieldOptions, combine them with full options, otherwise just use full options
+                return subFieldOpts.length > 0
+                  ? [...fullFieldOpts, ...subFieldOpts]
+                  : fullFieldOpts;
+              })()}
               customListVariables={customListVariables}
             />
           ) : listVar.listCondition.subField ||
@@ -200,117 +210,6 @@ const ListConditionPopover = ({
               This list condition doesn't have sub-conditions to display.
             </div>
           )}
-        </div>
-      </div>
-    );
-  };
-
-  const renderAggregationContent = (conditionOrBlock) => {
-    const operatorName = conditionOrBlock.operator
-      .replace("$", "")
-      .toUpperCase();
-    const arrayField = conditionOrBlock.value.field;
-    const subField = conditionOrBlock.value.subField;
-
-    return (
-      <div
-        style={{
-          width: "90vw",
-          maxWidth: 900,
-          minWidth: 300,
-          display: "flex",
-          flexDirection: "column",
-          gap: 12,
-        }}
-      >
-        <div
-          style={{
-            fontWeight: 600,
-            color: "#166534",
-            fontSize: 17,
-            marginBottom: 8,
-            letterSpacing: 0.2,
-          }}
-        >
-          <span style={{ color: "#059669" }}>
-            {conditionOrBlock.value.name}
-          </span>
-        </div>
-        <div
-          style={{
-            padding: "12px 16px",
-            backgroundColor: "#f0fdf4",
-            borderRadius: 8,
-            fontSize: 16,
-            color: "#166534",
-            border: "1px solid #bbf7d0",
-            fontWeight: 600,
-            fontFamily: "monospace",
-          }}
-        >
-          {operatorName}({arrayField}.{subField})
-        </div>
-        <div style={{ fontSize: 14, color: "#6b7280" }}>
-          This aggregation operation calculates the {operatorName.toLowerCase()}{" "}
-          value of the "{subField}" field across all elements in the "
-          {arrayField}" array.
-        </div>
-      </div>
-    );
-  };
-
-  const renderDirectAggregationContent = (conditionOrBlock) => {
-    const operatorName = conditionOrBlock.operator
-      .replace("$", "")
-      .toUpperCase();
-
-    // Try to get field and subField from different possible locations
-    const arrayField = conditionOrBlock.value?.field || conditionOrBlock.field;
-    const subField =
-      conditionOrBlock.value?.subField || conditionOrBlock.subField;
-    const conditionName =
-      conditionOrBlock.value?.name || conditionOrBlock.name || "Aggregation";
-
-    return (
-      <div
-        style={{
-          width: "90vw",
-          maxWidth: 900,
-          minWidth: 300,
-          display: "flex",
-          flexDirection: "column",
-          gap: 12,
-        }}
-      >
-        <div
-          style={{
-            fontWeight: 600,
-            color: "#166534",
-            fontSize: 17,
-            marginBottom: 8,
-            letterSpacing: 0.2,
-          }}
-        >
-          <span style={{ color: "#059669" }}>{conditionName}</span>
-        </div>
-        <div
-          style={{
-            padding: "12px 16px",
-            backgroundColor: "#f0fdf4",
-            borderRadius: 8,
-            fontSize: 16,
-            color: "#166534",
-            border: "1px solid #bbf7d0",
-            fontWeight: 600,
-            fontFamily: "monospace",
-          }}
-        >
-          {operatorName}({arrayField}.{subField})
-        </div>
-        <div style={{ fontSize: 14, color: "#6b7280" }}>
-          This aggregation operation calculates the {operatorName.toLowerCase()}{" "}
-          value of the "{subField}" field across all elements in the "
-          {arrayField}" array.
         </div>
       </div>
     );
@@ -370,7 +269,6 @@ const ListConditionPopover = ({
     customVariables,
     customListVariables,
   ) => {
-    // Fixed
     // Get the operator label from mongoOperatorLabels
     const getOperatorLabel = (operator) => {
       const operatorLabels = {
@@ -445,7 +343,6 @@ const ListConditionPopover = ({
             {getOperatorLabel(conditionOrBlock.value.operator)}
           </div>
         )}
-
         <div style={{ width: "100%" }}>
           {conditionOrBlock.value.value ? (
             <BlockComponent
@@ -477,7 +374,16 @@ const ListConditionPopover = ({
               setSpecialConditionDialog={() => {}}
               customVariables={customVariables}
               setListConditionDialog={() => {}}
-              fieldOptionsList={conditionOrBlock.value.subFieldOptions || []}
+              fieldOptionsList={(() => {
+                // Combine subFieldOptions with full field options for comprehensive coverage
+                const subFieldOpts =
+                  conditionOrBlock.value.subFieldOptions || [];
+                const fullFieldOpts = fieldOptionsList || fieldOptions || [];
+                // If we have subFieldOptions, combine them with full options, otherwise just use full options
+                return subFieldOpts.length > 0
+                  ? [...fullFieldOpts, ...subFieldOpts]
+                  : fullFieldOpts;
+              })()}
               customListVariables={customListVariables}
             />
           ) : (
