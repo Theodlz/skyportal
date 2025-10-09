@@ -364,6 +364,7 @@ const convertConditionToMongo = (
   customListVariables = [],
   isInArrayFilter = false,
   variableUsageCounts = {},
+  arrayFieldName = null, // New parameter to track the array field being filtered
 ) => {
   if (!condition.field || !condition.operator) {
     return {};
@@ -522,12 +523,50 @@ const convertConditionToMongo = (
     );
   }
 
-  // Get field path - might be a string or a MongoDB expression for single-use variables
-  const fieldPath = getFieldPath(
-    condition.field,
-    customVariables,
-    isInArrayFilter,
-  );
+  // Get field path - handle array context intelligently
+  let fieldPath;
+  if (isInArrayFilter && arrayFieldName) {
+    // For array filters, use intelligent field path resolution similar to convertConditionToMongoExpr
+    if (condition.field.startsWith(`${arrayFieldName}.`)) {
+      // Field is from the array - strip the array prefix and use $$this
+      const fieldForArray = condition.field.substring(
+        arrayFieldName.length + 1,
+      );
+      fieldPath = `$$this.${fieldForArray}`;
+    } else if (!condition.field.includes(".")) {
+      // Field is just the subfield name (e.g., 'z' instead of 'cross_matches.NED_BetaV3.z')
+      fieldPath = `$$this.${condition.field}`;
+    } else {
+      // Field is not from the array - use as absolute field reference
+      fieldPath = `$${condition.field}`;
+    }
+  } else if (
+    isInArrayFilter &&
+    !arrayFieldName &&
+    condition.field.includes(".")
+  ) {
+    // Fallback detection for array patterns when arrayFieldName is missing
+    const commonArrayPatterns = ["prv_candidates", "candidates", "detections"];
+    let patternMatched = false;
+    for (const pattern of commonArrayPatterns) {
+      if (condition.field.startsWith(`${pattern}.`)) {
+        const fieldForArray = condition.field.substring(pattern.length + 1);
+        fieldPath = `$$this.${fieldForArray}`;
+        console.warn(
+          `Detected array field pattern in convertConditionToMongo for ${condition.field}, using $$this.${fieldForArray}. Consider ensuring arrayFieldName is set properly.`,
+        );
+        patternMatched = true;
+        break;
+      }
+    }
+    if (!patternMatched) {
+      // Not an array pattern, use regular getFieldPath
+      fieldPath = getFieldPath(condition.field, customVariables, false);
+    }
+  } else {
+    // Regular field path handling - don't pass isInArrayFilter to avoid the old blind logic
+    fieldPath = getFieldPath(condition.field, customVariables, false);
+  }
 
   // If fieldPath is a MongoDB expression (object), wrap it in $expr
   if (typeof fieldPath === "object" && fieldPath !== null) {
@@ -1151,9 +1190,37 @@ const convertConditionToMongoExpr = (
       // Field is from the array - strip the array prefix and use $$this
       fieldForArray = field.substring(arrayFieldName.length + 1);
       fieldPath = `$$this.${fieldForArray}`;
+    } else if (arrayFieldName && !field.includes(".")) {
+      // Field is just the subfield name (e.g., 'z' instead of 'cross_matches.NED_BetaV3.z')
+      // This happens when subfields are stored as just their name
+      fieldPath = `$$this.${field}`;
     } else {
-      // Field is not from the array - use as absolute field reference
-      fieldPath = `$${field}`;
+      // If arrayFieldName is null but the field looks like a subfield (contains a dot),
+      // try to detect if this should be treated as an array element field
+      if (!arrayFieldName && field.includes(".")) {
+        // Check if the field matches common ZTF array patterns
+        const commonArrayPatterns = [
+          "prv_candidates",
+          "candidates",
+          "detections",
+        ];
+        for (const pattern of commonArrayPatterns) {
+          if (field.startsWith(`${pattern}.`)) {
+            // This looks like it should be an array element field
+            fieldForArray = field.substring(pattern.length + 1);
+            fieldPath = `$$this.${fieldForArray}`;
+            console.warn(
+              `Detected array field pattern for ${field}, using $$this.${fieldForArray}. Consider ensuring arrayFieldName is set properly.`,
+            );
+            break;
+          }
+        }
+      }
+
+      // If no pattern matched, use as absolute field reference
+      if (!fieldPath) {
+        fieldPath = `$${field}`;
+      }
     }
   }
 
