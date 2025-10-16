@@ -1324,6 +1324,16 @@ const BlockHeader = ({
 
   // Deep comparison function that ignores metadata fields and key order
   const deepCompareBlocks = (block1, block2) => {
+    // Add validation to ensure we're comparing compatible blocks
+    if (!block1 || !block2) {
+      return block1 === block2;
+    }
+
+    // Check if both blocks have the same basic structure
+    if (block1.category !== block2.category) {
+      return false;
+    }
+
     // Helper function to create a copy without metadata fields
     const stripMetadata = (obj) => {
       if (obj === null || obj === undefined) return obj;
@@ -1381,75 +1391,132 @@ const BlockHeader = ({
     return deepEqual(stripMetadata(block1), stripMetadata(block2));
   };
 
-  const isBlockEdited = (block, customBlocks) => {
-    // Only compare if this is the top-level custom block (has isTrue)
+  const normalizeCustomBlockName = (name) => {
+    if (!name || typeof name !== "string") {
+      return "";
+    }
+    return name.replace(/^Custom\./, "").trim();
+  };
 
-    const customBlock = customBlocks.find(
-      (cb) => cb.name === block.customBlockName,
+  const findCustomBlockDefinition = (name) => {
+    const normalizedName = normalizeCustomBlockName(name);
+    if (!normalizedName) {
+      return null;
+    }
+
+    const match = customBlocks.find(
+      (cb) => normalizeCustomBlockName(cb.name) === normalizedName,
     );
-    if (!customBlock) return false;
 
-    // Check if the current block has been modified
-    const isCurrentBlockModified = !deepCompareBlocks(block, customBlock.block);
+    return match?.block || null;
+  };
 
-    // If the current block is modified, return true immediately
+  const isBlockEdited = (block, isNestedCustomBlock = false) => {
+    const isTopLevelCustomBlock = "isTrue" in block && block.customBlockName;
+    const hasCustomBlockName = !!block.customBlockName;
+
+    if (!isTopLevelCustomBlock && !isNestedCustomBlock) {
+      return false;
+    }
+
+    if (!hasCustomBlockName) {
+      return false;
+    }
+
+    const originalDefinition = findCustomBlockDefinition(block.customBlockName);
+    if (!originalDefinition) {
+      return false;
+    }
+
+    const coreContentMatches = deepCompareBlocks(
+      block,
+      originalDefinition,
+      false,
+    );
+
+    if (coreContentMatches) {
+      return false;
+    }
+
+    let comparisonTarget = originalDefinition;
+
+    if (isNestedCustomBlock) {
+      comparisonTarget = { ...originalDefinition };
+      delete comparisonTarget.isTrue;
+
+      if (deepCompareBlocks(block, comparisonTarget, false)) {
+        return false;
+      }
+    }
+
+    const isCurrentBlockModified = !deepCompareBlocks(block, comparisonTarget);
+
     if (isCurrentBlockModified) {
       return true;
     }
 
-    // Recursively check all child blocks for modifications
     const hasModifiedChildren = checkChildrenForModifications(
       block,
-      customBlock.block,
-      customBlocks,
+      comparisonTarget,
     );
 
     return hasModifiedChildren;
   };
 
-  // Helper function to recursively check children for modifications
-  const checkChildrenForModifications = (
-    currentBlock,
-    originalBlock,
-    customBlocks,
-  ) => {
-    if (!currentBlock.children || !originalBlock.children) {
+  const checkChildrenForModifications = (currentBlock, originalBlock) => {
+    const currentChildren = currentBlock?.children || [];
+    const originalChildren = originalBlock?.children || [];
+
+    if (currentChildren.length === 0) {
       return false;
     }
 
-    // Check each child in the current block
-    for (let i = 0; i < currentBlock.children.length; i++) {
-      const currentChild = currentBlock.children[i];
-      const originalChild = originalBlock.children[i];
+    if (currentChildren.length !== originalChildren.length) {
+      return true;
+    }
 
-      // If this child is a block (not a condition)
+    for (let i = 0; i < currentChildren.length; i++) {
+      const currentChild = currentChildren[i];
+      const originalChild = originalChildren[i];
+
+      if (currentChild?.category !== originalChild?.category) {
+        return true;
+      }
+
       if (currentChild.category === "block") {
-        // If this child has a customBlockName, it might be a nested custom block
-        if (currentChild.customBlockName) {
-          // Check if this nested custom block has been modified
-          if (isBlockEdited(currentChild, customBlocks)) {
+        const currentName = normalizeCustomBlockName(
+          currentChild.customBlockName,
+        );
+        const originalName = normalizeCustomBlockName(
+          originalChild?.customBlockName,
+        );
+
+        if (currentName) {
+          if (originalName && currentName !== originalName) {
+            return true;
+          }
+
+          if (isBlockEdited(currentChild, true)) {
             return true;
           }
         } else {
-          // For regular nested blocks, compare directly
-          if (!deepCompareBlocks(currentChild, originalChild)) {
+          if (originalName) {
             return true;
           }
 
-          // Recursively check this block's children
           if (
-            checkChildrenForModifications(
-              currentChild,
-              originalChild,
-              customBlocks,
-            )
+            !originalChild ||
+            !deepCompareBlocks(currentChild, originalChild)
           ) {
+            return true;
+          }
+
+          if (checkChildrenForModifications(currentChild, originalChild)) {
             return true;
           }
         }
       } else {
-        // For conditions, compare directly
-        if (!deepCompareBlocks(currentChild, originalChild)) {
+        if (!originalChild || !deepCompareBlocks(currentChild, originalChild)) {
           return true;
         }
       }
@@ -1459,7 +1526,7 @@ const BlockHeader = ({
   };
 
   const isRootCustomBlock = "isTrue" in block && isCustomBlock;
-  const edited = isBlockEdited(block, customBlocks) && isRootCustomBlock;
+  const edited = isBlockEdited(block) && isRootCustomBlock;
 
   return (
     <Box

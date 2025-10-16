@@ -1209,9 +1209,6 @@ const convertConditionToMongoExpr = (
             // This looks like it should be an array element field
             fieldForArray = field.substring(pattern.length + 1);
             fieldPath = `$$this.${fieldForArray}`;
-            console.warn(
-              `Detected array field pattern for ${field}, using $$this.${fieldForArray}. Consider ensuring arrayFieldName is set properly.`,
-            );
             break;
           }
         }
