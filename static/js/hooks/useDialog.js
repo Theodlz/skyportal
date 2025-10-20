@@ -67,6 +67,7 @@ export const useDialogStates = () => {
     // Dialog actions
     openSaveDialog,
     closeSaveDialog,
+    setSaveDialog, // Direct state setter for save dialog
     openSpecialConditionDialog,
     closeSpecialConditionDialog,
     setSpecialConditionDialog, // Direct state setter for complex updates
