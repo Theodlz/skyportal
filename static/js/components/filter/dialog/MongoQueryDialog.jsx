@@ -211,80 +211,156 @@ const MongoQueryDialog = () => {
 
     try {
       const pipeline = generateMongoQuery();
-      const prepend = [
-        {
-          $lookup: {
-            from: "ZTF_alerts_aux",
-            localField: "objectId",
-            foreignField: "_id",
-            as: "aux",
-          },
-        },
-        {
-          $project: {
-            objectId: 1,
-            candidate: 1,
-            classifications: 1,
-            coordinates: 1,
-            cross_matches: {
-              $arrayElemAt: ["$aux.cross_matches", 0],
-            },
-            aliases: {
-              $arrayElemAt: ["$aux.aliases", 0],
-            },
-            prv_candidates: {
-              $filter: {
-                input: {
-                  $arrayElemAt: ["$aux.prv_candidates", 0],
-                },
-                as: "x",
-                cond: {
-                  $and: [
-                    {
-                      // maximum 1 year of past data
-                      $lt: [
-                        {
-                          $subtract: ["$candidate.jd", "$$x.jd"],
-                        },
-                        365,
-                      ],
-                    },
-                    {
-                      // only datapoints up to (and including) current alert
-                      $lte: ["$$x.jd", "$candidate.jd"],
-                    },
-                  ],
+      const prepend =
+        filter_stream === "ZTF"
+          ? [
+              {
+                $lookup: {
+                  from: "ZTF_alerts_aux",
+                  localField: "objectId",
+                  foreignField: "_id",
+                  as: "aux",
                 },
               },
-            },
-            fp_hists: {
-              $filter: {
-                input: {
-                  $arrayElemAt: ["$aux.fp_hists", 0],
-                },
-                as: "x",
-                cond: {
-                  $and: [
-                    {
-                      // maximum 1 year of past data
-                      $lt: [
-                        {
-                          $subtract: ["$candidate.jd", "$$x.jd"],
-                        },
-                        365,
-                      ],
+              {
+                $project: {
+                  objectId: 1,
+                  candidate: 1,
+                  classifications: 1,
+                  coordinates: 1,
+                  cross_matches: {
+                    $arrayElemAt: ["$aux.cross_matches", 0],
+                  },
+                  aliases: {
+                    $arrayElemAt: ["$aux.aliases", 0],
+                  },
+                  prv_candidates: {
+                    $filter: {
+                      input: {
+                        $arrayElemAt: ["$aux.prv_candidates", 0],
+                      },
+                      as: "x",
+                      cond: {
+                        $and: [
+                          {
+                            // maximum 1 year of past data
+                            $lt: [
+                              {
+                                $subtract: ["$candidate.jd", "$$x.jd"],
+                              },
+                              365,
+                            ],
+                          },
+                          {
+                            // only datapoints up to (and including) current alert
+                            $lte: ["$$x.jd", "$candidate.jd"],
+                          },
+                        ],
+                      },
                     },
-                    {
-                      // only datapoints up to (and including) current alert
-                      $lte: ["$$x.jd", "$candidate.jd"],
+                  },
+                  fp_hists: {
+                    $filter: {
+                      input: {
+                        $arrayElemAt: ["$aux.fp_hists", 0],
+                      },
+                      as: "x",
+                      cond: {
+                        $and: [
+                          {
+                            // maximum 1 year of past data
+                            $lt: [
+                              {
+                                $subtract: ["$candidate.jd", "$$x.jd"],
+                              },
+                              365,
+                            ],
+                          },
+                          {
+                            // only datapoints up to (and including) current alert
+                            $lte: ["$$x.jd", "$candidate.jd"],
+                          },
+                        ],
+                      },
                     },
-                  ],
+                  },
                 },
               },
-            },
-          },
-        },
-      ];
+            ]
+          : [
+              {
+                $lookup: {
+                  from: "LSST_alerts_aux",
+                  localField: "objectId",
+                  foreignField: "_id",
+                  as: "aux",
+                },
+              },
+              {
+                $project: {
+                  objectId: 1,
+                  candidate: 1,
+                  classifications: 1,
+                  coordinates: 1,
+                  cross_matches: {
+                    $arrayElemAt: ["$aux.cross_matches", 0],
+                  },
+                  aliases: {
+                    $arrayElemAt: ["$aux.aliases", 0],
+                  },
+                  prv_candidates: {
+                    $filter: {
+                      input: {
+                        $arrayElemAt: ["$aux.prv_candidates", 0],
+                      },
+                      as: "x",
+                      cond: {
+                        $and: [
+                          {
+                            // maximum 1 year of past data
+                            $lt: [
+                              {
+                                $subtract: ["$candidate.jd", "$$x.jd"],
+                              },
+                              365,
+                            ],
+                          },
+                          {
+                            // only datapoints up to (and including) current alert
+                            $lte: ["$$x.jd", "$candidate.jd"],
+                          },
+                        ],
+                      },
+                    },
+                  },
+                  fp_hists: {
+                    $filter: {
+                      input: {
+                        $arrayElemAt: ["$aux.fp_hists", 0],
+                      },
+                      as: "x",
+                      cond: {
+                        $and: [
+                          {
+                            // maximum 1 year of past data
+                            $lt: [
+                              {
+                                $subtract: ["$candidate.jd", "$$x.jd"],
+                              },
+                              365,
+                            ],
+                          },
+                          {
+                            // only datapoints up to (and including) current alert
+                            $lte: ["$$x.jd", "$candidate.jd"],
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            ];
       // Prepend the pipeline with the prepend stages
       pipeline.unshift(...prepend);
       await dispatch(
