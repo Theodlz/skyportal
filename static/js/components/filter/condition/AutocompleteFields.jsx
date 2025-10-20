@@ -51,6 +51,7 @@ const AutocompleteFields = ({
   setEquationAnchor = null,
 }) => {
   const [showFullPath, setShowFullPath] = useState(false);
+  const [searchInput, setSearchInput] = useState("");
   // Initialize collapsed groups as empty Set, will be populated when groups are computed
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
 
@@ -62,18 +63,30 @@ const AutocompleteFields = ({
   // Group by category and collect unique group names
   const { options, allGroups } = useMemo(() => {
     const baseOptions = fieldOptions || [];
-    let processedOptions = baseOptions.map((option) => ({
-      ...option,
-      group:
-        option.group ||
-        (option.isVariable
+    let processedOptions = baseOptions.map((option) => {
+      // Debug logging for variables
+      if (option.label && option.label.toLowerCase().includes("variable")) {
+        console.log("Variable option:", {
+          label: option.label,
+          isVariable: option.isVariable,
+          isListVariable: option.isListVariable,
+          existingGroup: option.group,
+          type: option.type,
+        });
+      }
+
+      return {
+        ...option,
+        group: option.isVariable
           ? "Arithmetic Variables"
           : option.isListVariable
             ? "Database List Variables"
-            : option.label?.split(".").length > 1
-              ? option.label?.split(".")[0]
-              : "Other Fields"),
-    }));
+            : option.group ||
+              (option.label?.split(".").length > 1
+                ? option.label?.split(".")[0]
+                : "Other Fields"),
+      };
+    });
 
     // Sort options by group alphabetically to avoid duplicated headers warning
     processedOptions = processedOptions.sort((a, b) => {
@@ -106,6 +119,32 @@ const AutocompleteFields = ({
       setCollapsedGroups(new Set(allGroups));
     }
   }, [allGroups.length]);
+
+  // Auto-expand groups that contain search matches
+  useEffect(() => {
+    if (searchInput && searchInput.trim().length > 0) {
+      const searchTerm = searchInput.toLowerCase();
+      const groupsWithMatches = new Set();
+
+      // Find groups that contain options matching the search term
+      options.forEach((option) => {
+        if (option.label && option.label.toLowerCase().includes(searchTerm)) {
+          groupsWithMatches.add(option.group);
+        }
+      });
+
+      // Expand groups that have matching options
+      if (groupsWithMatches.size > 0) {
+        setCollapsedGroups((prev) => {
+          const newCollapsed = new Set(prev);
+          groupsWithMatches.forEach((groupName) => {
+            newCollapsed.delete(groupName);
+          });
+          return newCollapsed;
+        });
+      }
+    }
+  }, [searchInput, options]);
 
   // Toggle group collapse state
   const toggleGroupCollapse = (groupName) => {
@@ -273,6 +312,7 @@ const AutocompleteFields = ({
           }
           onInputChange={(_, newInputValue, reason) => {
             if (reason === "input" || reason === "clear") {
+              setSearchInput(newInputValue || "");
               onChange && onChange(newInputValue);
             }
           }}
@@ -825,6 +865,7 @@ AutocompleteFields.propTypes = {
   setSelectedChip: PropTypes.func.isRequired,
   side: PropTypes.string.isRequired,
   setEquationAnchor: PropTypes.func,
+  key: PropTypes.string,
 };
 
 export default AutocompleteFields;
