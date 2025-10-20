@@ -340,7 +340,6 @@ export const getOperatorsForField = (
 
 // Helper function to compose field options with variables
 export const getFieldOptionsWithVariable = (
-  baseFieldOptions,
   fieldOptionsList,
   customVariables,
   customListVariables,
@@ -368,8 +367,7 @@ export const getFieldOptionsWithVariable = (
       equation: eq.variable,
     })) || [];
 
-  // Use fieldOptionsList if provided, otherwise use the imported fieldOptions from constants
-  const baseOptions = fieldOptionsList || baseFieldOptions;
+  const baseOptions = fieldOptionsList;
 
   // Always include schema fields regardless of which base options are used
   const combined = [

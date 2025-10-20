@@ -116,20 +116,37 @@ const CustomAddElement = ({
   const [addButtonRef, setAddButtonRef] = useState(null);
 
   const addItemToBlock = (blockId, category) => {
-    const addToBlock = (block) => {
-      if (block.id !== blockId) {
-        return {
-          ...block,
-          children: block.children.map((child) =>
-            child.category === "block" ? addToBlock(child) : child,
-          ),
+    const updateFilters = (filtersArray) => {
+      return filtersArray.map((rootBlock) => {
+        const updateBlock = (currentBlock) => {
+          if (currentBlock.id === blockId) {
+            // Found the target block, add the new item to its children
+            const newItem =
+              category === "condition" ? defaultCondition() : defaultBlock();
+            return {
+              ...currentBlock,
+              children: [...currentBlock.children, newItem],
+            };
+          }
+
+          // Recursively update children blocks
+          if (currentBlock.children) {
+            return {
+              ...currentBlock,
+              children: currentBlock.children.map((child) =>
+                child.category === "block" ? updateBlock(child) : child,
+              ),
+            };
+          }
+
+          return currentBlock;
         };
-      }
-      let newItem =
-        category === "condition" ? defaultCondition() : defaultBlock();
-      return { ...block, children: [...block.children, newItem] };
+
+        return updateBlock(rootBlock);
+      });
     };
-    setFilters(filters.map(addToBlock));
+
+    setFilters(updateFilters(filters));
     setActiveBlockForAdd(null);
   };
 
@@ -155,7 +172,7 @@ const CustomAddElement = ({
 
     const nestedBlockIds = [];
 
-    const collectNestedBlockIds = (block, isTopLevel = false) => {
+    const collectNestedBlockIds = (isTopLevel = false) => {
       if (block.category === "block" && !isTopLevel) {
         nestedBlockIds.push(block.id);
       }
@@ -177,70 +194,89 @@ const CustomAddElement = ({
       );
     };
 
-    const addToBlock = (block) => {
-      if (block.id !== blockId) {
-        return {
-          ...block,
-          children: block.children.map((child) =>
-            child.category === "block" ? addToBlock(child) : child,
-          ),
-        };
-      }
-
-      const cloneBlock = (block, parentName, isTopLevel = true) => {
-        const newId = uuidv4();
-        const clonedBlock = {
-          ...block,
-          id: newId,
-          customBlockName: isTopLevel
-            ? parentName.replace(/^Custom\./, "")
-            : block.customBlockName,
-          children: block.children
-            ? block.children.map((child) =>
-                child.category === "block"
-                  ? cloneBlock(child, parentName, false)
-                  : {
-                      ...child,
-                      id: uuidv4(),
-                      // Deep clone any object properties that might contain nested data
-                      ...(child.value && typeof child.value === "object"
-                        ? { value: JSON.parse(JSON.stringify(child.value)) }
-                        : {}),
-                      ...(child.listCondition
-                        ? {
-                            listCondition: JSON.parse(
-                              JSON.stringify(child.listCondition),
-                            ),
-                          }
-                        : {}),
-                    },
-              )
-            : [],
-        };
-
-        if (clonedBlock.category === "block" && !isTopLevel) {
-          nestedBlockIds.push(clonedBlock.id);
-        }
-
-        return clonedBlock;
+    const cloneBlock = (block_to_clone, parentName, isTopLevel = true) => {
+      const newId = uuidv4();
+      const clonedBlock = {
+        ...block_to_clone,
+        id: newId,
+        customBlockName: isTopLevel
+          ? parentName.replace(/^Custom\./, "")
+          : block_to_clone.customBlockName,
+        children: block_to_clone.children
+          ? block_to_clone.children.map((child) =>
+              child.category === "block"
+                ? cloneBlock(child, parentName, false)
+                : {
+                    ...child,
+                    id: uuidv4(),
+                    // Deep clone any object properties that might contain nested data
+                    ...(child.value && typeof child.value === "object"
+                      ? { value: JSON.parse(JSON.stringify(child.value)) }
+                      : {}),
+                    ...(child.listCondition
+                      ? {
+                          listCondition: JSON.parse(
+                            JSON.stringify(child.listCondition),
+                          ),
+                        }
+                      : {}),
+                  },
+            )
+          : [],
       };
 
-      const clonedBlock = cloneBlock(customBlock.block, customBlock.name, true);
-
-      // Check if this block only has one child and it's an empty condition
-      // If so, remove it before adding the custom block
-      let updatedChildren = [...block.children];
-      if (
-        updatedChildren.length === 1 &&
-        isEmptyCondition(updatedChildren[0])
-      ) {
-        updatedChildren = [];
+      if (clonedBlock.category === "block" && !isTopLevel) {
+        nestedBlockIds.push(clonedBlock.id);
       }
 
-      return { ...block, children: [...updatedChildren, clonedBlock] };
+      return clonedBlock;
     };
 
-    setFilters(filters.map(addToBlock));
+    const updateFilters = (filtersArray) => {
+      return filtersArray.map((rootBlock) => {
+        const updateBlock = (currentBlock) => {
+          if (currentBlock.id === blockId) {
+            // Found the target block, add the custom block to its children
+            const clonedBlock = cloneBlock(
+              customBlock.block,
+              customBlock.name,
+              true,
+            );
+
+            // Check if this block only has one child and it's an empty condition
+            // If so, remove it before adding the custom block
+            let updatedChildren = [...currentBlock.children];
+            if (
+              updatedChildren.length === 1 &&
+              isEmptyCondition(updatedChildren[0])
+            ) {
+              updatedChildren = [];
+            }
+
+            return {
+              ...currentBlock,
+              children: [...updatedChildren, clonedBlock],
+            };
+          }
+
+          // Recursively update children blocks
+          if (currentBlock.children) {
+            return {
+              ...currentBlock,
+              children: currentBlock.children.map((child) =>
+                child.category === "block" ? updateBlock(child) : child,
+              ),
+            };
+          }
+
+          return currentBlock;
+        };
+
+        return updateBlock(rootBlock);
+      });
+    };
+
+    setFilters(updateFilters(filters));
 
     if (nestedBlockIds.length > 0 && setCollapsedBlocks) {
       setCollapsedBlocks((prev) => {
@@ -535,21 +571,21 @@ const SaveBlockComponent = ({
   block,
 }) => {
   // TODO: Implement robust validation logic for the block
-  const validateBlock = (block) => {
-    if (block.category === "condition") {
-      if (block.isListVariable) {
-        return !!block.field;
+  const validateBlock = (b) => {
+    if (b.category === "condition") {
+      if (b.isListVariable) {
+        return !!b.field;
       }
       // Regular conditions need field, operator, and value
-      return !!block.field && !!block.operator && block.value !== "";
+      return !!b.field && !!b.operator && b.value !== "";
     }
-    if (block.category === "block") {
-      return block.children.length > 0 && block.children.every(validateBlock);
+    if (b.category === "block") {
+      return b.children.length > 0 && b.children.every(validateBlock);
     }
     return false;
   };
 
-  const handleSaveBlock = (block) => {
+  const handleSaveBlock = () => {
     if (!validateBlock(block)) {
       setSaveError("Please fill all fields before saving.");
       setTimeout(() => setSaveError(""), 2000);
@@ -585,7 +621,7 @@ const SaveBlockComponent = ({
           size="medium"
           startIcon={<SaveIcon />}
           variant="outlined"
-          onClick={() => handleSaveBlock(block)}
+          onClick={() => handleSaveBlock()}
           sx={{
             minHeight: 40, // Match the typical height of a small Select component
             px: 2, // Add some horizontal padding to match Select width better
@@ -708,19 +744,51 @@ const ValueInput = ({
   conditionOrBlock,
   block,
   updateCondition,
-  getFieldOptionsWithVariable,
   setOpenEquationIds,
   setSelectedChip,
   setEquationAnchor = null,
 }) => {
+  const schema = useSelector((state) => state.filter_modules?.schema);
+  const fieldOptions = flattenFieldOptions(schema);
+
+  const { customListVariables, customVariables, fieldOptionsList } =
+    useConditionContext();
+
   // Check conditions that don't require context first
   if (shouldSkipValueInput(conditionOrBlock)) {
     return null;
   }
 
-  // Now call hooks - they must be called in the same order every time
-  const { customListVariables, customVariables, fieldOptionsList } =
-    useConditionContext();
+  const isArrayFieldWithArrayOperator = () => {
+    const fieldVar = customVariables?.find(
+      (v) => v.name === conditionOrBlock.field,
+    );
+    const fieldObjList = fieldOptionsList
+      ? fieldOptionsList.find((f) => f.label === conditionOrBlock.field)
+      : null;
+    const baseFieldOption = fieldOptions.find(
+      (f) => f.label === conditionOrBlock.field,
+    );
+
+    const isArrayField =
+      fieldVar?.type === "array" ||
+      fieldObjList?.type === "array" ||
+      baseFieldOption?.type === "array";
+    const currentOperator = conditionOrBlock.operator;
+
+    // Operators that should show the "+ List Variable" button for array fields
+    const arrayOperatorsForButton = [
+      "$filter",
+      "$min",
+      "$max",
+      "$avg",
+      "$sum",
+      "$anyElementTrue",
+      "$allElementsTrue",
+    ];
+
+    return isArrayField && arrayOperatorsForButton.includes(currentOperator);
+  };
 
   // Check if this is an array field with an array operator that should show "+ List Variable" button
   const isArrayWithOperator = isArrayFieldWithArrayOperator(
@@ -728,6 +796,24 @@ const ValueInput = ({
     customVariables,
     fieldOptionsList,
   );
+
+  const isBooleanField = () => {
+    const fieldVar = customVariables?.find(
+      (v) => v.name === conditionOrBlock.field,
+    );
+    const fieldObjList = fieldOptionsList
+      ? fieldOptionsList.find((f) => f.label === conditionOrBlock.field)
+      : null;
+    const baseFieldOption = fieldOptions.find(
+      (f) => f.label === conditionOrBlock.field,
+    );
+
+    return (
+      fieldVar?.type === "boolean" ||
+      fieldObjList?.type === "boolean" ||
+      baseFieldOption?.type === "boolean"
+    );
+  };
 
   // Check conditions that require context
   if (isBooleanField(conditionOrBlock, customVariables, fieldOptionsList)) {
@@ -751,7 +837,6 @@ const ValueInput = ({
         conditionOrBlock={conditionOrBlock}
         block={block}
         updateCondition={updateCondition}
-        getFieldOptionsWithVariable={getFieldOptionsWithVariable}
         setOpenEquationIds={setOpenEquationIds}
         setSelectedChip={setSelectedChip}
         setEquationAnchor={setEquationAnchor}
@@ -765,7 +850,6 @@ const ValueInput = ({
       conditionOrBlock={conditionOrBlock}
       block={block}
       updateCondition={updateCondition}
-      getFieldOptionsWithVariable={getFieldOptionsWithVariable}
       setOpenEquationIds={setOpenEquationIds}
       setSelectedChip={setSelectedChip}
       setEquationAnchor={setEquationAnchor}
@@ -784,7 +868,6 @@ ValueInput.propTypes = {
     id: PropTypes.string.isRequired,
   }).isRequired,
   updateCondition: PropTypes.func.isRequired,
-  getFieldOptionsWithVariable: PropTypes.func,
   setOpenEquationIds: PropTypes.func.isRequired,
   setSelectedChip: PropTypes.func.isRequired,
   setEquationAnchor: PropTypes.func,
@@ -810,89 +893,6 @@ shouldSkipValueInput.propTypes = {
     operator: PropTypes.string,
     value: PropTypes.any,
   }).isRequired,
-};
-
-const isBooleanField = (
-  conditionOrBlock,
-  customVariables,
-  fieldOptionsList,
-) => {
-  const schema = useSelector((state) => state.filter_modules?.schema);
-  const fieldOptions = flattenFieldOptions(schema);
-
-  const fieldVar = customVariables?.find(
-    (v) => v.name === conditionOrBlock.field,
-  );
-  const fieldObjList = fieldOptionsList
-    ? fieldOptionsList.find((f) => f.label === conditionOrBlock.field)
-    : null;
-  const baseFieldOption = fieldOptions.find(
-    (f) => f.label === conditionOrBlock.field,
-  );
-
-  return (
-    fieldVar?.type === "boolean" ||
-    fieldObjList?.type === "boolean" ||
-    baseFieldOption?.type === "boolean"
-  );
-};
-
-isBooleanField.propTypes = {
-  conditionOrBlock: PropTypes.shape({
-    id: PropTypes.string.isRequired,
-    operator: PropTypes.string,
-    value: PropTypes.any,
-  }).isRequired,
-  customVariables: PropTypes.array.isRequired,
-  fieldOptionsList: PropTypes.array.isRequired,
-};
-
-const isArrayFieldWithArrayOperator = (
-  conditionOrBlock,
-  customVariables,
-  fieldOptionsList,
-) => {
-  const schema = useSelector((state) => state.filter_modules?.schema);
-  const fieldOptions = flattenFieldOptions(schema);
-
-  const fieldVar = customVariables?.find(
-    (v) => v.name === conditionOrBlock.field,
-  );
-  const fieldObjList = fieldOptionsList
-    ? fieldOptionsList.find((f) => f.label === conditionOrBlock.field)
-    : null;
-  const baseFieldOption = fieldOptions.find(
-    (f) => f.label === conditionOrBlock.field,
-  );
-
-  const isArrayField =
-    fieldVar?.type === "array" ||
-    fieldObjList?.type === "array" ||
-    baseFieldOption?.type === "array";
-  const currentOperator = conditionOrBlock.operator;
-
-  // Operators that should show the "+ List Variable" button for array fields
-  const arrayOperatorsForButton = [
-    "$filter",
-    "$min",
-    "$max",
-    "$avg",
-    "$sum",
-    "$anyElementTrue",
-    "$allElementsTrue",
-  ];
-
-  return isArrayField && arrayOperatorsForButton.includes(currentOperator);
-};
-
-isArrayFieldWithArrayOperator.propTypes = {
-  conditionOrBlock: PropTypes.shape({
-    id: PropTypes.string.isRequired,
-    operator: PropTypes.string,
-    value: PropTypes.any,
-  }).isRequired,
-  customVariables: PropTypes.array.isRequired,
-  fieldOptionsList: PropTypes.array.isRequired,
 };
 
 const ArrayFieldInput = ({ conditionOrBlock, block }) => {
@@ -944,13 +944,17 @@ const ListVariableInput = ({
   conditionOrBlock,
   block,
   updateCondition,
-  getFieldOptionsWithVariable,
   setOpenEquationIds,
   setSelectedChip,
   setEquationAnchor = null,
 }) => {
-  const { customListVariables, isListDialogOpen, setListConditionDialog } =
-    useConditionContext();
+  const {
+    customVariables,
+    customListVariables,
+    fieldOptionsList,
+    isListDialogOpen,
+    setListConditionDialog,
+  } = useConditionContext();
   const operator =
     listVariable.listCondition?.operator || listVariable.operator;
   const selectedOperator = conditionOrBlock.operator;
@@ -960,7 +964,11 @@ const ListVariableInput = ({
     return (
       <AutocompleteFields
         key={`${conditionOrBlock.id}.right`}
-        fieldOptions={getFieldOptionsWithVariable()}
+        fieldOptions={getFieldOptionsWithVariable(
+          fieldOptionsList,
+          customVariables,
+          customListVariables,
+        )}
         value={conditionOrBlock.value ? String(conditionOrBlock.value) : ""}
         onChange={(newValue) =>
           updateCondition(block.id, conditionOrBlock.id, "value", newValue)
@@ -1014,7 +1022,11 @@ const ListVariableInput = ({
     return (
       <AutocompleteFields
         key={`${conditionOrBlock.id}.right`}
-        fieldOptions={getFieldOptionsWithVariable()}
+        fieldOptions={getFieldOptionsWithVariable(
+          fieldOptionsList,
+          customVariables,
+          customListVariables,
+        )}
         value={conditionOrBlock.value ? String(conditionOrBlock.value) : ""}
         onChange={(newValue) =>
           updateCondition(block.id, conditionOrBlock.id, "value", newValue)
@@ -1110,7 +1122,6 @@ ListVariableInput.propTypes = {
     id: PropTypes.string.isRequired,
   }).isRequired,
   updateCondition: PropTypes.func.isRequired,
-  getFieldOptionsWithVariable: PropTypes.func.isRequired,
   setOpenEquationIds: PropTypes.func.isRequired,
   setSelectedChip: PropTypes.func.isRequired,
   setEquationAnchor: PropTypes.func,
@@ -1120,17 +1131,25 @@ const RegularValueInput = ({
   conditionOrBlock,
   block,
   updateCondition,
-  getFieldOptionsWithVariable,
   setOpenEquationIds,
   setSelectedChip,
   setEquationAnchor = null,
 }) => {
-  const { customListVariables, isListDialogOpen } = useConditionContext();
+  const {
+    customVariables,
+    customListVariables,
+    fieldOptionsList,
+    isListDialogOpen,
+  } = useConditionContext();
 
   return (
     <AutocompleteFields
       key={`${conditionOrBlock.id}.right`}
-      fieldOptions={getFieldOptionsWithVariable()}
+      fieldOptions={getFieldOptionsWithVariable(
+        fieldOptionsList,
+        customVariables,
+        customListVariables,
+      )}
       value={(() => {
         // Check if this is an aggregation operator that should be shown on the left
         const isAggregationOnLeft =
@@ -1191,7 +1210,6 @@ RegularValueInput.propTypes = {
     id: PropTypes.string.isRequired,
   }).isRequired,
   updateCondition: PropTypes.func.isRequired,
-  getFieldOptionsWithVariable: PropTypes.func,
   setOpenEquationIds: PropTypes.func.isRequired,
   setSelectedChip: PropTypes.func.isRequired,
   setEquationAnchor: PropTypes.func,
@@ -1229,7 +1247,7 @@ const BlockHeader = ({
   const setFilters = setLocalFilters || contextSetFilters;
 
   // Create a wrapper for removeBlock that works with both local and context filters
-  const handleRemoveBlock = (blockId, parentBlockId) => {
+  const handleRemoveBlock = (blockId) => {
     if (localFilters && setLocalFilters) {
       // Use local filter handling
       if (parentBlockId === null) return;
@@ -1260,7 +1278,7 @@ const BlockHeader = ({
     }
   };
 
-  const resetBlockToOriginal = (blockId, customBlockName) => {
+  const resetBlockToOriginal = (blockId) => {
     const customBlock = customBlocks.find((cb) => cb.name === customBlockName);
     if (!customBlock) return;
 
@@ -1268,21 +1286,21 @@ const BlockHeader = ({
     const nestedBlockIds = [];
 
     // Deep clone the original block, but keep the current block id and parent linkage
-    const cloneWithId = (block, newId, isTopLevel = true) => {
-      const { ...rest } = block;
+    const cloneWithId = (b, newId, isTopLevel = true) => {
+      const { ...rest } = b;
       const clonedBlock = {
         ...rest,
         id: newId,
         createdAt: Date.now(),
-        children: block.children
-          ? block.children.map((child) =>
+        children: b.children
+          ? b.children.map((child) =>
               child.category === "block"
                 ? cloneWithId(child, uuidv4(), false) // Pass false for nested blocks
                 : { ...child, id: uuidv4() },
             )
           : [],
         // Only set customBlockName on the top level block, preserve existing names for nested blocks
-        customBlockName: isTopLevel ? customBlockName : block.customBlockName,
+        customBlockName: isTopLevel ? customBlockName : b.customBlockName,
       };
 
       // If this is a nested block, add its ID to the list for collapsing
@@ -1294,11 +1312,11 @@ const BlockHeader = ({
     };
 
     setFilters((prevFilters) => {
-      const updateBlock = (block) => {
-        if (block.id !== blockId) {
+      const updateBlock = (b) => {
+        if (b.id !== blockId) {
           return {
-            ...block,
-            children: block.children.map((child) =>
+            ...b,
+            children: b.children.map((child) =>
               child.category === "block" ? updateBlock(child) : child,
             ),
           };
@@ -1344,7 +1362,7 @@ const BlockHeader = ({
         const {
           id,
           createdAt,
-          customBlockName,
+          customBlockName: _customBlockName,
           isTrue,
           booleanSwitch,
           blockValue,
@@ -1411,9 +1429,9 @@ const BlockHeader = ({
     return match?.block || null;
   };
 
-  const isBlockEdited = (block, isNestedCustomBlock = false) => {
-    const isTopLevelCustomBlock = "isTrue" in block && block.customBlockName;
-    const hasCustomBlockName = !!block.customBlockName;
+  const isBlockEdited = (b, isNestedCustomBlock = false) => {
+    const isTopLevelCustomBlock = "isTrue" in b && b.customBlockName;
+    const hasCustomBlockName = !!b.customBlockName;
 
     if (!isTopLevelCustomBlock && !isNestedCustomBlock) {
       return false;
@@ -1423,16 +1441,12 @@ const BlockHeader = ({
       return false;
     }
 
-    const originalDefinition = findCustomBlockDefinition(block.customBlockName);
+    const originalDefinition = findCustomBlockDefinition(b.customBlockName);
     if (!originalDefinition) {
       return false;
     }
 
-    const coreContentMatches = deepCompareBlocks(
-      block,
-      originalDefinition,
-      false,
-    );
+    const coreContentMatches = deepCompareBlocks(b, originalDefinition, false);
 
     if (coreContentMatches) {
       return false;
@@ -1444,19 +1458,19 @@ const BlockHeader = ({
       comparisonTarget = { ...originalDefinition };
       delete comparisonTarget.isTrue;
 
-      if (deepCompareBlocks(block, comparisonTarget, false)) {
+      if (deepCompareBlocks(b, comparisonTarget, false)) {
         return false;
       }
     }
 
-    const isCurrentBlockModified = !deepCompareBlocks(block, comparisonTarget);
+    const isCurrentBlockModified = !deepCompareBlocks(b, comparisonTarget);
 
     if (isCurrentBlockModified) {
       return true;
     }
 
     const hasModifiedChildren = checkChildrenForModifications(
-      block,
+      b,
       comparisonTarget,
     );
 
@@ -1568,7 +1582,7 @@ const BlockHeader = ({
             <IconButton
               size="small"
               color="error"
-              onClick={() => handleRemoveBlock(block.id, parentBlockId)}
+              onClick={() => handleRemoveBlock(block.id)}
               sx={{ p: 0.5 }}
             >
               <ClearIcon fontSize="small" />
@@ -1659,9 +1673,7 @@ const BlockHeader = ({
             <Chip
               label={customBlockName}
               onClick={
-                edited
-                  ? () => resetBlockToOriginal(block.id, block.customBlockName)
-                  : undefined
+                edited ? () => resetBlockToOriginal(block.id) : undefined
               }
               sx={{
                 fontWeight: 600,
@@ -1861,6 +1873,7 @@ BlockHeader.propTypes = {
     logic: PropTypes.string,
     operator: PropTypes.string,
     customBlockName: PropTypes.string,
+    blockValue: PropTypes.bool,
   }).isRequired,
   parentBlockId: PropTypes.string,
   isRoot: PropTypes.bool.isRequired,
@@ -2132,7 +2145,6 @@ const ConditionComponentInner = ({
     createDefaultCondition,
   );
   const fieldOptionsWithVariable = getFieldOptionsWithVariable(
-    fieldOptions,
     fieldOptionsList,
     customVariables,
     customListVariables,
@@ -2307,7 +2319,6 @@ const ConditionComponentInner = ({
         conditionOrBlock={conditionOrBlock}
         block={block}
         updateCondition={updateCondition}
-        getFieldOptionsWithVariable={() => fieldOptionsWithVariable}
         setOpenEquationIds={setOpenEquationIds}
         setSelectedChip={setSelectedChip}
         setEquationAnchor={setEquationAnchor}
@@ -2438,29 +2449,12 @@ const BlockComponent = ({
   setLocalFilters = null,
   stickyBlockId = null,
 }) => {
-  if (!block?.id) {
-    console.warn("BlockComponent: Invalid block provided", block);
-    return null;
-  }
-
   const [activeBlockForAdd, setActiveBlockForAdd] = useState(null);
 
-  // Get dialog state from FilterBuilder context
   const { setListConditionDialog } = useFilterBuilder();
 
-  // Use custom hook for block state management
   const blockState = useBlockState(block, isRoot);
 
-  // Determine if this specific block should have a sticky header
-  const isStickyHeader = block.id === stickyBlockId;
-
-  // Block UI interaction state - no need to memoize simple object
-  const uiState = {
-    activeBlockForAdd,
-    setActiveBlockForAdd,
-  };
-
-  // Memoize child components to prevent unnecessary re-renders
   const renderChildren = useMemo(() => {
     if (blockState.isCollapsed || !block?.children?.length) return null;
 
@@ -2515,6 +2509,20 @@ const BlockComponent = ({
     setListConditionDialog,
     stickyBlockId,
   ]);
+
+  if (!block?.id) {
+    console.warn("BlockComponent: Invalid block provided", block);
+    return null;
+  }
+
+  // Determine if this specific block should have a sticky header
+  const isStickyHeader = block.id === stickyBlockId;
+
+  // Block UI interaction state - no need to memoize simple object
+  const uiState = {
+    activeBlockForAdd,
+    setActiveBlockForAdd,
+  };
 
   return (
     <Paper
