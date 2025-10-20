@@ -35,6 +35,7 @@ import {
   PlayArrow as RunIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
+  Fullscreen as FullscreenIcon,
 } from "@mui/icons-material";
 import { Controller, useForm } from "react-hook-form";
 import { useCurrentBuilder } from "../../../hooks/useContexts";
@@ -121,12 +122,12 @@ const MongoQueryDialog = () => {
   const [availableCollections, setAvailableCollections] = useState([]);
   const [isRunning, setIsRunning] = useState(false);
   const [queryError, setQueryError] = useState(null);
-  const [showResults, setShowResults] = useState(false);
   const [showPipeline, setShowPipeline] = useState(true);
   const [pipelineView, setPipelineView] = useState("complete"); // 'stages' or 'complete'
   const [connectionStatus, setConnectionStatus] = useState("unknown"); // 'connected', 'disconnected', 'unknown'
   const [expandedCells, setExpandedCells] = useState(new Set()); // Track expanded JSON cells
   const [expandedStages, setExpandedStages] = useState(new Set()); // Track expanded pipeline stages
+  const [isFullscreen, setIsFullscreen] = useState(false); // Track fullscreen mode for results
 
   const defaultStartDate = new Date();
   const defaultEndDate = new Date();
@@ -390,10 +391,6 @@ const MongoQueryDialog = () => {
     }
   }, [mongoDialog?.open]);
 
-  useEffect(() => {
-    setShowResults(true);
-  }, [results]);
-
   const loadCollections = async () => {
     try {
       setConnectionStatus("connected");
@@ -408,7 +405,6 @@ const MongoQueryDialog = () => {
     setMongoDialog({ open: false });
     // Reset query results when closing
     setQueryError(null);
-    setShowResults(false);
     setShowPipeline(true); // Keep pipeline expanded by default
     setPipelineView("complete"); // Reset to default view
     setExpandedCells(new Set()); // Reset expanded cells
@@ -828,164 +824,192 @@ const MongoQueryDialog = () => {
                     />
                     <IconButton
                       size="small"
-                      onClick={() => setShowResults(!showResults)}
+                      onClick={() => setIsFullscreen(true)}
+                      disabled={!results.data?.length}
                     >
-                      {showResults ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                      <FullscreenIcon />
                     </IconButton>
                   </Box>
 
-                  <Collapse in={showResults}>
-                    {results.data?.length > 0 ? (
-                      <TableContainer
-                        component={Paper}
+                  {results.data?.length > 0 ? (
+                    <TableContainer
+                      component={Paper}
+                      sx={{
+                        maxHeight: 400,
+                        overflow: "auto",
+                        width: "100%",
+                        "& .MuiTable-root": {
+                          minWidth: "100%",
+                          width: "max-content",
+                          tableLayout: "auto",
+                        },
+                        // Smooth scrollbar styling
+                        "&::-webkit-scrollbar": {
+                          width: 8,
+                          height: 8,
+                        },
+                        "&::-webkit-scrollbar-track": {
+                          backgroundColor: "rgba(0,0,0,0.1)",
+                        },
+                        "&::-webkit-scrollbar-thumb": {
+                          backgroundColor: "rgba(0,0,0,0.3)",
+                          borderRadius: 4,
+                        },
+                      }}
+                    >
+                      <Table
+                        size="small"
+                        stickyHeader
                         sx={{
-                          maxHeight: 400,
-                          overflow: "auto",
-                          width: "100%",
-                          "& .MuiTable-root": {
-                            minWidth: "100%",
-                            width: "max-content",
-                            tableLayout: "auto",
-                          },
-                          // Smooth scrollbar styling
-                          "&::-webkit-scrollbar": {
-                            width: 8,
-                            height: 8,
-                          },
-                          "&::-webkit-scrollbar-track": {
-                            backgroundColor: "rgba(0,0,0,0.1)",
-                          },
-                          "&::-webkit-scrollbar-thumb": {
-                            backgroundColor: "rgba(0,0,0,0.3)",
-                            borderRadius: 4,
-                          },
+                          tableLayout: "auto",
+                          width: "max-content",
+                          minWidth: "100%",
                         }}
                       >
-                        <Table
-                          size="small"
-                          stickyHeader
-                          sx={{
-                            tableLayout: "auto",
-                            width: "max-content",
-                            minWidth: "100%",
-                          }}
-                        >
-                          <TableHead>
-                            <TableRow>
-                              {Object.keys(results.data[0] || {})
-                                .filter((key) => key !== "_id")
-                                .map((key) => (
-                                  <TableCell
-                                    key={key}
-                                    sx={{
-                                      fontWeight: "bold",
-                                      minWidth: 150,
-                                      whiteSpace: "nowrap",
-                                      position: "sticky",
-                                      top: 0,
-                                      backgroundColor: "background.paper",
-                                      zIndex: 1,
-                                    }}
-                                  >
-                                    {key}
-                                  </TableCell>
-                                ))}
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {results.data.slice(0, 50).map((row, rowIndex) => (
-                              <TableRow key={rowIndex}>
-                                {Object.entries(row)
-                                  .filter(([key]) => key !== "_id")
-                                  .map(([key, value], cellIndex) => {
-                                    const cellKey = `${rowIndex}-${cellIndex}`;
-                                    const isJsonExpanded =
-                                      expandedCells.has(cellKey);
-                                    const hasJsonContent =
-                                      typeof value === "object";
+                        <TableHead>
+                          <TableRow>
+                            {Object.keys(results.data[0] || {})
+                              .filter((key) => key !== "_id")
+                              .map((key) => (
+                                <TableCell
+                                  key={key}
+                                  sx={{
+                                    fontWeight: "bold",
+                                    minWidth: 150,
+                                    whiteSpace: "nowrap",
+                                    position: "sticky",
+                                    top: 0,
+                                    backgroundColor: "background.paper",
+                                    zIndex: 1,
+                                  }}
+                                >
+                                  {key}
+                                </TableCell>
+                              ))}
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {results.data.slice(0, 50).map((row, rowIndex) => (
+                            <TableRow
+                              key={rowIndex}
+                              sx={{
+                                height: "auto",
+                                minHeight: "fit-content",
+                                "& .MuiTableCell-root": {
+                                  height: "auto",
+                                  minHeight: "fit-content",
+                                },
+                              }}
+                            >
+                              {Object.entries(row)
+                                .filter(([key]) => key !== "_id")
+                                .map(([key, value], cellIndex) => {
+                                  const cellKey = `${rowIndex}-${cellIndex}`;
+                                  const isJsonExpanded =
+                                    expandedCells.has(cellKey);
+                                  const hasJsonContent =
+                                    typeof value === "object";
 
-                                    return (
-                                      <TableCell
-                                        key={cellIndex}
-                                        sx={{
-                                          verticalAlign: "top",
-                                          minWidth: hasJsonContent
-                                            ? isJsonExpanded
-                                              ? 300
-                                              : 150
-                                            : 100,
-                                          maxWidth: hasJsonContent
-                                            ? isJsonExpanded
-                                              ? 600
-                                              : 300
-                                            : 200,
-                                          width: hasJsonContent
-                                            ? isJsonExpanded
-                                              ? "auto"
-                                              : "auto"
-                                            : "auto",
-                                          padding: 1,
-                                          borderRight: "1px solid",
-                                          borderColor: "divider",
-                                          transition: "all 0.3s ease",
-                                          overflow: "visible",
-                                        }}
-                                      >
-                                        {hasJsonContent ? (
-                                          <Box
-                                            sx={{
-                                              minWidth: isJsonExpanded
-                                                ? 250
-                                                : 150,
-                                              maxWidth: isJsonExpanded
-                                                ? 550
-                                                : 350,
-                                              width: "100%",
+                                  return (
+                                    <TableCell
+                                      key={cellIndex}
+                                      sx={{
+                                        verticalAlign: "top",
+                                        minWidth: hasJsonContent
+                                          ? isJsonExpanded
+                                            ? 300
+                                            : 150
+                                          : 100,
+                                        maxWidth: hasJsonContent
+                                          ? isJsonExpanded
+                                            ? 600
+                                            : 300
+                                          : 200,
+                                        width: hasJsonContent
+                                          ? isJsonExpanded
+                                            ? "auto"
+                                            : "auto"
+                                          : "auto",
+                                        padding: 1,
+                                        borderRight: "1px solid",
+                                        borderColor: "divider",
+                                        transition: "all 0.3s ease",
+                                        overflow: "visible",
+                                        height: "auto", // Allow dynamic height
+                                        minHeight: "fit-content", // Fit content naturally
+                                      }}
+                                    >
+                                      {hasJsonContent ? (
+                                        <Box
+                                          sx={{
+                                            minWidth: isJsonExpanded
+                                              ? 250
+                                              : 150,
+                                            maxWidth: isJsonExpanded
+                                              ? 550
+                                              : 350,
+                                            width: "100%",
+                                            minHeight: "fit-content",
+                                            height: "auto",
+                                            overflow: "visible",
+                                            "& .react-json-view": {
+                                              height: "auto !important",
+                                              minHeight: "fit-content",
+                                            },
+                                          }}
+                                        >
+                                          <ReactJson
+                                            src={value}
+                                            name={false}
+                                            collapsed={!isJsonExpanded}
+                                            displayDataTypes={false}
+                                            displayObjectSize={false}
+                                            enableClipboard={false}
+                                            style={{
+                                              height: "auto",
+                                              minHeight: "fit-content",
+                                              lineHeight: "1.4",
+                                              fontSize: "12px",
                                             }}
-                                          >
-                                            <ReactJson
-                                              src={value}
-                                              name={false}
-                                              // theme={darkTheme ? "monokai" : "rjv-default"}
-                                            />
-                                          </Box>
-                                        ) : (
-                                          <Typography
-                                            variant="body2"
-                                            sx={{
-                                              fontFamily: "monospace",
-                                              wordBreak: "break-word",
-                                            }}
-                                          >
-                                            {String(value)}
-                                          </Typography>
-                                        )}
-                                      </TableCell>
-                                    );
-                                  })}
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                        {results.data?.length > 50 && (
-                          <Typography
-                            variant="caption"
-                            sx={{ p: 1, display: "block", textAlign: "center" }}
-                          >
-                            Showing first 50 of {results.data.length} results
-                          </Typography>
-                        )}
-                      </TableContainer>
-                    ) : (
-                      <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        sx={{ p: 2, textAlign: "center" }}
-                      >
-                        No documents matched the query
-                      </Typography>
-                    )}
-                  </Collapse>
+                                            // theme={darkTheme ? "monokai" : "rjv-default"}
+                                          />
+                                        </Box>
+                                      ) : (
+                                        <Typography
+                                          variant="body2"
+                                          sx={{
+                                            fontFamily: "monospace",
+                                            wordBreak: "break-word",
+                                          }}
+                                        >
+                                          {String(value)}
+                                        </Typography>
+                                      )}
+                                    </TableCell>
+                                  );
+                                })}
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                      {results.data?.length > 50 && (
+                        <Typography
+                          variant="caption"
+                          sx={{ p: 1, display: "block", textAlign: "center" }}
+                        >
+                          Showing first 50 of {results.data.length} results
+                        </Typography>
+                      )}
+                    </TableContainer>
+                  ) : (
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      sx={{ p: 2, textAlign: "center" }}
+                    >
+                      No documents matched the query
+                    </Typography>
+                  )}
 
                   <Divider sx={{ my: 2 }} />
                 </Box>
@@ -1256,6 +1280,199 @@ const MongoQueryDialog = () => {
           MongoDB query copied to clipboard!
         </Alert>
       </Snackbar>
+
+      {/* Fullscreen Results Dialog */}
+      <Dialog
+        open={isFullscreen}
+        onClose={() => setIsFullscreen(false)}
+        maxWidth={false}
+        fullScreen
+        sx={{
+          "& .MuiDialog-paper": {
+            margin: 0,
+            maxHeight: "100vh",
+            height: "100vh",
+          },
+        }}
+      >
+        <DialogTitle
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            pb: 1,
+          }}
+        >
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Typography variant="h6">Query Results</Typography>
+            <Chip
+              label={`${results.data?.length} documents`}
+              size="small"
+              color="success"
+            />
+          </Box>
+          <IconButton
+            onClick={() => setIsFullscreen(false)}
+            sx={{ color: "text.secondary" }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+
+        <DialogContent sx={{ p: 0, overflow: "hidden" }}>
+          {results.data?.length > 0 ? (
+            <TableContainer
+              component={Paper}
+              sx={{
+                height: "100%",
+                "& .MuiTable-root": {
+                  minWidth: 650,
+                },
+              }}
+            >
+              <Table stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    {Object.keys(results.data[0] || {})
+                      .filter((key) => key !== "_id")
+                      .map((key) => (
+                        <TableCell
+                          key={key}
+                          sx={{
+                            fontWeight: "bold",
+                            backgroundColor: "grey.100",
+                            whiteSpace: "nowrap",
+                            minWidth: 120,
+                          }}
+                        >
+                          {key}
+                        </TableCell>
+                      ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {results.data.map((row, rowIndex) => (
+                    <TableRow
+                      key={rowIndex}
+                      sx={{
+                        height: "auto",
+                        minHeight: "fit-content",
+                        "& .MuiTableCell-root": {
+                          height: "auto",
+                          minHeight: "fit-content",
+                        },
+                      }}
+                    >
+                      {Object.keys(row)
+                        .filter((key) => key !== "_id")
+                        .map((key) => (
+                          <TableCell
+                            key={key}
+                            sx={{
+                              verticalAlign: "top",
+                              height: "auto",
+                              minHeight: "fit-content",
+                            }}
+                          >
+                            {typeof row[key] === "object" &&
+                            row[key] !== null ? (
+                              <Box
+                                sx={{
+                                  maxWidth: 300,
+                                  maxHeight: expandedCells.has(
+                                    `${rowIndex}-${key}`,
+                                  )
+                                    ? "none"
+                                    : 100,
+                                  overflow: expandedCells.has(
+                                    `${rowIndex}-${key}`,
+                                  )
+                                    ? "visible"
+                                    : "hidden",
+                                  position: "relative",
+                                  minHeight: "fit-content",
+                                  height: "auto",
+                                  "& .react-json-view": {
+                                    height: "auto !important",
+                                    minHeight: "fit-content",
+                                  },
+                                }}
+                              >
+                                <ReactJson
+                                  src={row[key]}
+                                  theme="rjv-default"
+                                  collapsed={
+                                    !expandedCells.has(`${rowIndex}-${key}`)
+                                  }
+                                  displayDataTypes={false}
+                                  displayObjectSize={false}
+                                  enableClipboard={false}
+                                  name={false}
+                                  style={{
+                                    fontSize: "12px",
+                                    lineHeight: "1.4",
+                                    height: "auto",
+                                    minHeight: "fit-content",
+                                  }}
+                                />
+                                {/* <Button
+                                  size="small"
+                                  variant="text"
+                                  onClick={() => {
+                                    const cellKey = `${rowIndex}-${key}`;
+                                    setExpandedCells((prev) => {
+                                      const newSet = new Set(prev);
+                                      if (newSet.has(cellKey)) {
+                                        newSet.delete(cellKey);
+                                      } else {
+                                        newSet.add(cellKey);
+                                      }
+                                      return newSet;
+                                    });
+                                  }}
+                                  sx={{
+                                    position: "absolute",
+                                    bottom: 0,
+                                    right: 0,
+                                    minWidth: "auto",
+                                    backgroundColor: "rgba(255,255,255,0.8)",
+                                    "&:hover": {
+                                      backgroundColor: "rgba(255,255,255,0.9)",
+                                    },
+                                  }}
+                                >
+                                  {expandedCells.has(`${rowIndex}-${key}`)
+                                    ? "Collapse"
+                                    : "Expand"}
+                                </Button> */}
+                              </Box>
+                            ) : (
+                              <Typography
+                                variant="body2"
+                                sx={{
+                                  wordBreak: "break-word",
+                                  whiteSpace: "pre-wrap",
+                                }}
+                              >
+                                {String(row[key])}
+                              </Typography>
+                            )}
+                          </TableCell>
+                        ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          ) : (
+            <Box sx={{ p: 3, textAlign: "center" }}>
+              <Typography variant="body1" color="text.secondary">
+                No results to display
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 };
