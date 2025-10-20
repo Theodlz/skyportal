@@ -64,17 +64,6 @@ const AutocompleteFields = ({
   const { options, allGroups } = useMemo(() => {
     const baseOptions = fieldOptions || [];
     let processedOptions = baseOptions.map((option) => {
-      // Debug logging for variables
-      if (option.label && option.label.toLowerCase().includes("variable")) {
-        console.log("Variable option:", {
-          label: option.label,
-          isVariable: option.isVariable,
-          isListVariable: option.isListVariable,
-          existingGroup: option.group,
-          type: option.type,
-        });
-      }
-
       return {
         ...option,
         group: option.isVariable

@@ -36,11 +36,30 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
 } from "@mui/icons-material";
+import { Controller, useForm } from "react-hook-form";
 import { useCurrentBuilder } from "../../../hooks/useContexts";
 import { mongoQueryService } from "../../../services/mongoQueryService";
+import { LocalizationProvider } from "@mui/x-date-pickers";
+import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
+import { DateTimePicker } from "@mui/x-date-pickers/DateTimePicker";
+import FormValidationError from "../../FormValidationError.jsx";
 import ReactJson from "react-json-view";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import makeStyles from "@mui/styles/makeStyles";
 import { useDispatch, useSelector } from "react-redux";
 import { runBoomFilter } from "../../../ducks/boom_run_filter";
+
+dayjs.extend(utc);
+
+const useStyles = makeStyles((theme) => ({
+  timeRange: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "0.5rem",
+    marginBottom: "1rem",
+  },
+}));
 
 // Helper function to get stage descriptions
 const getStageDescription = (stageName) => {
@@ -81,11 +100,14 @@ const MongoQueryDialog = () => {
     getFormattedMongoQuery,
     hasValidQuery,
   } = useCurrentBuilder();
+  const classes = useStyles();
+
   const filter_stream = useSelector(
     (state) => state.filter_v.stream?.name?.split(" ")[0],
   );
   const dispatch = useDispatch();
   const results = useSelector((state) => state.query_result);
+  const { useAMPM } = useSelector((state) => state.profile.preferences);
 
   const [copySuccess, setCopySuccess] = useState(false);
   //set default to "ZTF_alerts" collection if filter_stream is "ZTF" or "LSST_alerts" if filter_stream is "LSST"
@@ -106,6 +128,23 @@ const MongoQueryDialog = () => {
   const [expandedCells, setExpandedCells] = useState(new Set()); // Track expanded JSON cells
   const [expandedStages, setExpandedStages] = useState(new Set()); // Track expanded pipeline stages
 
+  const defaultStartDate = new Date();
+  const defaultEndDate = new Date();
+  defaultEndDate.setDate(defaultEndDate.getDate() + 1);
+
+  const {
+    handleSubmit,
+    getValues,
+    control,
+    reset,
+    formState: { errors },
+  } = useForm({
+    startDate: defaultStartDate,
+    endDate: defaultEndDate,
+  });
+
+  let formState = getValues();
+
   // Handle JSON expansion/collapse
   const handleJsonToggle = (isExpanded, level, rowIndex, cellIndex) => {
     const cellKey = `${rowIndex}-${cellIndex}`;
@@ -118,6 +157,217 @@ const MongoQueryDialog = () => {
       }
       return newSet;
     });
+  };
+
+  function utcToJulianDate(date) {
+    const d = new Date(date);
+    const time = d.getTime();
+    const daysSinceEpoch = time / 86400000;
+    const JD_UNIX_EPOCH = 2440587.5;
+    return JD_UNIX_EPOCH + daysSinceEpoch;
+  }
+
+  const onSubmit = async (formData) => {
+    // Convert dates to ISO for parsing on back-end
+    let startDate, endDate;
+    if (formData.startDate) {
+      startDate = utcToJulianDate(formData.startDate);
+    }
+    if (formData.endDate) {
+      endDate = utcToJulianDate(formData.endDate);
+    }
+
+    setIsRunning(true);
+    setQueryError(null);
+    setExpandedCells(new Set()); // Reset expanded cells for new query
+
+    try {
+      // const pipeline = generateMongoQuery();
+      const pipeline = [
+        ...(filter_stream === "ZTF"
+          ? [
+              {
+                $lookup: {
+                  from: "ZTF_alerts_aux",
+                  localField: "objectId",
+                  foreignField: "_id",
+                  as: "aux",
+                },
+              },
+              {
+                $project: {
+                  objectId: 1,
+                  candidate: 1,
+                  classifications: 1,
+                  coordinates: 1,
+                  cross_matches: {
+                    $arrayElemAt: ["$aux.cross_matches", 0],
+                  },
+                  aliases: {
+                    $arrayElemAt: ["$aux.aliases", 0],
+                  },
+                  prv_candidates: {
+                    $filter: {
+                      input: {
+                        $arrayElemAt: ["$aux.prv_candidates", 0],
+                      },
+                      as: "x",
+                      cond: {
+                        $and: [
+                          {
+                            // maximum 1 year of past data
+                            $lt: [
+                              {
+                                $subtract: ["$candidate.jd", "$$x.jd"],
+                              },
+                              365,
+                            ],
+                          },
+                          {
+                            // only datapoints up to (and including) current alert
+                            $lte: ["$$x.jd", "$candidate.jd"],
+                          },
+                        ],
+                      },
+                    },
+                  },
+                  fp_hists: {
+                    $filter: {
+                      input: {
+                        $arrayElemAt: ["$aux.fp_hists", 0],
+                      },
+                      as: "x",
+                      cond: {
+                        $and: [
+                          {
+                            // maximum 1 year of past data
+                            $lt: [
+                              {
+                                $subtract: ["$candidate.jd", "$$x.jd"],
+                              },
+                              365,
+                            ],
+                          },
+                          {
+                            // only datapoints up to (and including) current alert
+                            $lte: ["$$x.jd", "$candidate.jd"],
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            ]
+          : [
+              {
+                $lookup: {
+                  from: "LSST_alerts_aux",
+                  localField: "objectId",
+                  foreignField: "_id",
+                  as: "aux",
+                },
+              },
+              {
+                $project: {
+                  objectId: 1,
+                  candidate: 1,
+                  classifications: 1,
+                  coordinates: 1,
+                  cross_matches: {
+                    $arrayElemAt: ["$aux.cross_matches", 0],
+                  },
+                  aliases: {
+                    $arrayElemAt: ["$aux.aliases", 0],
+                  },
+                  prv_candidates: {
+                    $filter: {
+                      input: {
+                        $arrayElemAt: ["$aux.prv_candidates", 0],
+                      },
+                      as: "x",
+                      cond: {
+                        $and: [
+                          {
+                            // maximum 1 year of past data
+                            $lt: [
+                              {
+                                $subtract: ["$candidate.jd", "$$x.jd"],
+                              },
+                              365,
+                            ],
+                          },
+                          {
+                            // only datapoints up to (and including) current alert
+                            $lte: ["$$x.jd", "$candidate.jd"],
+                          },
+                        ],
+                      },
+                    },
+                  },
+                  fp_hists: {
+                    $filter: {
+                      input: {
+                        $arrayElemAt: ["$aux.fp_hists", 0],
+                      },
+                      as: "x",
+                      cond: {
+                        $and: [
+                          {
+                            // maximum 1 year of past data
+                            $lt: [
+                              {
+                                $subtract: ["$candidate.jd", "$$x.jd"],
+                              },
+                              365,
+                            ],
+                          },
+                          {
+                            // only datapoints up to (and including) current alert
+                            $lte: ["$$x.jd", "$candidate.jd"],
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            ]),
+
+        {
+          $match: {
+            "candidate.jd": {
+              $gte: startDate,
+              $lte: endDate,
+            },
+          },
+        },
+
+        ...generateMongoQuery(),
+      ];
+
+      // Prepend the pipeline with the prepend stages
+      // pipeline.unshift(...prepend);
+      // pipeline.unshift(...prepend_date);
+      await dispatch(
+        runBoomFilter({
+          pipeline: pipeline,
+          selectedCollection: selectedCollection,
+        }),
+      );
+    } catch (error) {
+      setQueryError(error.message);
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  const validateDates = () => {
+    formState = getValues();
+    if (!!formState.startDate && !!formState.endDate) {
+      return formState.startDate <= formState.endDate;
+    }
+    return true;
   };
 
   // Handle stage expansion/collapse
@@ -205,6 +455,18 @@ const MongoQueryDialog = () => {
   };
 
   const handleRunQuery = async () => {
+    // Get form data for dates
+    const formData = getValues();
+
+    // Convert dates to ISO for parsing on back-end
+    let startDate, endDate;
+    if (formData.startDate) {
+      startDate = utcToJulianDate(formData.startDate);
+    }
+    if (formData.endDate) {
+      endDate = utcToJulianDate(formData.endDate);
+    }
+
     setIsRunning(true);
     setQueryError(null);
     setExpandedCells(new Set()); // Reset expanded cells for new query
@@ -361,6 +623,19 @@ const MongoQueryDialog = () => {
                 },
               },
             ];
+
+      // Add date filtering stage if dates are provided
+      if (startDate && endDate) {
+        prepend.push({
+          $match: {
+            "candidate.jd": {
+              $gte: startDate,
+              $lte: endDate,
+            },
+          },
+        });
+      }
+
       // Prepend the pipeline with the prepend stages
       pipeline.unshift(...prepend);
       await dispatch(
@@ -444,24 +719,85 @@ const MongoQueryDialog = () => {
                   </Typography>
                 </Alert>
               )}
+              <form onSubmit={handleSubmit(onSubmit)}>
+                <div>
+                  {(errors.startDate || errors.endDate) && (
+                    <FormValidationError message="Invalid date range." />
+                  )}
 
-              {/* Collection Selector and Run Controls */}
-              <Box
-                sx={{ display: "flex", gap: 2, mb: 3, alignItems: "center" }}
-              >
-                <Button
-                  variant="contained"
-                  color="primary"
-                  startIcon={
-                    isRunning ? <CircularProgress size={16} /> : <RunIcon />
-                  }
-                  onClick={handleRunQuery}
-                  disabled={isRunning || connectionStatus === "disconnected"}
-                  sx={{ minWidth: 120 }}
+                  {/* Date Range Instructions */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography
+                      variant="subtitle2"
+                      color="text.primary"
+                      sx={{ mb: 0.5 }}
+                    >
+                      Select Time Range for Query
+                    </Typography>
+                    {/* <Typography variant="body2" color="text.secondary">
+                      Maximum range is 24 hours.
+                    </Typography> */}
+                  </Box>
+
+                  <div className={classes.timeRange}>
+                    <Controller
+                      render={({ field: { onChange, value } }) => (
+                        <LocalizationProvider dateAdapter={AdapterDateFns}>
+                          <DateTimePicker
+                            value={value}
+                            onChange={(newValue) => onChange(newValue)}
+                            label="Start (Local Time)"
+                            showTodayButton={false}
+                            ampm={useAMPM}
+                            slotProps={{ textField: { variant: "outlined" } }}
+                          />
+                        </LocalizationProvider>
+                      )}
+                      rules={{ validate: validateDates }}
+                      name="startDate"
+                      control={control}
+                      defaultValue={defaultStartDate}
+                    />
+                    <Controller
+                      render={({ field: { onChange, value } }) => (
+                        <LocalizationProvider dateAdapter={AdapterDateFns}>
+                          <DateTimePicker
+                            value={value}
+                            onChange={(newValue) => onChange(newValue)}
+                            label="End (Local Time)"
+                            showTodayButton={false}
+                            ampm={useAMPM}
+                            slotProps={{ textField: { variant: "outlined" } }}
+                          />
+                        </LocalizationProvider>
+                      )}
+                      rules={{ validate: validateDates }}
+                      name="endDate"
+                      control={control}
+                      defaultValue={defaultEndDate}
+                    />
+                  </div>
+                </div>
+
+                {/* Collection Selector and Run Controls */}
+                <Box
+                  sx={{ display: "flex", gap: 2, mb: 3, alignItems: "center" }}
                 >
-                  {isRunning ? "Running..." : "Run Query"}
-                </Button>
-              </Box>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    type="button"
+                    startIcon={
+                      isRunning ? <CircularProgress size={16} /> : <RunIcon />
+                    }
+                    onClick={handleRunQuery}
+                    disabled={isRunning || connectionStatus === "disconnected"}
+                    sx={{ minWidth: 120 }}
+                  >
+                    {isRunning ? "Running..." : "Run Query"}
+                  </Button>
+                </Box>
+              </form>
 
               {/* Query Error Display */}
               {queryError && (
@@ -757,7 +1093,7 @@ const MongoQueryDialog = () => {
                           sx={{ mt: 2, display: "block" }}
                         >
                           This aggregation pipeline can be used directly with
-                          MongoDB's aggregate() method.
+                          MongoDB&apos;s aggregate() method.
                         </Typography>
                       </Box>
                     )}
