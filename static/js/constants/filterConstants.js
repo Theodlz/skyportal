@@ -135,28 +135,36 @@ export const flattenFieldOptions = (avroSchema) => {
         // Automatically detect the array type based on structure:
         // - Cross_matches-style: arrays with record items that have union type fields (catalog fields)
         // - Expandable arrays: arrays with simple record items (no union types)
-        
+
         // More specific cross-match detection: should have fields that are themselves records or null
         // (not just primitive union types like ["null", "float"])
         const isCrossMatchStyle =
           typeof itemsType === "object" &&
           itemsType.type === "record" &&
           itemsType.fields &&
-          itemsType.fields.some((catalogField) =>
-            Array.isArray(catalogField.type) &&
-            catalogField.type.some(unionType => 
-              typeof unionType === "object" && unionType.type === "record"
-            )
+          itemsType.fields.some(
+            (catalogField) =>
+              Array.isArray(catalogField.type) &&
+              catalogField.type.some(
+                (unionType) =>
+                  typeof unionType === "object" && unionType.type === "record",
+              ),
           );
 
         if (isCrossMatchStyle) {
           // For cross_matches-style arrays, create entries for each catalog/database
           // These appear as "arrayName.catalogName" in the main autocomplete
           itemsType.fields.forEach((catalogField) => {
+            // Create a more user-friendly group name for cross-matches
+            const groupName =
+              field.name === "cross_matches"
+                ? "Cross Matches"
+                : capitalizeGroup(field.name);
+
             flattenedOptions.push({
               label: `${currentPath}.${catalogField.name}`,
               type: "array", // Mark as array type since it represents an array element
-              group: capitalizeGroup(field.name), // Use the actual field name as group
+              group: groupName, // Use the user-friendly group name
               parentArray: currentPath,
               arrayObject: catalogField.name,
               catalogName: catalogField.name,
@@ -383,8 +391,8 @@ export const mongoOperatorLabels = {
   $gte: "≥",
   $lt: "<",
   $lte: "≤",
-  $in: "In",
-  $nin: "Not In",
+  // $in: "In",
+  // $nin: "Not In",
   $anyElementTrue: "Any Element True",
   $allElementsTrue: "All Elements True",
   $filter: "Filter",
@@ -409,8 +417,8 @@ export const mongoOperatorTypes = {
   $gte: "comparison",
   $lt: "comparison",
   $lte: "comparison",
-  $in: "array_boolean",
-  $nin: "array_boolean",
+  // $in: "array_boolean",
+  // $nin: "array_boolean",
   $anyElementTrue: "array",
   $allElementsTrue: "array",
   $filter: "array",
@@ -511,7 +519,9 @@ export function getArrayFieldSubOptions(arrayFieldLabel, schema) {
     const crossMatchesField = schema?.fields?.find(
       (field) => field.name === "cross_matches",
     );
-    if (!crossMatchesField) return [];
+    if (!crossMatchesField) {
+      return [];
+    }
 
     let crossMatchType = crossMatchesField.type;
     if (Array.isArray(crossMatchType)) {
@@ -552,6 +562,16 @@ export function getArrayFieldSubOptions(arrayFieldLabel, schema) {
 
           const result = [];
 
+          // Create a user-friendly catalog group name
+          const catalogGroupName =
+            catalogName === "NED_BetaV3"
+              ? "NED BetaV3"
+              : catalogName === "CLU_20190625"
+                ? "CLU 20190625"
+                : catalogName === "Gaia_EDR3"
+                  ? "Gaia EDR3"
+                  : catalogName; // Keep original for AllWISE and others
+
           if (typeof fieldType === "object") {
             if (fieldType.type === "record" && fieldType.fields) {
               // Recursively process nested records
@@ -562,17 +582,20 @@ export function getArrayFieldSubOptions(arrayFieldLabel, schema) {
               result.push({
                 label: fieldPath,
                 type: "array",
+                group: catalogGroupName, // Add group for catalog subfields
               });
             } else {
               result.push({
                 label: fieldPath,
                 type: getAvroFieldType(fieldType.type),
+                group: catalogGroupName, // Add group for catalog subfields
               });
             }
           } else {
             result.push({
               label: fieldPath,
               type: getAvroFieldType(fieldType),
+              group: catalogGroupName, // Add group for catalog subfields
             });
           }
 
@@ -618,7 +641,6 @@ export function getArrayFieldSubOptions(arrayFieldLabel, schema) {
 
   // Legacy format handling (kept for backward compatibility if needed)
   if (arrayFieldLabel.includes(".")) {
-    // These are likely cross_matches-style or legacy formats
     return [];
   }
 

@@ -23,6 +23,7 @@ import {
 } from "../../../hooks/useDialog";
 import { useCurrentBuilder } from "../../../hooks/useContexts";
 import BlockComponent from "../block/BlockComponent";
+import FilterBuilder from "../FilterBuilder";
 import { postElement } from "../../../ducks/boom_filter_modules";
 import { useDispatch } from "react-redux";
 
@@ -295,7 +296,65 @@ const ConditionBuilderSection = ({
   const arrayField = fieldOptions.find(
     (f) => f.type === "array" && f.label === selectedArrayField,
   );
+
   if (!arrayField || !arrayField.arrayItems || !arrayField.arrayItems.fields) {
+    // For cross_matches style fields, we should use the passed subFieldOptions
+    if (subFieldOptions && subFieldOptions.length > 0) {
+      const fieldOptionsList = [...(fieldOptions || []), ...subFieldOptions];
+
+      // Continue with the rest of the component using subFieldOptions
+      const fieldOptionsListForCrossmatch = [
+        ...(fieldOptions || []),
+        ...subFieldOptions,
+      ];
+
+      return (
+        <Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Define conditions that elements in the list must match:
+          </Typography>
+
+          {localFilters.length > 0 && (
+            <Paper
+              sx={{
+                border: 2,
+                borderColor: "success.light",
+                borderRadius: 2,
+                p: 2,
+                background: "linear-gradient(90deg, #f0fdf4 60%, #d1fae5 100%)",
+              }}
+            >
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  mb: 1,
+                }}
+              >
+                <Chip
+                  label={`Conditions for: ${selectedArrayField}`}
+                  size="small"
+                  color="success"
+                  variant="outlined"
+                />
+              </Box>
+
+              <BlockComponent
+                block={localFilters[0]}
+                parentBlockId={null}
+                isRoot={true}
+                fieldOptionsList={fieldOptionsList}
+                isListDialogOpen={true}
+                // Pass the local filters and setter directly as props
+                localFilters={localFilters}
+                setLocalFilters={setLocalFilters}
+              />
+            </Paper>
+          )}
+        </Box>
+      );
+    }
     return null;
   }
 

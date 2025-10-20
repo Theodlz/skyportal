@@ -229,10 +229,10 @@ const ListVariableOperator = ({
       listOperator === "$allElementsTrue"
     ) {
       return [
-        "$in",
-        "$nin",
+        // "$in",
+        // "$nin",
         listOperator,
-        ...lengthOperators,
+        // Length operators are not applicable for boolean array operations
         ...baseOperators,
       ];
     }
@@ -240,8 +240,8 @@ const ListVariableOperator = ({
     // If the list variable was created with $filter or $map
     if (listOperator === "$filter" || listOperator === "$map") {
       return [
-        "$in",
-        "$nin",
+        // "$in",
+        // "$nin",
         "$filter",
         "$map",
         ...lengthOperators,
@@ -282,8 +282,13 @@ const ListVariableOperator = ({
   const availableOperators = getAvailableOperatorsForListVariable();
 
   // Set the default operator to the first available operator if none is currently set
+  // OR if the current operator is not valid for this list variable type
   useEffect(() => {
-    if (!conditionOrBlock.operator && availableOperators.length > 0) {
+    if (
+      (!conditionOrBlock.operator ||
+        !availableOperators.includes(conditionOrBlock.operator)) &&
+      availableOperators.length > 0
+    ) {
       updateCondition(
         block.id,
         conditionOrBlock.id,
@@ -299,10 +304,14 @@ const ListVariableOperator = ({
     updateCondition,
   ]);
 
-  // Use the current operator if set, otherwise fall back to the first available operator
+  // Use the current operator if set and valid, otherwise fall back to the first available operator
   const currentOperator =
-    conditionOrBlock.operator ||
-    (availableOperators.length > 0 ? availableOperators[0] : null);
+    conditionOrBlock.operator &&
+    availableOperators.includes(conditionOrBlock.operator)
+      ? conditionOrBlock.operator
+      : availableOperators.length > 0
+        ? availableOperators[0]
+        : null;
 
   return (
     <AutocompleteOperators

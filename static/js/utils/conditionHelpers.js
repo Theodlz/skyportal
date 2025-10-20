@@ -317,14 +317,29 @@ export const getOperatorsForField = (
     case "array":
     case "array_variable": // List variables should have the same operators as regular arrays
       return [
-        "$in",
-        "$nin",
+        // "$in",
+        // "$nin",
         "$anyElementTrue",
         "$allElementsTrue",
         "$filter",
         "$map",
         "$lengthGt",
         "$lengthLt",
+        "$min",
+        "$max",
+        "$avg",
+        "$sum",
+        ...baseOperators,
+      ];
+    case "array_variable_boolean": // List variables with anyElementTrue/allElementsTrue operators - exclude length operators
+      return [
+        // "$in",
+        // "$nin",
+        "$anyElementTrue",
+        "$allElementsTrue",
+        "$filter",
+        "$map",
+        // Exclude $lengthGt and $lengthLt for boolean array variables
         "$min",
         "$max",
         "$avg",

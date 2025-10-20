@@ -56,28 +56,29 @@ export const useDialogStates = () => {
   }, []);
 
   return {
-    // States
+    // Dialog states
     saveDialog,
-    setSaveDialog,
     saveName,
-    setSaveName,
     saveError,
-    setSaveError,
     specialConditionDialog,
-    setSpecialConditionDialog,
     listConditionDialog,
-    setListConditionDialog,
     mongoDialog,
-    setMongoDialog,
 
-    // Actions
-    resetDialogs,
+    // Dialog actions
     openSaveDialog,
     closeSaveDialog,
     openSpecialConditionDialog,
     closeSpecialConditionDialog,
+    setSpecialConditionDialog, // Direct state setter for complex updates
     openListConditionDialog,
     closeListConditionDialog,
+    setListConditionDialog, // Direct state setter for complex updates
+
+    // Save dialog actions
+    setSaveName,
+    setSaveError,
+    setMongoDialog,
+    resetDialogs,
   };
 };
 
