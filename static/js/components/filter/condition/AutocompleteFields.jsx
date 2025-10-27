@@ -333,8 +333,7 @@ const AutocompleteFields = ({
             );
           }}
           renderOption={(props, option) => {
-            const { key, ...otherProps } = props;
-
+            // Note: React's 'key' prop is handled automatically and shouldn't be destructured
             // For list variables, include the operator in the display
             let displayText = option.label;
             if (option.isListVariable && option.listCondition?.operator) {
@@ -352,11 +351,7 @@ const AutocompleteFields = ({
                 : option.label;
             }
 
-            return (
-              <li key={key} {...otherProps}>
-                {displayText}
-              </li>
-            );
+            return <li {...props}>{displayText}</li>;
           }}
           renderGroup={(params) => {
             const isCollapsed = collapsedGroups.has(params.group);
@@ -854,7 +849,6 @@ AutocompleteFields.propTypes = {
   setSelectedChip: PropTypes.func.isRequired,
   side: PropTypes.string.isRequired,
   setEquationAnchor: PropTypes.func,
-  key: PropTypes.string,
 };
 
 export default AutocompleteFields;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -10,10 +10,6 @@ import {
   IconButton,
   Snackbar,
   Alert,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
   CircularProgress,
   Divider,
   Chip,
@@ -28,6 +24,7 @@ import {
   Tooltip,
   Tabs,
   Tab,
+  Stack,
 } from "@mui/material";
 import {
   ContentCopy as CopyIcon,
@@ -36,22 +33,21 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   Fullscreen as FullscreenIcon,
+  FirstPage as FirstPageIcon,
+  LastPage as LastPageIcon,
+  ChevronLeft as ChevronLeftIcon,
+  ChevronRight as ChevronRightIcon,
 } from "@mui/icons-material";
 import { Controller, useForm } from "react-hook-form";
 import { useCurrentBuilder } from "../../../hooks/useContexts";
-import { mongoQueryService } from "../../../services/mongoQueryService";
 import { LocalizationProvider } from "@mui/x-date-pickers";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
 import { DateTimePicker } from "@mui/x-date-pickers/DateTimePicker";
 import FormValidationError from "../../FormValidationError.jsx";
 import ReactJson from "react-json-view";
-import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc";
 import makeStyles from "@mui/styles/makeStyles";
 import { useDispatch, useSelector } from "react-redux";
-import { runBoomFilter } from "../../../ducks/boom_run_filter";
-
-dayjs.extend(utc);
+import { runBoomFilter, clearBoomFilter } from "../../../ducks/boom_run_filter";
 
 const useStyles = makeStyles((theme) => ({
   timeRange: {
@@ -62,7 +58,6 @@ const useStyles = makeStyles((theme) => ({
   },
 }));
 
-// Helper function to get stage descriptions
 const getStageDescription = (stageName) => {
   const descriptions = {
     $match:
@@ -111,7 +106,6 @@ const MongoQueryDialog = () => {
   const { useAMPM } = useSelector((state) => state.profile.preferences);
 
   const [copySuccess, setCopySuccess] = useState(false);
-  //set default to "ZTF_alerts" collection if filter_stream is "ZTF" or "LSST_alerts" if filter_stream is "LSST"
   const [selectedCollection, setSelectedCollection] = useState(
     filter_stream === "ZTF"
       ? "ZTF_alerts"
@@ -123,18 +117,84 @@ const MongoQueryDialog = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [queryError, setQueryError] = useState(null);
   const [showPipeline, setShowPipeline] = useState(true);
-  const [pipelineView, setPipelineView] = useState("complete"); // 'stages' or 'complete'
-  const [connectionStatus, setConnectionStatus] = useState("unknown"); // 'connected', 'disconnected', 'unknown'
-  const [expandedCells, setExpandedCells] = useState(new Set()); // Track expanded JSON cells
-  const [expandedStages, setExpandedStages] = useState(new Set()); // Track expanded pipeline stages
-  const [isFullscreen, setIsFullscreen] = useState(false); // Track fullscreen mode for results
+  const [pipelineView, setPipelineView] = useState("complete");
+  const [connectionStatus, setConnectionStatus] = useState("unknown");
+  const [expandedCells, setExpandedCells] = useState(new Set());
+  const [expandedStages, setExpandedStages] = useState(new Set());
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalDocuments, setTotalDocuments] = useState(0);
+  const [pageSize] = useState(50);
+  const [isLoadingPage, setIsLoadingPage] = useState(false);
+  const [pageCursors, setPageCursors] = useState(new Map());
+  const [lastDocumentId, setLastDocumentId] = useState(null);
+  const [hasNextPage, setHasNextPage] = useState(false);
+  const [queryCompleted, setQueryCompleted] = useState(false);
+  const [lastQueryString, setLastQueryString] = useState("");
+
+  useEffect(() => {
+    if (hasValidQuery()) {
+      const currentQueryString = getFormattedMongoQuery();
+
+      if (lastQueryString && lastQueryString !== currentQueryString) {
+        dispatch(clearBoomFilter());
+        setCurrentPage(1);
+        setTotalDocuments(0);
+        setIsLoadingPage(false);
+        setPageCursors(new Map());
+        setLastDocumentId(null);
+        setHasNextPage(false);
+        setQueryCompleted(false);
+      }
+
+      setLastQueryString(currentQueryString);
+    } else {
+      if (lastQueryString) {
+        dispatch(clearBoomFilter());
+        setLastQueryString("");
+        setCurrentPage(1);
+        setTotalDocuments(0);
+        setIsLoadingPage(false);
+        setPageCursors(new Map());
+        setLastDocumentId(null);
+        setHasNextPage(false);
+        setQueryCompleted(false);
+      }
+    }
+  }, [getFormattedMongoQuery()]);
+
+  useEffect(() => {
+    const newCollection =
+      filter_stream === "ZTF"
+        ? "ZTF_alerts"
+        : filter_stream === "LSST"
+          ? "LSST_alerts"
+          : "";
+
+    if (
+      newCollection !== selectedCollection &&
+      newCollection !== "" &&
+      selectedCollection !== ""
+    ) {
+      setSelectedCollection(newCollection);
+      dispatch(clearBoomFilter());
+      setCurrentPage(1);
+      setTotalDocuments(0);
+      setIsLoadingPage(false);
+      setPageCursors(new Map());
+      setLastDocumentId(null);
+      setHasNextPage(false);
+      setQueryCompleted(false);
+    } else if (selectedCollection === "" && newCollection !== "") {
+      setSelectedCollection(newCollection);
+    }
+  }, [filter_stream, selectedCollection]);
 
   const defaultStartDate = new Date();
   const defaultEndDate = new Date();
   defaultEndDate.setDate(defaultEndDate.getDate() + 1);
 
   const {
-    handleSubmit,
     getValues,
     control,
     reset,
@@ -146,20 +206,6 @@ const MongoQueryDialog = () => {
 
   let formState = getValues();
 
-  // Handle JSON expansion/collapse
-  const handleJsonToggle = (isExpanded, level, rowIndex, cellIndex) => {
-    const cellKey = `${rowIndex}-${cellIndex}`;
-    setExpandedCells((prev) => {
-      const newSet = new Set(prev);
-      if (isExpanded) {
-        newSet.add(cellKey);
-      } else {
-        newSet.delete(cellKey);
-      }
-      return newSet;
-    });
-  };
-
   function utcToJulianDate(date) {
     const d = new Date(date);
     const time = d.getTime();
@@ -167,201 +213,6 @@ const MongoQueryDialog = () => {
     const JD_UNIX_EPOCH = 2440587.5;
     return JD_UNIX_EPOCH + daysSinceEpoch;
   }
-
-  const onSubmit = async (formData) => {
-    // Convert dates to ISO for parsing on back-end
-    let startDate, endDate;
-    if (formData.startDate) {
-      startDate = utcToJulianDate(formData.startDate);
-    }
-    if (formData.endDate) {
-      endDate = utcToJulianDate(formData.endDate);
-    }
-
-    setIsRunning(true);
-    setQueryError(null);
-    setExpandedCells(new Set()); // Reset expanded cells for new query
-
-    try {
-      // const pipeline = generateMongoQuery();
-      const pipeline = [
-        ...(filter_stream === "ZTF"
-          ? [
-              {
-                $lookup: {
-                  from: "ZTF_alerts_aux",
-                  localField: "objectId",
-                  foreignField: "_id",
-                  as: "aux",
-                },
-              },
-              {
-                $project: {
-                  objectId: 1,
-                  candidate: 1,
-                  classifications: 1,
-                  coordinates: 1,
-                  cross_matches: {
-                    $arrayElemAt: ["$aux.cross_matches", 0],
-                  },
-                  aliases: {
-                    $arrayElemAt: ["$aux.aliases", 0],
-                  },
-                  prv_candidates: {
-                    $filter: {
-                      input: {
-                        $arrayElemAt: ["$aux.prv_candidates", 0],
-                      },
-                      as: "x",
-                      cond: {
-                        $and: [
-                          {
-                            // maximum 1 year of past data
-                            $lt: [
-                              {
-                                $subtract: ["$candidate.jd", "$$x.jd"],
-                              },
-                              365,
-                            ],
-                          },
-                          {
-                            // only datapoints up to (and including) current alert
-                            $lte: ["$$x.jd", "$candidate.jd"],
-                          },
-                        ],
-                      },
-                    },
-                  },
-                  fp_hists: {
-                    $filter: {
-                      input: {
-                        $arrayElemAt: ["$aux.fp_hists", 0],
-                      },
-                      as: "x",
-                      cond: {
-                        $and: [
-                          {
-                            // maximum 1 year of past data
-                            $lt: [
-                              {
-                                $subtract: ["$candidate.jd", "$$x.jd"],
-                              },
-                              365,
-                            ],
-                          },
-                          {
-                            // only datapoints up to (and including) current alert
-                            $lte: ["$$x.jd", "$candidate.jd"],
-                          },
-                        ],
-                      },
-                    },
-                  },
-                },
-              },
-            ]
-          : [
-              {
-                $lookup: {
-                  from: "LSST_alerts_aux",
-                  localField: "objectId",
-                  foreignField: "_id",
-                  as: "aux",
-                },
-              },
-              {
-                $project: {
-                  objectId: 1,
-                  candidate: 1,
-                  classifications: 1,
-                  coordinates: 1,
-                  cross_matches: {
-                    $arrayElemAt: ["$aux.cross_matches", 0],
-                  },
-                  aliases: {
-                    $arrayElemAt: ["$aux.aliases", 0],
-                  },
-                  prv_candidates: {
-                    $filter: {
-                      input: {
-                        $arrayElemAt: ["$aux.prv_candidates", 0],
-                      },
-                      as: "x",
-                      cond: {
-                        $and: [
-                          {
-                            // maximum 1 year of past data
-                            $lt: [
-                              {
-                                $subtract: ["$candidate.jd", "$$x.jd"],
-                              },
-                              365,
-                            ],
-                          },
-                          {
-                            // only datapoints up to (and including) current alert
-                            $lte: ["$$x.jd", "$candidate.jd"],
-                          },
-                        ],
-                      },
-                    },
-                  },
-                  fp_hists: {
-                    $filter: {
-                      input: {
-                        $arrayElemAt: ["$aux.fp_hists", 0],
-                      },
-                      as: "x",
-                      cond: {
-                        $and: [
-                          {
-                            // maximum 1 year of past data
-                            $lt: [
-                              {
-                                $subtract: ["$candidate.jd", "$$x.jd"],
-                              },
-                              365,
-                            ],
-                          },
-                          {
-                            // only datapoints up to (and including) current alert
-                            $lte: ["$$x.jd", "$candidate.jd"],
-                          },
-                        ],
-                      },
-                    },
-                  },
-                },
-              },
-            ]),
-
-        {
-          $match: {
-            "candidate.jd": {
-              $gte: startDate,
-              $lte: endDate,
-            },
-          },
-        },
-
-        ...generateMongoQuery(),
-      ];
-
-      // Prepend the pipeline with the prepend stages
-      // pipeline.unshift(...prepend);
-      // pipeline.unshift(...prepend_date);
-      await dispatch(
-        runBoomFilter({
-          pipeline: pipeline,
-          selectedCollection: selectedCollection,
-        }),
-      );
-    } catch (error) {
-      setQueryError(error.message);
-    } finally {
-      setIsRunning(false);
-    }
-  };
 
   const validateDates = () => {
     formState = getValues();
@@ -371,7 +222,6 @@ const MongoQueryDialog = () => {
     return true;
   };
 
-  // Handle stage expansion/collapse
   const handleStageToggle = (stageIndex) => {
     setExpandedStages((prev) => {
       const newSet = new Set(prev);
@@ -384,10 +234,16 @@ const MongoQueryDialog = () => {
     });
   };
 
-  // Load available collections when dialog opens
   useEffect(() => {
     if (mongoDialog?.open) {
       loadCollections();
+      setCurrentPage(1);
+      setTotalDocuments(0);
+      setIsLoadingPage(false);
+      setPageCursors(new Map());
+      setLastDocumentId(null);
+      setHasNextPage(false);
+      setQueryCompleted(false);
     }
   }, [mongoDialog?.open]);
 
@@ -403,12 +259,17 @@ const MongoQueryDialog = () => {
 
   const handleClose = () => {
     setMongoDialog({ open: false });
-    // Reset query results when closing
     setQueryError(null);
-    setShowPipeline(true); // Keep pipeline expanded by default
-    setPipelineView("complete"); // Reset to default view
-    setExpandedCells(new Set()); // Reset expanded cells
-    setExpandedStages(new Set()); // Reset expanded stages
+    setShowPipeline(true);
+    setPipelineView("complete");
+    setExpandedCells(new Set());
+    setExpandedStages(new Set());
+    setCurrentPage(1);
+    setTotalDocuments(0);
+    setIsLoadingPage(false);
+    setPageCursors(new Map());
+    setLastDocumentId(null);
+    setHasNextPage(false);
   };
 
   const handleCopy = async () => {
@@ -418,7 +279,6 @@ const MongoQueryDialog = () => {
       setCopySuccess(true);
     } catch (err) {
       console.error("Failed to copy query:", err);
-      // Fallback for older browsers
       const textArea = document.createElement("textarea");
       textArea.value = getFormattedMongoQuery();
       document.body.appendChild(textArea);
@@ -437,7 +297,6 @@ const MongoQueryDialog = () => {
       setCopySuccess(true);
     } catch (err) {
       console.error("Failed to copy stage:", err);
-      // Fallback for older browsers
       const stageObject = { [stageName]: stageContent };
       const formattedStage = JSON.stringify(stageObject, null, 2);
       const textArea = document.createElement("textarea");
@@ -450,11 +309,9 @@ const MongoQueryDialog = () => {
     }
   };
 
-  const handleRunQuery = async () => {
-    // Get form data for dates
+  const executeQuery = async (page = 1, countOnly = false, cursor = null) => {
     const formData = getValues();
 
-    // Convert dates to ISO for parsing on back-end
     let startDate, endDate;
     if (formData.startDate) {
       startDate = utcToJulianDate(formData.startDate);
@@ -463,187 +320,710 @@ const MongoQueryDialog = () => {
       endDate = utcToJulianDate(formData.endDate);
     }
 
-    setIsRunning(true);
-    setQueryError(null);
-    setExpandedCells(new Set()); // Reset expanded cells for new query
-
-    try {
-      const pipeline = generateMongoQuery();
-      const prepend =
-        filter_stream === "ZTF"
-          ? [
-              {
-                $lookup: {
-                  from: "ZTF_alerts_aux",
-                  localField: "objectId",
-                  foreignField: "_id",
-                  as: "aux",
-                },
+    const pipeline = generateMongoQuery();
+    const prepend =
+      filter_stream === "ZTF"
+        ? [
+            {
+              $lookup: {
+                from: "ZTF_alerts_aux",
+                localField: "objectId",
+                foreignField: "_id",
+                as: "aux",
               },
-              {
-                $project: {
-                  objectId: 1,
-                  candidate: 1,
-                  classifications: 1,
-                  coordinates: 1,
-                  cross_matches: {
-                    $arrayElemAt: ["$aux.cross_matches", 0],
-                  },
-                  aliases: {
-                    $arrayElemAt: ["$aux.aliases", 0],
-                  },
-                  prv_candidates: {
-                    $filter: {
-                      input: {
-                        $arrayElemAt: ["$aux.prv_candidates", 0],
-                      },
-                      as: "x",
-                      cond: {
-                        $and: [
-                          {
-                            // maximum 1 year of past data
-                            $lt: [
-                              {
-                                $subtract: ["$candidate.jd", "$$x.jd"],
-                              },
-                              365,
-                            ],
-                          },
-                          {
-                            // only datapoints up to (and including) current alert
-                            $lte: ["$$x.jd", "$candidate.jd"],
-                          },
-                        ],
-                      },
-                    },
-                  },
-                  fp_hists: {
-                    $filter: {
-                      input: {
-                        $arrayElemAt: ["$aux.fp_hists", 0],
-                      },
-                      as: "x",
-                      cond: {
-                        $and: [
-                          {
-                            // maximum 1 year of past data
-                            $lt: [
-                              {
-                                $subtract: ["$candidate.jd", "$$x.jd"],
-                              },
-                              365,
-                            ],
-                          },
-                          {
-                            // only datapoints up to (and including) current alert
-                            $lte: ["$$x.jd", "$candidate.jd"],
-                          },
-                        ],
-                      },
-                    },
-                  },
-                },
-              },
-            ]
-          : [
-              {
-                $lookup: {
-                  from: "LSST_alerts_aux",
-                  localField: "objectId",
-                  foreignField: "_id",
-                  as: "aux",
-                },
-              },
-              {
-                $project: {
-                  objectId: 1,
-                  candidate: 1,
-                  classifications: 1,
-                  coordinates: 1,
-                  cross_matches: {
-                    $arrayElemAt: ["$aux.cross_matches", 0],
-                  },
-                  aliases: {
-                    $arrayElemAt: ["$aux.aliases", 0],
-                  },
-                  prv_candidates: {
-                    $filter: {
-                      input: {
-                        $arrayElemAt: ["$aux.prv_candidates", 0],
-                      },
-                      as: "x",
-                      cond: {
-                        $and: [
-                          {
-                            // maximum 1 year of past data
-                            $lt: [
-                              {
-                                $subtract: ["$candidate.jd", "$$x.jd"],
-                              },
-                              365,
-                            ],
-                          },
-                          {
-                            // only datapoints up to (and including) current alert
-                            $lte: ["$$x.jd", "$candidate.jd"],
-                          },
-                        ],
-                      },
-                    },
-                  },
-                  fp_hists: {
-                    $filter: {
-                      input: {
-                        $arrayElemAt: ["$aux.fp_hists", 0],
-                      },
-                      as: "x",
-                      cond: {
-                        $and: [
-                          {
-                            // maximum 1 year of past data
-                            $lt: [
-                              {
-                                $subtract: ["$candidate.jd", "$$x.jd"],
-                              },
-                              365,
-                            ],
-                          },
-                          {
-                            // only datapoints up to (and including) current alert
-                            $lte: ["$$x.jd", "$candidate.jd"],
-                          },
-                        ],
-                      },
-                    },
-                  },
-                },
-              },
-            ];
-
-      // Add date filtering stage if dates are provided
-      if (startDate && endDate) {
-        prepend.push({
-          $match: {
-            "candidate.jd": {
-              $gte: startDate,
-              $lte: endDate,
             },
+            {
+              $project: {
+                objectId: 1,
+                candidate: 1,
+                classifications: 1,
+                coordinates: 1,
+                cross_matches: {
+                  $arrayElemAt: ["$aux.cross_matches", 0],
+                },
+                aliases: {
+                  $arrayElemAt: ["$aux.aliases", 0],
+                },
+                prv_candidates: {
+                  $filter: {
+                    input: {
+                      $arrayElemAt: ["$aux.prv_candidates", 0],
+                    },
+                    as: "x",
+                    cond: {
+                      $and: [
+                        {
+                          $lt: [
+                            {
+                              $subtract: ["$candidate.jd", "$$x.jd"],
+                            },
+                            365,
+                          ],
+                        },
+                        {
+                          $lte: ["$$x.jd", "$candidate.jd"],
+                        },
+                      ],
+                    },
+                  },
+                },
+                fp_hists: {
+                  $filter: {
+                    input: {
+                      $arrayElemAt: ["$aux.fp_hists", 0],
+                    },
+                    as: "x",
+                    cond: {
+                      $and: [
+                        {
+                          $lt: [
+                            {
+                              $subtract: ["$candidate.jd", "$$x.jd"],
+                            },
+                            365,
+                          ],
+                        },
+                        {
+                          $lte: ["$$x.jd", "$candidate.jd"],
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          ]
+        : [
+            {
+              $lookup: {
+                from: "LSST_alerts_aux",
+                localField: "objectId",
+                foreignField: "_id",
+                as: "aux",
+              },
+            },
+            {
+              $project: {
+                objectId: 1,
+                candidate: 1,
+                classifications: 1,
+                coordinates: 1,
+                cross_matches: {
+                  $arrayElemAt: ["$aux.cross_matches", 0],
+                },
+                aliases: {
+                  $arrayElemAt: ["$aux.aliases", 0],
+                },
+                prv_candidates: {
+                  $filter: {
+                    input: {
+                      $arrayElemAt: ["$aux.prv_candidates", 0],
+                    },
+                    as: "x",
+                    cond: {
+                      $and: [
+                        {
+                          $lt: [
+                            {
+                              $subtract: ["$candidate.jd", "$$x.jd"],
+                            },
+                            365,
+                          ],
+                        },
+                        {
+                          $lte: ["$$x.jd", "$candidate.jd"],
+                        },
+                      ],
+                    },
+                  },
+                },
+                fp_hists: {
+                  $filter: {
+                    input: {
+                      $arrayElemAt: ["$aux.fp_hists", 0],
+                    },
+                    as: "x",
+                    cond: {
+                      $and: [
+                        {
+                          $lt: [
+                            {
+                              $subtract: ["$candidate.jd", "$$x.jd"],
+                            },
+                            365,
+                          ],
+                        },
+                        {
+                          $lte: ["$$x.jd", "$candidate.jd"],
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          ];
+
+    if (startDate && endDate) {
+      prepend.push({
+        $match: {
+          "candidate.jd": {
+            $gte: startDate,
+            $lte: endDate,
+          },
+        },
+      });
+    }
+
+    pipeline.unshift(...prepend);
+
+    if (countOnly) {
+      pipeline.push({ $count: "total" });
+    } else {
+      if (cursor) {
+        pipeline.push({
+          $match: {
+            _id: { $gt: cursor },
           },
         });
       }
 
-      // Prepend the pipeline with the prepend stages
-      pipeline.unshift(...prepend);
-      await dispatch(
-        runBoomFilter({
-          pipeline: pipeline,
-          selectedCollection: selectedCollection,
-        }),
-      );
+      pipeline.push({ $sort: { _id: 1 } });
+
+      pipeline.push({ $limit: pageSize + 1 });
+    }
+
+    const result = await dispatch(
+      runBoomFilter({
+        pipeline: pipeline,
+        selectedCollection: selectedCollection,
+      }),
+    );
+
+    if (countOnly) {
+      return {
+        result: result,
+        hasNext: false,
+        nextCursor: null,
+      };
+    }
+
+    if (result.data?.data) {
+      const originalData = result.data.data;
+
+      if (originalData.length > pageSize) {
+        const data = originalData.slice(0, pageSize);
+
+        return {
+          result: {
+            ...result,
+            data: {
+              ...result.data,
+              data: data,
+            },
+          },
+          hasNext: true,
+          nextCursor: data.length > 0 ? data[data.length - 1]._id : null,
+        };
+      } else {
+        return {
+          result: result,
+          hasNext: false,
+          nextCursor: null,
+        };
+      }
+    }
+    return { result: result, hasNext: false, nextCursor: null };
+  };
+
+  const handleRunQuery = async () => {
+    setIsRunning(true);
+    setQueryError(null);
+    setExpandedCells(new Set());
+    setCurrentPage(1);
+    setPageCursors(new Map());
+    setLastDocumentId(null);
+    setHasNextPage(false);
+    setQueryCompleted(false);
+
+    try {
+      const countQueryResult = await executeQuery(1, true);
+      const totalCount = countQueryResult.result?.data?.data?.[0]?.total || 0;
+      setTotalDocuments(totalCount);
+
+      dispatch(clearBoomFilter());
+
+      const firstPageQueryResult = await executeQuery(1, false);
+
+      if (firstPageQueryResult.result?.data) {
+        dispatch({
+          type: "skyportal/RUN_BOOM_FILTER_OK",
+          data: firstPageQueryResult.result.data,
+        });
+      }
+
+      setHasNextPage(firstPageQueryResult.hasNext);
+
+      const newCursors = new Map();
+      newCursors.set(1, null);
+
+      if (firstPageQueryResult.nextCursor) {
+        newCursors.set(2, firstPageQueryResult.nextCursor);
+        setLastDocumentId(firstPageQueryResult.nextCursor);
+      }
+
+      setPageCursors(newCursors);
+      setQueryCompleted(true);
     } catch (error) {
+      console.error("Query error:", error);
       setQueryError(error.message);
     } finally {
       setIsRunning(false);
+    }
+  };
+
+  const handlePageChange = async (event, newPage) => {
+    if (
+      newPage === Math.ceil(totalDocuments / pageSize) &&
+      newPage > currentPage
+    ) {
+      setIsLoadingPage(true);
+      setExpandedCells(new Set());
+
+      try {
+        const skipAmount = (newPage - 1) * pageSize;
+        const formData = getValues();
+
+        let startDate, endDate;
+        if (formData.startDate) {
+          startDate = utcToJulianDate(formData.startDate);
+        }
+        if (formData.endDate) {
+          endDate = utcToJulianDate(formData.endDate);
+        }
+
+        const pipeline = generateMongoQuery();
+        const prepend =
+          filter_stream === "ZTF"
+            ? [
+                {
+                  $lookup: {
+                    from: "ZTF_alerts_aux",
+                    localField: "objectId",
+                    foreignField: "_id",
+                    as: "aux",
+                  },
+                },
+                {
+                  $project: {
+                    objectId: 1,
+                    candidate: 1,
+                    classifications: 1,
+                    coordinates: 1,
+                    cross_matches: {
+                      $arrayElemAt: ["$aux.cross_matches", 0],
+                    },
+                    aliases: {
+                      $arrayElemAt: ["$aux.aliases", 0],
+                    },
+                    prv_candidates: {
+                      $filter: {
+                        input: {
+                          $arrayElemAt: ["$aux.prv_candidates", 0],
+                        },
+                        as: "x",
+                        cond: {
+                          $and: [
+                            {
+                              $lt: [
+                                {
+                                  $subtract: ["$candidate.jd", "$$x.jd"],
+                                },
+                                365,
+                              ],
+                            },
+                            {
+                              $lte: ["$$x.jd", "$candidate.jd"],
+                            },
+                          ],
+                        },
+                      },
+                    },
+                    fp_hists: {
+                      $filter: {
+                        input: {
+                          $arrayElemAt: ["$aux.fp_hists", 0],
+                        },
+                        as: "x",
+                        cond: {
+                          $and: [
+                            {
+                              $lt: [
+                                {
+                                  $subtract: ["$candidate.jd", "$$x.jd"],
+                                },
+                                365,
+                              ],
+                            },
+                            {
+                              $lte: ["$$x.jd", "$candidate.jd"],
+                            },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                },
+              ]
+            : [
+                {
+                  $lookup: {
+                    from: "LSST_alerts_aux",
+                    localField: "objectId",
+                    foreignField: "_id",
+                    as: "aux",
+                  },
+                },
+                {
+                  $project: {
+                    objectId: 1,
+                    candidate: 1,
+                    classifications: 1,
+                    coordinates: 1,
+                    cross_matches: {
+                      $arrayElemAt: ["$aux.cross_matches", 0],
+                    },
+                    aliases: {
+                      $arrayElemAt: ["$aux.aliases", 0],
+                    },
+                    prv_candidates: {
+                      $filter: {
+                        input: {
+                          $arrayElemAt: ["$aux.prv_candidates", 0],
+                        },
+                        as: "x",
+                        cond: {
+                          $and: [
+                            {
+                              $lt: [
+                                {
+                                  $subtract: ["$candidate.jd", "$$x.jd"],
+                                },
+                                365,
+                              ],
+                            },
+                            {
+                              $lte: ["$$x.jd", "$candidate.jd"],
+                            },
+                          ],
+                        },
+                      },
+                    },
+                    fp_hists: {
+                      $filter: {
+                        input: {
+                          $arrayElemAt: ["$aux.fp_hists", 0],
+                        },
+                        as: "x",
+                        cond: {
+                          $and: [
+                            {
+                              $lt: [
+                                {
+                                  $subtract: ["$candidate.jd", "$$x.jd"],
+                                },
+                                365,
+                              ],
+                            },
+                            {
+                              $lte: ["$$x.jd", "$candidate.jd"],
+                            },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                },
+              ];
+
+        if (startDate && endDate) {
+          prepend.push({
+            $match: {
+              "candidate.jd": {
+                $gte: startDate,
+                $lte: endDate,
+              },
+            },
+          });
+        }
+
+        pipeline.unshift(...prepend);
+
+        pipeline.push({ $sort: { _id: 1 } });
+        pipeline.push({ $skip: skipAmount });
+        pipeline.push({ $limit: pageSize });
+
+        const result = await dispatch(
+          runBoomFilter({
+            pipeline: pipeline,
+            selectedCollection: selectedCollection,
+          }),
+        );
+
+        setHasNextPage(false);
+        setCurrentPage(newPage);
+        return;
+      } catch (error) {
+        console.error("Last page navigation error:", error);
+        setQueryError(error.message);
+      } finally {
+        setIsLoadingPage(false);
+      }
+      return;
+    }
+
+    setIsLoadingPage(true);
+    setExpandedCells(new Set());
+
+    try {
+      let cursor = null;
+
+      if (newPage > currentPage) {
+        cursor = pageCursors.get(newPage);
+      } else if (newPage < currentPage) {
+        if (pageCursors.has(newPage)) {
+          cursor = pageCursors.get(newPage);
+        } else {
+          const skipAmount = (newPage - 1) * pageSize;
+          const formData = getValues();
+
+          let startDate, endDate;
+          if (formData.startDate) {
+            startDate = utcToJulianDate(formData.startDate);
+          }
+          if (formData.endDate) {
+            endDate = utcToJulianDate(formData.endDate);
+          }
+
+          const pipeline = generateMongoQuery();
+          const prepend =
+            filter_stream === "ZTF"
+              ? [
+                  {
+                    $lookup: {
+                      from: "ZTF_alerts_aux",
+                      localField: "objectId",
+                      foreignField: "_id",
+                      as: "aux",
+                    },
+                  },
+                  {
+                    $project: {
+                      objectId: 1,
+                      candidate: 1,
+                      classifications: 1,
+                      coordinates: 1,
+                      cross_matches: {
+                        $arrayElemAt: ["$aux.cross_matches", 0],
+                      },
+                      aliases: {
+                        $arrayElemAt: ["$aux.aliases", 0],
+                      },
+                      prv_candidates: {
+                        $filter: {
+                          input: {
+                            $arrayElemAt: ["$aux.prv_candidates", 0],
+                          },
+                          as: "x",
+                          cond: {
+                            $and: [
+                              {
+                                $lt: [
+                                  {
+                                    $subtract: ["$candidate.jd", "$$x.jd"],
+                                  },
+                                  365,
+                                ],
+                              },
+                              {
+                                $lte: ["$$x.jd", "$candidate.jd"],
+                              },
+                            ],
+                          },
+                        },
+                      },
+                      fp_hists: {
+                        $filter: {
+                          input: {
+                            $arrayElemAt: ["$aux.fp_hists", 0],
+                          },
+                          as: "x",
+                          cond: {
+                            $and: [
+                              {
+                                $lt: [
+                                  {
+                                    $subtract: ["$candidate.jd", "$$x.jd"],
+                                  },
+                                  365,
+                                ],
+                              },
+                              {
+                                $lte: ["$$x.jd", "$candidate.jd"],
+                              },
+                            ],
+                          },
+                        },
+                      },
+                    },
+                  },
+                ]
+              : [
+                  {
+                    $lookup: {
+                      from: "LSST_alerts_aux",
+                      localField: "objectId",
+                      foreignField: "_id",
+                      as: "aux",
+                    },
+                  },
+                  {
+                    $project: {
+                      objectId: 1,
+                      candidate: 1,
+                      classifications: 1,
+                      coordinates: 1,
+                      cross_matches: {
+                        $arrayElemAt: ["$aux.cross_matches", 0],
+                      },
+                      aliases: {
+                        $arrayElemAt: ["$aux.aliases", 0],
+                      },
+                      prv_candidates: {
+                        $filter: {
+                          input: {
+                            $arrayElemAt: ["$aux.prv_candidates", 0],
+                          },
+                          as: "x",
+                          cond: {
+                            $and: [
+                              {
+                                $lt: [
+                                  {
+                                    $subtract: ["$candidate.jd", "$$x.jd"],
+                                  },
+                                  365,
+                                ],
+                              },
+                              {
+                                $lte: ["$$x.jd", "$candidate.jd"],
+                              },
+                            ],
+                          },
+                        },
+                      },
+                      fp_hists: {
+                        $filter: {
+                          input: {
+                            $arrayElemAt: ["$aux.fp_hists", 0],
+                          },
+                          as: "x",
+                          cond: {
+                            $and: [
+                              {
+                                $lt: [
+                                  {
+                                    $subtract: ["$candidate.jd", "$$x.jd"],
+                                  },
+                                  365,
+                                ],
+                              },
+                              {
+                                $lte: ["$$x.jd", "$candidate.jd"],
+                              },
+                            ],
+                          },
+                        },
+                      },
+                    },
+                  },
+                ];
+
+          if (startDate && endDate) {
+            prepend.push({
+              $match: {
+                "candidate.jd": {
+                  $gte: startDate,
+                  $lte: endDate,
+                },
+              },
+            });
+          }
+
+          pipeline.unshift(...prepend);
+          pipeline.push({ $sort: { _id: 1 } });
+          pipeline.push({ $skip: skipAmount });
+          pipeline.push({ $limit: pageSize + 1 });
+
+          const result = await dispatch(
+            runBoomFilter({
+              pipeline: pipeline,
+              selectedCollection: selectedCollection,
+            }),
+          );
+
+          let hasNext = false;
+          let finalData = result.data?.data || [];
+
+          if (finalData.length > pageSize) {
+            finalData = finalData.slice(0, pageSize);
+            hasNext = true;
+
+            dispatch({
+              type: "skyportal/RUN_BOOM_FILTER_OK",
+              data: {
+                ...result.data,
+                data: finalData,
+              },
+            });
+          }
+
+          setHasNextPage(hasNext);
+
+          setCurrentPage(newPage);
+          return;
+        }
+      }
+
+      const queryResult = await executeQuery(newPage, false, cursor);
+
+      if (queryResult.result?.data) {
+        dispatch({
+          type: "skyportal/RUN_BOOM_FILTER_OK",
+          data: queryResult.result.data,
+        });
+      }
+
+      setHasNextPage(queryResult.hasNext);
+
+      const newCursors = new Map(pageCursors);
+
+      if (cursor && newPage > 1) {
+        newCursors.set(newPage, cursor);
+      }
+
+      if (queryResult.nextCursor) {
+        newCursors.set(newPage + 1, queryResult.nextCursor);
+        setLastDocumentId(queryResult.nextCursor);
+      }
+
+      setPageCursors(newCursors);
+      setCurrentPage(newPage);
+    } catch (error) {
+      console.error("Page change error:", error);
+      setQueryError(error.message);
+    } finally {
+      setIsLoadingPage(false);
     }
   };
 
@@ -715,7 +1095,7 @@ const MongoQueryDialog = () => {
                   </Typography>
                 </Alert>
               )}
-              <form onSubmit={handleSubmit(onSubmit)}>
+              <form>
                 <div>
                   {(errors.startDate || errors.endDate) && (
                     <FormValidationError message="Invalid date range." />
@@ -818,10 +1198,22 @@ const MongoQueryDialog = () => {
                       Query Results
                     </Typography>
                     <Chip
-                      label={`${results.data?.length} documents`}
+                      label={`${Math.min(
+                        results.data?.length || 0,
+                        pageSize,
+                      )} documents`}
                       size="small"
                       color="success"
                     />
+                    {totalDocuments > pageSize && (
+                      <Chip
+                        label={`Page ${currentPage} of ${Math.ceil(
+                          totalDocuments / pageSize,
+                        )}`}
+                        size="small"
+                        variant="outlined"
+                      />
+                    )}
                     <IconButton
                       size="small"
                       onClick={() => setIsFullscreen(true)}
@@ -832,175 +1224,270 @@ const MongoQueryDialog = () => {
                   </Box>
 
                   {results.data?.length > 0 ? (
-                    <TableContainer
-                      component={Paper}
-                      sx={{
-                        maxHeight: 400,
-                        overflow: "auto",
-                        width: "100%",
-                        "& .MuiTable-root": {
-                          minWidth: "100%",
-                          width: "max-content",
-                          tableLayout: "auto",
-                        },
-                        // Smooth scrollbar styling
-                        "&::-webkit-scrollbar": {
-                          width: 8,
-                          height: 8,
-                        },
-                        "&::-webkit-scrollbar-track": {
-                          backgroundColor: "rgba(0,0,0,0.1)",
-                        },
-                        "&::-webkit-scrollbar-thumb": {
-                          backgroundColor: "rgba(0,0,0,0.3)",
-                          borderRadius: 4,
-                        },
-                      }}
-                    >
-                      <Table
-                        size="small"
-                        stickyHeader
+                    <>
+                      <TableContainer
+                        component={Paper}
                         sx={{
-                          tableLayout: "auto",
-                          width: "max-content",
-                          minWidth: "100%",
+                          maxHeight: 400,
+                          overflow: "auto",
+                          width: "100%",
+                          "& .MuiTable-root": {
+                            minWidth: "100%",
+                            width: "max-content",
+                            tableLayout: "auto",
+                          },
+                          "&::-webkit-scrollbar": {
+                            width: 8,
+                            height: 8,
+                          },
+                          "&::-webkit-scrollbar-track": {
+                            backgroundColor: "rgba(0,0,0,0.1)",
+                          },
+                          "&::-webkit-scrollbar-thumb": {
+                            backgroundColor: "rgba(0,0,0,0.3)",
+                            borderRadius: 4,
+                          },
                         }}
                       >
-                        <TableHead>
-                          <TableRow>
-                            {Object.keys(results.data[0] || {})
-                              .filter((key) => key !== "_id")
-                              .map((key) => (
-                                <TableCell
-                                  key={key}
-                                  sx={{
-                                    fontWeight: "bold",
-                                    minWidth: 150,
-                                    whiteSpace: "nowrap",
-                                    position: "sticky",
-                                    top: 0,
-                                    backgroundColor: "background.paper",
-                                    zIndex: 1,
-                                  }}
-                                >
-                                  {key}
-                                </TableCell>
-                              ))}
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {results.data.slice(0, 50).map((row, rowIndex) => (
-                            <TableRow
-                              key={rowIndex}
-                              sx={{
-                                height: "auto",
-                                minHeight: "fit-content",
-                                "& .MuiTableCell-root": {
+                        <Table
+                          size="small"
+                          stickyHeader
+                          sx={{
+                            tableLayout: "auto",
+                            width: "max-content",
+                            minWidth: "100%",
+                          }}
+                        >
+                          <TableHead>
+                            <TableRow>
+                              {Object.keys(results.data[0] || {})
+                                .filter((key) => key !== "_id")
+                                .map((key) => (
+                                  <TableCell
+                                    key={key}
+                                    sx={{
+                                      fontWeight: "bold",
+                                      minWidth: 150,
+                                      whiteSpace: "nowrap",
+                                      position: "sticky",
+                                      top: 0,
+                                      backgroundColor: "background.paper",
+                                      zIndex: 1,
+                                    }}
+                                  >
+                                    {key}
+                                  </TableCell>
+                                ))}
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {results.data.slice(0, 50).map((row, rowIndex) => (
+                              <TableRow
+                                key={rowIndex}
+                                sx={{
                                   height: "auto",
                                   minHeight: "fit-content",
-                                },
+                                  "& .MuiTableCell-root": {
+                                    height: "auto",
+                                    minHeight: "fit-content",
+                                  },
+                                }}
+                              >
+                                {Object.entries(row)
+                                  .filter(([key]) => key !== "_id")
+                                  .map(([key, value], cellIndex) => {
+                                    const cellKey = `${rowIndex}-${cellIndex}`;
+                                    const isJsonExpanded =
+                                      expandedCells.has(cellKey);
+                                    const hasJsonContent =
+                                      typeof value === "object";
+
+                                    return (
+                                      <TableCell
+                                        key={cellIndex}
+                                        sx={{
+                                          verticalAlign: "top",
+                                          minWidth: hasJsonContent
+                                            ? isJsonExpanded
+                                              ? 300
+                                              : 150
+                                            : 100,
+                                          maxWidth: hasJsonContent
+                                            ? isJsonExpanded
+                                              ? 600
+                                              : 300
+                                            : 200,
+                                          width: hasJsonContent
+                                            ? isJsonExpanded
+                                              ? "auto"
+                                              : "auto"
+                                            : "auto",
+                                          padding: 1,
+                                          borderRight: "1px solid",
+                                          borderColor: "divider",
+                                          transition: "all 0.3s ease",
+                                          overflow: "visible",
+                                          height: "auto",
+                                          minHeight: "fit-content",
+                                        }}
+                                      >
+                                        {hasJsonContent ? (
+                                          <Box
+                                            sx={{
+                                              minWidth: isJsonExpanded
+                                                ? 250
+                                                : 150,
+                                              maxWidth: isJsonExpanded
+                                                ? 550
+                                                : 350,
+                                              width: "100%",
+                                              minHeight: "fit-content",
+                                              height: "auto",
+                                              overflow: "visible",
+                                              "& .react-json-view": {
+                                                height: "auto !important",
+                                                minHeight: "fit-content",
+                                              },
+                                            }}
+                                          >
+                                            <ReactJson
+                                              src={value}
+                                              name={false}
+                                              collapsed={!isJsonExpanded}
+                                              displayDataTypes={false}
+                                              displayObjectSize={false}
+                                              enableClipboard={false}
+                                              style={{
+                                                height: "auto",
+                                                minHeight: "fit-content",
+                                                lineHeight: "1.4",
+                                                fontSize: "12px",
+                                              }}
+                                            />
+                                          </Box>
+                                        ) : (
+                                          <Typography
+                                            variant="body2"
+                                            sx={{
+                                              fontFamily: "monospace",
+                                              wordBreak: "break-word",
+                                            }}
+                                          >
+                                            {String(value)}
+                                          </Typography>
+                                        )}
+                                      </TableCell>
+                                    );
+                                  })}
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                      {/* Always show pagination info when there are results */}
+                      {results.data?.length > 0 && (
+                        <Box
+                          sx={{
+                            display: "flex",
+                            justifyContent: "center",
+                            mt: 2,
+                          }}
+                        >
+                          <Stack spacing={2}>
+                            {/* Cursor-based pagination controls - show if there are multiple pages OR if hasNext is true OR if results exist */}
+                            {(totalDocuments > pageSize ||
+                              hasNextPage ||
+                              currentPage > 1 ||
+                              results.data?.length >= pageSize) && (
+                              <Box
+                                sx={{
+                                  display: "flex",
+                                  justifyContent: "center",
+                                  gap: 1,
+                                  alignItems: "center",
+                                }}
+                              >
+                                <IconButton
+                                  onClick={(e) => handlePageChange(e, 1)}
+                                  disabled={currentPage <= 1 || isLoadingPage}
+                                  size="small"
+                                  title="First page"
+                                >
+                                  <FirstPageIcon />
+                                </IconButton>
+
+                                <IconButton
+                                  onClick={(e) =>
+                                    handlePageChange(e, currentPage - 1)
+                                  }
+                                  disabled={currentPage <= 1 || isLoadingPage}
+                                  size="small"
+                                  title="Previous page"
+                                >
+                                  <ChevronLeftIcon />
+                                </IconButton>
+
+                                <Typography
+                                  variant="body2"
+                                  sx={{ minWidth: 80, textAlign: "center" }}
+                                >
+                                  Page {currentPage}
+                                </Typography>
+
+                                <IconButton
+                                  onClick={(e) =>
+                                    handlePageChange(e, currentPage + 1)
+                                  }
+                                  disabled={!hasNextPage || isLoadingPage}
+                                  size="small"
+                                  title="Next page"
+                                >
+                                  <ChevronRightIcon />
+                                </IconButton>
+
+                                <IconButton
+                                  onClick={(e) =>
+                                    handlePageChange(
+                                      e,
+                                      Math.ceil(totalDocuments / pageSize),
+                                    )
+                                  }
+                                  disabled={
+                                    !hasNextPage ||
+                                    isLoadingPage ||
+                                    totalDocuments === 0
+                                  }
+                                  size="small"
+                                  title="Last page"
+                                >
+                                  <LastPageIcon />
+                                </IconButton>
+                              </Box>
+                            )}
+
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                textAlign: "center",
+                                color: "text.secondary",
                               }}
                             >
-                              {Object.entries(row)
-                                .filter(([key]) => key !== "_id")
-                                .map(([key, value], cellIndex) => {
-                                  const cellKey = `${rowIndex}-${cellIndex}`;
-                                  const isJsonExpanded =
-                                    expandedCells.has(cellKey);
-                                  const hasJsonContent =
-                                    typeof value === "object";
-
-                                  return (
-                                    <TableCell
-                                      key={cellIndex}
-                                      sx={{
-                                        verticalAlign: "top",
-                                        minWidth: hasJsonContent
-                                          ? isJsonExpanded
-                                            ? 300
-                                            : 150
-                                          : 100,
-                                        maxWidth: hasJsonContent
-                                          ? isJsonExpanded
-                                            ? 600
-                                            : 300
-                                          : 200,
-                                        width: hasJsonContent
-                                          ? isJsonExpanded
-                                            ? "auto"
-                                            : "auto"
-                                          : "auto",
-                                        padding: 1,
-                                        borderRight: "1px solid",
-                                        borderColor: "divider",
-                                        transition: "all 0.3s ease",
-                                        overflow: "visible",
-                                        height: "auto", // Allow dynamic height
-                                        minHeight: "fit-content", // Fit content naturally
-                                      }}
-                                    >
-                                      {hasJsonContent ? (
-                                        <Box
-                                          sx={{
-                                            minWidth: isJsonExpanded
-                                              ? 250
-                                              : 150,
-                                            maxWidth: isJsonExpanded
-                                              ? 550
-                                              : 350,
-                                            width: "100%",
-                                            minHeight: "fit-content",
-                                            height: "auto",
-                                            overflow: "visible",
-                                            "& .react-json-view": {
-                                              height: "auto !important",
-                                              minHeight: "fit-content",
-                                            },
-                                          }}
-                                        >
-                                          <ReactJson
-                                            src={value}
-                                            name={false}
-                                            collapsed={!isJsonExpanded}
-                                            displayDataTypes={false}
-                                            displayObjectSize={false}
-                                            enableClipboard={false}
-                                            style={{
-                                              height: "auto",
-                                              minHeight: "fit-content",
-                                              lineHeight: "1.4",
-                                              fontSize: "12px",
-                                            }}
-                                            // theme={darkTheme ? "monokai" : "rjv-default"}
-                                          />
-                                        </Box>
-                                      ) : (
-                                        <Typography
-                                          variant="body2"
-                                          sx={{
-                                            fontFamily: "monospace",
-                                            wordBreak: "break-word",
-                                          }}
-                                        >
-                                          {String(value)}
-                                        </Typography>
-                                      )}
-                                    </TableCell>
-                                  );
-                                })}
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                      {results.data?.length > 50 && (
-                        <Typography
-                          variant="caption"
-                          sx={{ p: 1, display: "block", textAlign: "center" }}
-                        >
-                          Showing first 50 of {results.data.length} results
-                        </Typography>
+                              {isLoadingPage
+                                ? "Loading..."
+                                : totalDocuments > 0
+                                  ? `Showing page ${currentPage} (${Math.min(
+                                      results.data?.length || 0,
+                                      pageSize,
+                                    )} results on this page)`
+                                  : `Showing ${Math.min(
+                                      results.data?.length || 0,
+                                      pageSize,
+                                    )} results (cursor-based pagination)`}
+                            </Typography>
+                          </Stack>
+                        </Box>
                       )}
-                    </TableContainer>
+                    </>
                   ) : (
                     <Typography
                       variant="body2"
@@ -1104,11 +1591,7 @@ const MongoQueryDialog = () => {
                             overflow: "auto",
                           }}
                         >
-                          <ReactJson
-                            src={pipeline}
-                            name={false}
-                            // theme={darkTheme ? "monokai" : "rjv-default"}
-                          />
+                          <ReactJson src={pipeline} name={false} />
                         </Box>
 
                         <Typography
@@ -1306,10 +1789,22 @@ const MongoQueryDialog = () => {
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <Typography variant="h6">Query Results</Typography>
             <Chip
-              label={`${results.data?.length} documents`}
+              label={`${Math.min(
+                results.data?.length || 0,
+                pageSize,
+              )} documents`}
               size="small"
               color="success"
             />
+            {totalDocuments > pageSize && (
+              <Chip
+                label={`Page ${currentPage} of ${Math.ceil(
+                  totalDocuments / pageSize,
+                )}`}
+                size="small"
+                variant="outlined"
+              />
+            )}
           </Box>
           <IconButton
             onClick={() => setIsFullscreen(false)}
@@ -1319,151 +1814,222 @@ const MongoQueryDialog = () => {
           </IconButton>
         </DialogTitle>
 
-        <DialogContent sx={{ p: 0, overflow: "hidden" }}>
+        <DialogContent
+          sx={{
+            p: 0,
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+            height: "100%",
+          }}
+        >
           {results.data?.length > 0 ? (
-            <TableContainer
-              component={Paper}
-              sx={{
-                height: "100%",
-                "& .MuiTable-root": {
-                  minWidth: 650,
-                },
-              }}
-            >
-              <Table stickyHeader>
-                <TableHead>
-                  <TableRow>
-                    {Object.keys(results.data[0] || {})
-                      .filter((key) => key !== "_id")
-                      .map((key) => (
-                        <TableCell
-                          key={key}
-                          sx={{
-                            fontWeight: "bold",
-                            backgroundColor: "grey.100",
-                            whiteSpace: "nowrap",
-                            minWidth: 120,
-                          }}
-                        >
-                          {key}
-                        </TableCell>
-                      ))}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {results.data.map((row, rowIndex) => (
-                    <TableRow
-                      key={rowIndex}
-                      sx={{
-                        height: "auto",
-                        minHeight: "fit-content",
-                        "& .MuiTableCell-root": {
-                          height: "auto",
-                          minHeight: "fit-content",
-                        },
-                      }}
-                    >
-                      {Object.keys(row)
+            <>
+              <TableContainer
+                component={Paper}
+                sx={{
+                  flex: 1,
+                  overflow: "auto",
+                  "& .MuiTable-root": {
+                    minWidth: 650,
+                  },
+                }}
+              >
+                <Table stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      {Object.keys(results.data[0] || {})
                         .filter((key) => key !== "_id")
                         .map((key) => (
                           <TableCell
                             key={key}
                             sx={{
-                              verticalAlign: "top",
-                              height: "auto",
-                              minHeight: "fit-content",
+                              fontWeight: "bold",
+                              backgroundColor: "grey.100",
+                              whiteSpace: "nowrap",
+                              minWidth: 120,
                             }}
                           >
-                            {typeof row[key] === "object" &&
-                            row[key] !== null ? (
-                              <Box
-                                sx={{
-                                  maxWidth: 300,
-                                  maxHeight: expandedCells.has(
-                                    `${rowIndex}-${key}`,
-                                  )
-                                    ? "none"
-                                    : 100,
-                                  overflow: expandedCells.has(
-                                    `${rowIndex}-${key}`,
-                                  )
-                                    ? "visible"
-                                    : "hidden",
-                                  position: "relative",
-                                  minHeight: "fit-content",
-                                  height: "auto",
-                                  "& .react-json-view": {
-                                    height: "auto !important",
-                                    minHeight: "fit-content",
-                                  },
-                                }}
-                              >
-                                <ReactJson
-                                  src={row[key]}
-                                  theme="rjv-default"
-                                  collapsed={
-                                    !expandedCells.has(`${rowIndex}-${key}`)
-                                  }
-                                  displayDataTypes={false}
-                                  displayObjectSize={false}
-                                  enableClipboard={false}
-                                  name={false}
-                                  style={{
-                                    fontSize: "12px",
-                                    lineHeight: "1.4",
-                                    height: "auto",
-                                    minHeight: "fit-content",
-                                  }}
-                                />
-                                {/* <Button
-                                  size="small"
-                                  variant="text"
-                                  onClick={() => {
-                                    const cellKey = `${rowIndex}-${key}`;
-                                    setExpandedCells((prev) => {
-                                      const newSet = new Set(prev);
-                                      if (newSet.has(cellKey)) {
-                                        newSet.delete(cellKey);
-                                      } else {
-                                        newSet.add(cellKey);
-                                      }
-                                      return newSet;
-                                    });
-                                  }}
-                                  sx={{
-                                    position: "absolute",
-                                    bottom: 0,
-                                    right: 0,
-                                    minWidth: "auto",
-                                    backgroundColor: "rgba(255,255,255,0.8)",
-                                    "&:hover": {
-                                      backgroundColor: "rgba(255,255,255,0.9)",
-                                    },
-                                  }}
-                                >
-                                  {expandedCells.has(`${rowIndex}-${key}`)
-                                    ? "Collapse"
-                                    : "Expand"}
-                                </Button> */}
-                              </Box>
-                            ) : (
-                              <Typography
-                                variant="body2"
-                                sx={{
-                                  wordBreak: "break-word",
-                                  whiteSpace: "pre-wrap",
-                                }}
-                              >
-                                {String(row[key])}
-                              </Typography>
-                            )}
+                            {key}
                           </TableCell>
                         ))}
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
+                  </TableHead>
+                  <TableBody>
+                    {results.data.map((row, rowIndex) => (
+                      <TableRow
+                        key={rowIndex}
+                        sx={{
+                          height: "auto",
+                          minHeight: "fit-content",
+                          "& .MuiTableCell-root": {
+                            height: "auto",
+                            minHeight: "fit-content",
+                          },
+                        }}
+                      >
+                        {Object.keys(row)
+                          .filter((key) => key !== "_id")
+                          .map((key) => (
+                            <TableCell
+                              key={key}
+                              sx={{
+                                verticalAlign: "top",
+                                height: "auto",
+                                minHeight: "fit-content",
+                              }}
+                            >
+                              {typeof row[key] === "object" &&
+                              row[key] !== null ? (
+                                <Box
+                                  sx={{
+                                    maxWidth: 300,
+                                    maxHeight: expandedCells.has(
+                                      `${rowIndex}-${key}`,
+                                    )
+                                      ? "none"
+                                      : 100,
+                                    overflow: expandedCells.has(
+                                      `${rowIndex}-${key}`,
+                                    )
+                                      ? "visible"
+                                      : "hidden",
+                                    position: "relative",
+                                    minHeight: "fit-content",
+                                    height: "auto",
+                                    "& .react-json-view": {
+                                      height: "auto !important",
+                                      minHeight: "fit-content",
+                                    },
+                                  }}
+                                >
+                                  <ReactJson
+                                    src={row[key]}
+                                    theme="rjv-default"
+                                    collapsed={
+                                      !expandedCells.has(`${rowIndex}-${key}`)
+                                    }
+                                    displayDataTypes={false}
+                                    displayObjectSize={false}
+                                    enableClipboard={false}
+                                    name={false}
+                                    style={{
+                                      fontSize: "12px",
+                                      lineHeight: "1.4",
+                                      height: "auto",
+                                      minHeight: "fit-content",
+                                    }}
+                                  />
+                                </Box>
+                              ) : (
+                                <Typography
+                                  variant="body2"
+                                  sx={{
+                                    wordBreak: "break-word",
+                                    whiteSpace: "pre-wrap",
+                                  }}
+                                >
+                                  {String(row[key])}
+                                </Typography>
+                              )}
+                            </TableCell>
+                          ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {/* Fullscreen Pagination Controls */}
+              {(totalDocuments > pageSize ||
+                hasNextPage ||
+                currentPage > 1 ||
+                results.data?.length >= pageSize) && (
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "center",
+                    p: 1,
+                    borderTop: 1,
+                    borderColor: "divider",
+                  }}
+                >
+                  <Stack spacing={1}>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        justifyContent: "center",
+                        gap: 0.5,
+                        alignItems: "center",
+                      }}
+                    >
+                      <IconButton
+                        onClick={(e) => handlePageChange(e, 1)}
+                        disabled={currentPage <= 1 || isLoadingPage}
+                        size="small"
+                        title="First page"
+                      >
+                        <FirstPageIcon fontSize="small" />
+                      </IconButton>
+
+                      <IconButton
+                        onClick={(e) => handlePageChange(e, currentPage - 1)}
+                        disabled={currentPage <= 1 || isLoadingPage}
+                        size="small"
+                        title="Previous page"
+                      >
+                        <ChevronLeftIcon fontSize="small" />
+                      </IconButton>
+
+                      <Typography
+                        variant="body2"
+                        sx={{ minWidth: 100, textAlign: "center", mx: 1 }}
+                      >
+                        Page {currentPage} of{" "}
+                        {Math.ceil(totalDocuments / pageSize)}
+                      </Typography>
+
+                      <IconButton
+                        onClick={(e) => handlePageChange(e, currentPage + 1)}
+                        disabled={!hasNextPage || isLoadingPage}
+                        size="small"
+                        title="Next page"
+                      >
+                        <ChevronRightIcon fontSize="small" />
+                      </IconButton>
+
+                      <IconButton
+                        onClick={(e) =>
+                          handlePageChange(
+                            e,
+                            Math.ceil(totalDocuments / pageSize),
+                          )
+                        }
+                        disabled={!hasNextPage || isLoadingPage}
+                        size="small"
+                        title="Last page"
+                      >
+                        <LastPageIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
+
+                    <Typography
+                      variant="caption"
+                      sx={{ textAlign: "center", color: "text.secondary" }}
+                    >
+                      {isLoadingPage
+                        ? "Loading..."
+                        : `Showing ${
+                            (currentPage - 1) * pageSize + 1
+                          }-${Math.min(
+                            currentPage * pageSize,
+                            totalDocuments,
+                          )} of ${totalDocuments} results`}
+                    </Typography>
+                  </Stack>
+                </Box>
+              )}
+            </>
           ) : (
             <Box sx={{ p: 3, textAlign: "center" }}>
               <Typography variant="body1" color="text.secondary">
