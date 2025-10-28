@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import PropTypes from "prop-types";
 import {
   Button,
   Box,
@@ -370,6 +371,28 @@ const MapAnnotationsDialog = ({
       </DialogActions>
     </Dialog>
   );
+};
+
+MapAnnotationsDialog.propTypes = {
+  open: PropTypes.bool.isRequired,
+  onClose: PropTypes.func.isRequired,
+  arrayField: PropTypes.shape({
+    outputName: PropTypes.string,
+    fieldName: PropTypes.string,
+    subFields: PropTypes.arrayOf(PropTypes.string),
+  }),
+  mapProjectionFields: PropTypes.arrayOf(
+    PropTypes.shape({
+      id: PropTypes.number.isRequired,
+      fieldName: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
+      outputName: PropTypes.string,
+      type: PropTypes.string,
+      roundDecimals: PropTypes.number,
+    }),
+  ).isRequired,
+  setMapProjectionFields: PropTypes.func.isRequired,
+  onSave: PropTypes.func.isRequired,
+  key: PropTypes.string,
 };
 
 const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
@@ -853,6 +876,39 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
                         subFields,
                       });
                     }}
+                    onInputChange={(_, newInputValue, reason) => {
+                      if (reason === "input") {
+                        if (newInputValue && newInputValue.trim().length > 0) {
+                          const searchTerm = newInputValue.toLowerCase();
+                          const groupsWithMatches = new Set();
+
+                          availableFields.forEach((option) => {
+                            if (
+                              option.label &&
+                              option.label.toLowerCase().includes(searchTerm)
+                            ) {
+                              groupsWithMatches.add(option.group);
+                            }
+                            if (
+                              option.name &&
+                              option.name.toLowerCase().includes(searchTerm)
+                            ) {
+                              groupsWithMatches.add(option.group);
+                            }
+                          });
+
+                          if (groupsWithMatches.size > 0) {
+                            setCollapsedGroups((prev) => {
+                              const newCollapsed = new Set(prev);
+                              groupsWithMatches.forEach((groupName) => {
+                                newCollapsed.delete(groupName);
+                              });
+                              return newCollapsed;
+                            });
+                          }
+                        }
+                      }
+                    }}
                     options={availableFields}
                     groupBy={(option) => option.group}
                     getOptionLabel={(option) => option.label || option.name}
@@ -1160,6 +1216,11 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
       <MongoQueryDialog />
     </Box>
   );
+};
+
+AnnotationBuilderContent.propTypes = {
+  onBackToFilterBuilder: PropTypes.func,
+  key: PropTypes.string,
 };
 
 export default AnnotationBuilderContent;
