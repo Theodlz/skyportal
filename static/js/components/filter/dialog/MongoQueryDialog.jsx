@@ -1350,7 +1350,11 @@ const MongoQueryDialog = () => {
                                             <ReactJson
                                               src={value}
                                               name={false}
-                                              collapsed={!isJsonExpanded}
+                                              collapsed={
+                                                key === "annotations"
+                                                  ? false
+                                                  : !isJsonExpanded
+                                              }
                                               displayDataTypes={false}
                                               displayObjectSize={false}
                                               enableClipboard={false}
@@ -1904,7 +1908,11 @@ const MongoQueryDialog = () => {
                                     src={row[key]}
                                     theme="rjv-default"
                                     collapsed={
-                                      !expandedCells.has(`${rowIndex}-${key}`)
+                                      key === "annotations"
+                                        ? false
+                                        : !expandedCells.has(
+                                            `${rowIndex}-${key}`,
+                                          )
                                     }
                                     displayDataTypes={false}
                                     displayObjectSize={false}
