@@ -1198,10 +1198,7 @@ const MongoQueryDialog = () => {
                       Query Results
                     </Typography>
                     <Chip
-                      label={`${Math.min(
-                        results.data?.length || 0,
-                        pageSize,
-                      )} documents`}
+                      label={`${totalDocuments} documents`}
                       size="small"
                       color="success"
                     />
