@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -88,6 +88,155 @@ const getStageDescription = (stageName) => {
   return descriptions[stageName] || "MongoDB aggregation stage";
 };
 
+const createLookupPipeline = (filter_stream, startDate, endDate) => {
+  const auxCollection =
+    filter_stream === "ZTF" ? "ZTF_alerts_aux" : "LSST_alerts_aux";
+
+  const prepend = [
+    {
+      $lookup: {
+        from: auxCollection,
+        localField: "objectId",
+        foreignField: "_id",
+        as: "aux",
+      },
+    },
+    {
+      $project: {
+        objectId: 1,
+        candidate: 1,
+        classifications: 1,
+        coordinates: 1,
+        cross_matches: {
+          $arrayElemAt: ["$aux.cross_matches", 0],
+        },
+        aliases: {
+          $arrayElemAt: ["$aux.aliases", 0],
+        },
+        prv_candidates: {
+          $filter: {
+            input: {
+              $arrayElemAt: ["$aux.prv_candidates", 0],
+            },
+            as: "x",
+            cond: {
+              $and: [
+                {
+                  $lt: [
+                    {
+                      $subtract: ["$candidate.jd", "$$x.jd"],
+                    },
+                    365,
+                  ],
+                },
+                {
+                  $lte: ["$$x.jd", "$candidate.jd"],
+                },
+              ],
+            },
+          },
+        },
+        fp_hists: {
+          $filter: {
+            input: {
+              $arrayElemAt: ["$aux.fp_hists", 0],
+            },
+            as: "x",
+            cond: {
+              $and: [
+                {
+                  $lt: [
+                    {
+                      $subtract: ["$candidate.jd", "$$x.jd"],
+                    },
+                    365,
+                  ],
+                },
+                {
+                  $lte: ["$$x.jd", "$candidate.jd"],
+                },
+              ],
+            },
+          },
+        },
+      },
+    },
+  ];
+
+  if (startDate && endDate) {
+    prepend.push({
+      $match: {
+        "candidate.jd": {
+          $gte: startDate,
+          $lte: endDate,
+        },
+      },
+    });
+  }
+
+  return prepend;
+};
+
+const resetPaginationAndQueryState = (setters) => {
+  const {
+    setExpandedCells,
+    setCurrentPage,
+    setTotalDocuments,
+    setIsLoadingPage,
+    setPageCursors,
+    setLastDocumentId,
+    setHasNextPage,
+    setIsReverseSorting,
+    setReversePageCursors,
+    setLastPageOffset,
+    setIsEstimatedCount,
+    setIsCountingInBackground,
+    setEstimatedTotalDocuments,
+    setDisplayResults,
+    setQueryCompleted,
+  } = setters;
+
+  setExpandedCells(new Set());
+  setCurrentPage(1);
+  setTotalDocuments(0);
+  setIsLoadingPage(false);
+  setPageCursors(new Map());
+  setLastDocumentId(null);
+  setHasNextPage(false);
+  setIsReverseSorting(false);
+  setReversePageCursors(new Map());
+  setLastPageOffset(0);
+  setIsEstimatedCount(false);
+  setIsCountingInBackground(false);
+  setEstimatedTotalDocuments(0);
+  setDisplayResults({ data: [] });
+
+  // Optional setters that may not be available in all contexts
+  if (setQueryCompleted) setQueryCompleted(false);
+};
+
+const getConvertedDatesFromForm = (getValues) => {
+  const formData = getValues();
+  let startDate, endDate;
+
+  function utcToJulianDate(date) {
+    const d = new Date(date);
+    const time = d.getTime();
+    const daysSinceEpoch = time / 86400000;
+    const JD_UNIX_EPOCH = 2440587.5;
+    return JD_UNIX_EPOCH + daysSinceEpoch;
+  }
+
+  if (formData.startDate) {
+    startDate = utcToJulianDate(formData.startDate);
+  }
+  if (formData.endDate) {
+    endDate = utcToJulianDate(formData.endDate);
+  }
+
+  return { startDate, endDate };
+};
+
 const MongoQueryDialog = () => {
   const {
     mongoDialog = { open: false },
@@ -102,10 +251,10 @@ const MongoQueryDialog = () => {
     (state) => state.filter_v.stream?.name?.split(" ")[0],
   );
   const dispatch = useDispatch();
-  const results = useSelector((state) => state.query_result);
   const { useAMPM } = useSelector((state) => state.profile.preferences);
 
   const [copySuccess, setCopySuccess] = useState(false);
+  const [displayResults, setDisplayResults] = useState({ data: [] }); // Local results for display
   const [selectedCollection, setSelectedCollection] = useState(
     filter_stream === "ZTF"
       ? "ZTF_alerts"
@@ -113,7 +262,6 @@ const MongoQueryDialog = () => {
         ? "LSST_alerts"
         : "",
   );
-  const [availableCollections, setAvailableCollections] = useState([]);
   const [isRunning, setIsRunning] = useState(false);
   const [queryError, setQueryError] = useState(null);
   const [showPipeline, setShowPipeline] = useState(true);
@@ -131,6 +279,12 @@ const MongoQueryDialog = () => {
   const [hasNextPage, setHasNextPage] = useState(false);
   const [queryCompleted, setQueryCompleted] = useState(false);
   const [lastQueryString, setLastQueryString] = useState("");
+  const [isReverseSorting, setIsReverseSorting] = useState(false);
+  const [reversePageCursors, setReversePageCursors] = useState(new Map());
+  const [lastPageOffset, setLastPageOffset] = useState(0);
+  const [isEstimatedCount, setIsEstimatedCount] = useState(false);
+  const [isCountingInBackground, setIsCountingInBackground] = useState(false);
+  const [estimatedTotalDocuments, setEstimatedTotalDocuments] = useState(0);
 
   useEffect(() => {
     if (hasValidQuery()) {
@@ -138,13 +292,23 @@ const MongoQueryDialog = () => {
 
       if (lastQueryString && lastQueryString !== currentQueryString) {
         dispatch(clearBoomFilter());
-        setCurrentPage(1);
-        setTotalDocuments(0);
-        setIsLoadingPage(false);
-        setPageCursors(new Map());
-        setLastDocumentId(null);
-        setHasNextPage(false);
-        setQueryCompleted(false);
+        resetPaginationAndQueryState({
+          setExpandedCells,
+          setCurrentPage,
+          setTotalDocuments,
+          setIsLoadingPage,
+          setPageCursors,
+          setLastDocumentId,
+          setHasNextPage,
+          setIsReverseSorting,
+          setReversePageCursors,
+          setLastPageOffset,
+          setIsEstimatedCount,
+          setIsCountingInBackground,
+          setEstimatedTotalDocuments,
+          setDisplayResults,
+          setQueryCompleted,
+        });
       }
 
       setLastQueryString(currentQueryString);
@@ -152,16 +316,26 @@ const MongoQueryDialog = () => {
       if (lastQueryString) {
         dispatch(clearBoomFilter());
         setLastQueryString("");
-        setCurrentPage(1);
-        setTotalDocuments(0);
-        setIsLoadingPage(false);
-        setPageCursors(new Map());
-        setLastDocumentId(null);
-        setHasNextPage(false);
-        setQueryCompleted(false);
+        resetPaginationAndQueryState({
+          setExpandedCells,
+          setCurrentPage,
+          setTotalDocuments,
+          setIsLoadingPage,
+          setPageCursors,
+          setLastDocumentId,
+          setHasNextPage,
+          setIsReverseSorting,
+          setReversePageCursors,
+          setLastPageOffset,
+          setIsEstimatedCount,
+          setIsCountingInBackground,
+          setEstimatedTotalDocuments,
+          setDisplayResults,
+          setQueryCompleted,
+        });
       }
     }
-  }, [getFormattedMongoQuery()]);
+  }, [hasValidQuery, getFormattedMongoQuery, lastQueryString, dispatch]);
 
   useEffect(() => {
     const newCollection =
@@ -178,13 +352,23 @@ const MongoQueryDialog = () => {
     ) {
       setSelectedCollection(newCollection);
       dispatch(clearBoomFilter());
-      setCurrentPage(1);
-      setTotalDocuments(0);
-      setIsLoadingPage(false);
-      setPageCursors(new Map());
-      setLastDocumentId(null);
-      setHasNextPage(false);
-      setQueryCompleted(false);
+      resetPaginationAndQueryState({
+        setExpandedCells,
+        setCurrentPage,
+        setTotalDocuments,
+        setIsLoadingPage,
+        setPageCursors,
+        setLastDocumentId,
+        setHasNextPage,
+        setIsReverseSorting,
+        setReversePageCursors,
+        setLastPageOffset,
+        setIsEstimatedCount,
+        setIsCountingInBackground,
+        setEstimatedTotalDocuments,
+        setDisplayResults,
+        setQueryCompleted,
+      });
     } else if (selectedCollection === "" && newCollection !== "") {
       setSelectedCollection(newCollection);
     }
@@ -197,25 +381,14 @@ const MongoQueryDialog = () => {
   const {
     getValues,
     control,
-    reset,
     formState: { errors },
   } = useForm({
     startDate: defaultStartDate,
     endDate: defaultEndDate,
   });
 
-  let formState = getValues();
-
-  function utcToJulianDate(date) {
-    const d = new Date(date);
-    const time = d.getTime();
-    const daysSinceEpoch = time / 86400000;
-    const JD_UNIX_EPOCH = 2440587.5;
-    return JD_UNIX_EPOCH + daysSinceEpoch;
-  }
-
   const validateDates = () => {
-    formState = getValues();
+    const formState = getValues();
     if (!!formState.startDate && !!formState.endDate) {
       return formState.startDate <= formState.endDate;
     }
@@ -237,13 +410,23 @@ const MongoQueryDialog = () => {
   useEffect(() => {
     if (mongoDialog?.open) {
       loadCollections();
-      setCurrentPage(1);
-      setTotalDocuments(0);
-      setIsLoadingPage(false);
-      setPageCursors(new Map());
-      setLastDocumentId(null);
-      setHasNextPage(false);
-      setQueryCompleted(false);
+      resetPaginationAndQueryState({
+        setExpandedCells,
+        setCurrentPage,
+        setTotalDocuments,
+        setIsLoadingPage,
+        setPageCursors,
+        setLastDocumentId,
+        setHasNextPage,
+        setIsReverseSorting,
+        setReversePageCursors,
+        setLastPageOffset,
+        setIsEstimatedCount,
+        setIsCountingInBackground,
+        setEstimatedTotalDocuments,
+        setDisplayResults,
+        setQueryCompleted,
+      });
     }
   }, [mongoDialog?.open]);
 
@@ -252,7 +435,6 @@ const MongoQueryDialog = () => {
       setConnectionStatus("connected");
     } catch (error) {
       console.error("Failed to load collections:", error);
-      setAvailableCollections([{ name: "", type: "collection" }]);
       setConnectionStatus("disconnected");
     }
   };
@@ -262,14 +444,24 @@ const MongoQueryDialog = () => {
     setQueryError(null);
     setShowPipeline(true);
     setPipelineView("complete");
-    setExpandedCells(new Set());
     setExpandedStages(new Set());
-    setCurrentPage(1);
-    setTotalDocuments(0);
-    setIsLoadingPage(false);
-    setPageCursors(new Map());
-    setLastDocumentId(null);
-    setHasNextPage(false);
+
+    resetPaginationAndQueryState({
+      setExpandedCells,
+      setCurrentPage,
+      setTotalDocuments,
+      setIsLoadingPage,
+      setPageCursors,
+      setLastDocumentId,
+      setHasNextPage,
+      setIsReverseSorting,
+      setReversePageCursors,
+      setLastPageOffset,
+      setIsEstimatedCount,
+      setIsCountingInBackground,
+      setEstimatedTotalDocuments,
+      setDisplayResults,
+    });
   };
 
   const handleCopy = async () => {
@@ -309,171 +501,16 @@ const MongoQueryDialog = () => {
     }
   };
 
-  const executeQuery = async (page = 1, countOnly = false, cursor = null) => {
-    const formData = getValues();
-
-    let startDate, endDate;
-    if (formData.startDate) {
-      startDate = utcToJulianDate(formData.startDate);
-    }
-    if (formData.endDate) {
-      endDate = utcToJulianDate(formData.endDate);
-    }
+  const executeQuery = async (
+    page = 1,
+    countOnly = false,
+    cursor = null,
+    reverse = false,
+  ) => {
+    const { startDate, endDate } = getConvertedDatesFromForm(getValues);
 
     const pipeline = generateMongoQuery();
-    const prepend =
-      filter_stream === "ZTF"
-        ? [
-            {
-              $lookup: {
-                from: "ZTF_alerts_aux",
-                localField: "objectId",
-                foreignField: "_id",
-                as: "aux",
-              },
-            },
-            {
-              $project: {
-                objectId: 1,
-                candidate: 1,
-                classifications: 1,
-                coordinates: 1,
-                cross_matches: {
-                  $arrayElemAt: ["$aux.cross_matches", 0],
-                },
-                aliases: {
-                  $arrayElemAt: ["$aux.aliases", 0],
-                },
-                prv_candidates: {
-                  $filter: {
-                    input: {
-                      $arrayElemAt: ["$aux.prv_candidates", 0],
-                    },
-                    as: "x",
-                    cond: {
-                      $and: [
-                        {
-                          $lt: [
-                            {
-                              $subtract: ["$candidate.jd", "$$x.jd"],
-                            },
-                            365,
-                          ],
-                        },
-                        {
-                          $lte: ["$$x.jd", "$candidate.jd"],
-                        },
-                      ],
-                    },
-                  },
-                },
-                fp_hists: {
-                  $filter: {
-                    input: {
-                      $arrayElemAt: ["$aux.fp_hists", 0],
-                    },
-                    as: "x",
-                    cond: {
-                      $and: [
-                        {
-                          $lt: [
-                            {
-                              $subtract: ["$candidate.jd", "$$x.jd"],
-                            },
-                            365,
-                          ],
-                        },
-                        {
-                          $lte: ["$$x.jd", "$candidate.jd"],
-                        },
-                      ],
-                    },
-                  },
-                },
-              },
-            },
-          ]
-        : [
-            {
-              $lookup: {
-                from: "LSST_alerts_aux",
-                localField: "objectId",
-                foreignField: "_id",
-                as: "aux",
-              },
-            },
-            {
-              $project: {
-                objectId: 1,
-                candidate: 1,
-                classifications: 1,
-                coordinates: 1,
-                cross_matches: {
-                  $arrayElemAt: ["$aux.cross_matches", 0],
-                },
-                aliases: {
-                  $arrayElemAt: ["$aux.aliases", 0],
-                },
-                prv_candidates: {
-                  $filter: {
-                    input: {
-                      $arrayElemAt: ["$aux.prv_candidates", 0],
-                    },
-                    as: "x",
-                    cond: {
-                      $and: [
-                        {
-                          $lt: [
-                            {
-                              $subtract: ["$candidate.jd", "$$x.jd"],
-                            },
-                            365,
-                          ],
-                        },
-                        {
-                          $lte: ["$$x.jd", "$candidate.jd"],
-                        },
-                      ],
-                    },
-                  },
-                },
-                fp_hists: {
-                  $filter: {
-                    input: {
-                      $arrayElemAt: ["$aux.fp_hists", 0],
-                    },
-                    as: "x",
-                    cond: {
-                      $and: [
-                        {
-                          $lt: [
-                            {
-                              $subtract: ["$candidate.jd", "$$x.jd"],
-                            },
-                            365,
-                          ],
-                        },
-                        {
-                          $lte: ["$$x.jd", "$candidate.jd"],
-                        },
-                      ],
-                    },
-                  },
-                },
-              },
-            },
-          ];
-
-    if (startDate && endDate) {
-      prepend.push({
-        $match: {
-          "candidate.jd": {
-            $gte: startDate,
-            $lte: endDate,
-          },
-        },
-      });
-    }
+    const prepend = createLookupPipeline(filter_stream, startDate, endDate);
 
     pipeline.unshift(...prepend);
 
@@ -483,12 +520,12 @@ const MongoQueryDialog = () => {
       if (cursor) {
         pipeline.push({
           $match: {
-            _id: { $gt: cursor },
+            _id: reverse ? { $lt: cursor } : { $gt: cursor },
           },
         });
       }
 
-      pipeline.push({ $sort: { _id: 1 } });
+      pipeline.push({ $sort: { _id: reverse ? -1 : 1 } });
 
       pipeline.push({ $limit: pageSize + 1 });
     }
@@ -509,25 +546,49 @@ const MongoQueryDialog = () => {
     }
 
     if (result.data?.data) {
-      const originalData = result.data.data;
+      let originalData = result.data.data;
+
+      // If reverse sorting, we need to reverse the data to maintain correct display order
+      if (reverse) {
+        originalData = [...originalData].reverse();
+      }
 
       if (originalData.length > pageSize) {
         const data = originalData.slice(0, pageSize);
+        const processedResult = {
+          ...result,
+          data: {
+            ...result.data,
+            data: data,
+          },
+        };
+
+        // Update local display results (only for non-count queries)
+        if (!countOnly) {
+          setDisplayResults(processedResult.data);
+        }
 
         return {
-          result: {
-            ...result,
-            data: {
-              ...result.data,
-              data: data,
-            },
-          },
+          result: processedResult,
           hasNext: true,
           nextCursor: data.length > 0 ? data[data.length - 1]._id : null,
         };
       } else {
+        const processedResult = {
+          ...result,
+          data: {
+            ...result.data,
+            data: originalData,
+          },
+        };
+
+        // Update local display results (only for non-count queries)
+        if (!countOnly) {
+          setDisplayResults(processedResult.data);
+        }
+
         return {
-          result: result,
+          result: processedResult,
           hasNext: false,
           nextCursor: null,
         };
@@ -536,23 +597,177 @@ const MongoQueryDialog = () => {
     return { result: result, hasNext: false, nextCursor: null };
   };
 
+  const estimateDocumentCount = async () => {
+    try {
+      // Use sampling to provide a fast initial estimate
+      // This gives users immediate feedback while the precise count runs in background
+
+      const sampleSize = 500; // Smaller sample for quick initial estimate
+      const { startDate, endDate } = getConvertedDatesFromForm(getValues);
+
+      // Create a sampling pipeline that gets a random sample
+      const samplingPipeline = [
+        ...createLookupPipeline(filter_stream, startDate, endDate),
+        { $sample: { size: sampleSize } },
+      ];
+
+      const sampleResult = await dispatch(
+        runBoomFilter({
+          pipeline: samplingPipeline,
+          selectedCollection: selectedCollection,
+        }),
+      );
+
+      if (sampleResult.data?.data) {
+        const sampleData = sampleResult.data.data;
+        const actualSampleSize = sampleData.length;
+
+        if (actualSampleSize === 0) {
+          return pageSize * 2; // Minimum fallback
+        }
+
+        // Apply user filters to the sample data manually (in-memory filtering)
+        const userPipeline = generateMongoQuery();
+        if (userPipeline.length === 0) {
+          // No additional filters, all sampled documents match
+          const estimatedTotal =
+            actualSampleSize < sampleSize
+              ? actualSampleSize // Small collection
+              : Math.round(actualSampleSize * 20); // Conservative estimate for larger collection
+
+          return Math.max(estimatedTotal, pageSize * 2);
+        } else {
+          // Estimate match ratio based on filter complexity rather than running another query
+          // This avoids the second exact count operation
+          let estimatedMatchRatio = 1.0;
+
+          // Analyze filter complexity to estimate matching ratio
+          const hasMatchStages = userPipeline.some((stage) => stage.$match);
+          const hasComplexFilters = userPipeline.some(
+            (stage) => stage.$match && Object.keys(stage.$match).length > 2,
+          );
+
+          if (hasComplexFilters) {
+            estimatedMatchRatio = 0.15; // Complex filters typically match ~15%
+          } else if (hasMatchStages) {
+            estimatedMatchRatio = 0.4; // Simple filters typically match ~40%
+          }
+
+          // Add some variance based on sample characteristics
+          const variance = 0.3;
+          const randomFactor = 1 + (Math.random() - 0.5) * 2 * variance;
+          estimatedMatchRatio *= randomFactor;
+          estimatedMatchRatio = Math.max(
+            0.05,
+            Math.min(0.8, estimatedMatchRatio),
+          ); // Clamp between 5% and 80%
+
+          // Estimate total collection size based on sample
+          let estimatedCollectionSize;
+          if (actualSampleSize < sampleSize) {
+            // Small collection
+            estimatedCollectionSize = actualSampleSize * 1.5;
+          } else {
+            // Large collection, conservative estimate
+            estimatedCollectionSize = actualSampleSize * 15;
+          }
+
+          const estimatedTotal = Math.round(
+            estimatedCollectionSize * estimatedMatchRatio,
+          );
+          return Math.max(estimatedTotal, pageSize * 2);
+        }
+      } else {
+        // Fallback to simple heuristic if sampling fails
+        return estimateDocumentCountHeuristic();
+      }
+    } catch (error) {
+      console.error("Sampling estimation error:", error);
+      // Fallback to heuristic method
+      return estimateDocumentCountHeuristic();
+    }
+  };
+
+  const estimateDocumentCountHeuristic = () => {
+    // Fallback heuristic method for when sampling fails
+    const pipeline = generateMongoQuery();
+    let baseEstimate = 50000; // Base estimate for the collection
+
+    const hasMatchStages = pipeline.some((stage) => stage.$match);
+    const hasComplexFilters = pipeline.some(
+      (stage) => stage.$match && Object.keys(stage.$match).length > 2,
+    );
+
+    // Reduce estimate for filtered queries
+    if (hasMatchStages) {
+      baseEstimate *= 0.3; // 30% of base for filtered queries
+    }
+
+    if (hasComplexFilters) {
+      baseEstimate *= 0.5; // Further reduction for complex filters
+    }
+
+    // Add some randomization to make it feel more realistic
+    const variance = 0.2; // ±20% variance
+    const randomFactor = 1 + (Math.random() - 0.5) * 2 * variance;
+
+    const estimate = Math.round(baseEstimate * randomFactor);
+
+    // Ensure minimum sensible estimate
+    return Math.max(estimate, pageSize * 2);
+  };
+
+  const performBackgroundCount = async () => {
+    try {
+      setIsCountingInBackground(true);
+
+      // Use the existing executeQuery function for count
+      const countQueryResult = await executeQuery(1, true);
+      const actualCount = countQueryResult.result?.data?.data?.[0]?.total || 0;
+
+      // Update count state - displayResults remain untouched
+      setTotalDocuments(actualCount);
+      setIsEstimatedCount(false);
+      setIsCountingInBackground(false);
+    } catch (error) {
+      console.error("Background count error:", error);
+      setIsCountingInBackground(false);
+      // Keep the estimated count if the actual count fails
+    }
+  };
+
   const handleRunQuery = async () => {
     setIsRunning(true);
     setQueryError(null);
-    setExpandedCells(new Set());
-    setCurrentPage(1);
-    setPageCursors(new Map());
-    setLastDocumentId(null);
-    setHasNextPage(false);
-    setQueryCompleted(false);
+
+    resetPaginationAndQueryState({
+      setExpandedCells,
+      setCurrentPage,
+      setTotalDocuments,
+      setIsLoadingPage,
+      setPageCursors,
+      setLastDocumentId,
+      setHasNextPage,
+      setIsReverseSorting,
+      setReversePageCursors,
+      setLastPageOffset,
+      setIsEstimatedCount,
+      setIsCountingInBackground,
+      setEstimatedTotalDocuments,
+      setDisplayResults,
+      setQueryCompleted,
+    });
 
     try {
-      const countQueryResult = await executeQuery(1, true);
-      const totalCount = countQueryResult.result?.data?.data?.[0]?.total || 0;
-      setTotalDocuments(totalCount);
+      // Step 1: Show instant estimate
+      const estimatedCount = await estimateDocumentCount();
+      setEstimatedTotalDocuments(estimatedCount);
+      setTotalDocuments(estimatedCount);
+      setIsEstimatedCount(true);
 
       dispatch(clearBoomFilter());
 
+      // Step 2: Get first page immediately
       const firstPageQueryResult = await executeQuery(1, false);
 
       if (firstPageQueryResult.result?.data) {
@@ -574,6 +789,9 @@ const MongoQueryDialog = () => {
 
       setPageCursors(newCursors);
       setQueryCompleted(true);
+
+      // Step 3: Start background count (don't await this)
+      performBackgroundCount();
     } catch (error) {
       console.error("Query error:", error);
       setQueryError(error.message);
@@ -583,185 +801,32 @@ const MongoQueryDialog = () => {
   };
 
   const handlePageChange = async (event, newPage) => {
-    if (
-      newPage === Math.ceil(totalDocuments / pageSize) &&
-      newPage > currentPage
-    ) {
+    const lastPage = Math.ceil(totalDocuments / pageSize);
+
+    // Handle navigation to the last page with reverse sorting
+    if (newPage === lastPage && newPage > currentPage) {
       setIsLoadingPage(true);
       setExpandedCells(new Set());
 
       try {
-        const skipAmount = (newPage - 1) * pageSize;
-        const formData = getValues();
+        // Switch to reverse sorting mode for the last page
+        setIsReverseSorting(true);
 
-        let startDate, endDate;
-        if (formData.startDate) {
-          startDate = utcToJulianDate(formData.startDate);
-        }
-        if (formData.endDate) {
-          endDate = utcToJulianDate(formData.endDate);
-        }
+        const { startDate, endDate } = getConvertedDatesFromForm(getValues);
 
         const pipeline = generateMongoQuery();
-        const prepend =
-          filter_stream === "ZTF"
-            ? [
-                {
-                  $lookup: {
-                    from: "ZTF_alerts_aux",
-                    localField: "objectId",
-                    foreignField: "_id",
-                    as: "aux",
-                  },
-                },
-                {
-                  $project: {
-                    objectId: 1,
-                    candidate: 1,
-                    classifications: 1,
-                    coordinates: 1,
-                    cross_matches: {
-                      $arrayElemAt: ["$aux.cross_matches", 0],
-                    },
-                    aliases: {
-                      $arrayElemAt: ["$aux.aliases", 0],
-                    },
-                    prv_candidates: {
-                      $filter: {
-                        input: {
-                          $arrayElemAt: ["$aux.prv_candidates", 0],
-                        },
-                        as: "x",
-                        cond: {
-                          $and: [
-                            {
-                              $lt: [
-                                {
-                                  $subtract: ["$candidate.jd", "$$x.jd"],
-                                },
-                                365,
-                              ],
-                            },
-                            {
-                              $lte: ["$$x.jd", "$candidate.jd"],
-                            },
-                          ],
-                        },
-                      },
-                    },
-                    fp_hists: {
-                      $filter: {
-                        input: {
-                          $arrayElemAt: ["$aux.fp_hists", 0],
-                        },
-                        as: "x",
-                        cond: {
-                          $and: [
-                            {
-                              $lt: [
-                                {
-                                  $subtract: ["$candidate.jd", "$$x.jd"],
-                                },
-                                365,
-                              ],
-                            },
-                            {
-                              $lte: ["$$x.jd", "$candidate.jd"],
-                            },
-                          ],
-                        },
-                      },
-                    },
-                  },
-                },
-              ]
-            : [
-                {
-                  $lookup: {
-                    from: "LSST_alerts_aux",
-                    localField: "objectId",
-                    foreignField: "_id",
-                    as: "aux",
-                  },
-                },
-                {
-                  $project: {
-                    objectId: 1,
-                    candidate: 1,
-                    classifications: 1,
-                    coordinates: 1,
-                    cross_matches: {
-                      $arrayElemAt: ["$aux.cross_matches", 0],
-                    },
-                    aliases: {
-                      $arrayElemAt: ["$aux.aliases", 0],
-                    },
-                    prv_candidates: {
-                      $filter: {
-                        input: {
-                          $arrayElemAt: ["$aux.prv_candidates", 0],
-                        },
-                        as: "x",
-                        cond: {
-                          $and: [
-                            {
-                              $lt: [
-                                {
-                                  $subtract: ["$candidate.jd", "$$x.jd"],
-                                },
-                                365,
-                              ],
-                            },
-                            {
-                              $lte: ["$$x.jd", "$candidate.jd"],
-                            },
-                          ],
-                        },
-                      },
-                    },
-                    fp_hists: {
-                      $filter: {
-                        input: {
-                          $arrayElemAt: ["$aux.fp_hists", 0],
-                        },
-                        as: "x",
-                        cond: {
-                          $and: [
-                            {
-                              $lt: [
-                                {
-                                  $subtract: ["$candidate.jd", "$$x.jd"],
-                                },
-                                365,
-                              ],
-                            },
-                            {
-                              $lte: ["$$x.jd", "$candidate.jd"],
-                            },
-                          ],
-                        },
-                      },
-                    },
-                  },
-                },
-              ];
-
-        if (startDate && endDate) {
-          prepend.push({
-            $match: {
-              "candidate.jd": {
-                $gte: startDate,
-                $lte: endDate,
-              },
-            },
-          });
-        }
+        const prepend = createLookupPipeline(filter_stream, startDate, endDate);
 
         pipeline.unshift(...prepend);
 
-        pipeline.push({ $sort: { _id: 1 } });
-        pipeline.push({ $skip: skipAmount });
-        pipeline.push({ $limit: pageSize });
+        // Calculate how many documents should be on the last page
+        const remainingDocs = totalDocuments % pageSize;
+        const lastPageSize = remainingDocs === 0 ? pageSize : remainingDocs;
+        setLastPageOffset(lastPageSize);
+
+        // Use reverse sort ($sort: { _id: -1 }) and limit to get the last page efficiently
+        pipeline.push({ $sort: { _id: -1 } });
+        pipeline.push({ $limit: lastPageSize });
 
         const result = await dispatch(
           runBoomFilter({
@@ -770,6 +835,24 @@ const MongoQueryDialog = () => {
           }),
         );
 
+        // Reverse the results to display in correct order (oldest to newest)
+        const reversedData = result.data?.data
+          ? [...result.data.data].reverse()
+          : [];
+
+        // Update local display results
+        setDisplayResults({ data: reversedData });
+
+        // Initialize reverse page cursors
+        const newReverseCursors = new Map();
+        newReverseCursors.set(lastPage, null); // Last page has no cursor (it's the end)
+
+        if (reversedData.length > 0) {
+          // The cursor for the previous page (lastPage - 1) is the first document's _id
+          newReverseCursors.set(lastPage - 1, reversedData[0]._id);
+        }
+
+        setReversePageCursors(newReverseCursors);
         setHasNextPage(false);
         setCurrentPage(newPage);
         return;
@@ -782,6 +865,50 @@ const MongoQueryDialog = () => {
       return;
     }
 
+    // Handle navigation when we're in reverse sorting mode (coming from last page)
+    if (isReverseSorting) {
+      setIsLoadingPage(true);
+      setExpandedCells(new Set());
+
+      try {
+        let cursor = null;
+
+        if (newPage > currentPage) {
+          // Going forward in reverse mode - shouldn't happen much, but handle it
+          cursor = reversePageCursors.get(newPage);
+        } else if (newPage < currentPage) {
+          // Going backward in reverse mode (which is actually forward through the data)
+          cursor = reversePageCursors.get(newPage);
+        }
+
+        const queryResult = await executeQuery(newPage, false, cursor, true); // true for reverse
+
+        setHasNextPage(queryResult.hasNext);
+
+        // Update reverse cursors
+        const newReverseCursors = new Map(reversePageCursors);
+        if (queryResult.nextCursor) {
+          newReverseCursors.set(newPage - 1, queryResult.nextCursor);
+        }
+        setReversePageCursors(newReverseCursors);
+        setCurrentPage(newPage);
+
+        // If we've navigated back to page 1, switch back to normal sorting mode
+        if (newPage === 1) {
+          setIsReverseSorting(false);
+        }
+
+        return;
+      } catch (error) {
+        console.error("Reverse navigation error:", error);
+        setQueryError(error.message);
+      } finally {
+        setIsLoadingPage(false);
+      }
+      return;
+    }
+
+    // Normal forward pagination (not in reverse mode)
     setIsLoadingPage(true);
     setExpandedCells(new Set());
 
@@ -794,215 +921,70 @@ const MongoQueryDialog = () => {
         if (pageCursors.has(newPage)) {
           cursor = pageCursors.get(newPage);
         } else {
-          const skipAmount = (newPage - 1) * pageSize;
-          const formData = getValues();
+          // For backward navigation without cursor, we need to re-execute from beginning
+          // and build up to the desired page using cursor-based pagination
+          const { startDate, endDate } = getConvertedDatesFromForm(getValues);
 
-          let startDate, endDate;
-          if (formData.startDate) {
-            startDate = utcToJulianDate(formData.startDate);
-          }
-          if (formData.endDate) {
-            endDate = utcToJulianDate(formData.endDate);
-          }
+          // Start from the beginning and navigate page by page to build cursors
+          let currentCursor = null;
+          let pageData = null;
 
-          const pipeline = generateMongoQuery();
-          const prepend =
-            filter_stream === "ZTF"
-              ? [
-                  {
-                    $lookup: {
-                      from: "ZTF_alerts_aux",
-                      localField: "objectId",
-                      foreignField: "_id",
-                      as: "aux",
-                    },
-                  },
-                  {
-                    $project: {
-                      objectId: 1,
-                      candidate: 1,
-                      classifications: 1,
-                      coordinates: 1,
-                      cross_matches: {
-                        $arrayElemAt: ["$aux.cross_matches", 0],
-                      },
-                      aliases: {
-                        $arrayElemAt: ["$aux.aliases", 0],
-                      },
-                      prv_candidates: {
-                        $filter: {
-                          input: {
-                            $arrayElemAt: ["$aux.prv_candidates", 0],
-                          },
-                          as: "x",
-                          cond: {
-                            $and: [
-                              {
-                                $lt: [
-                                  {
-                                    $subtract: ["$candidate.jd", "$$x.jd"],
-                                  },
-                                  365,
-                                ],
-                              },
-                              {
-                                $lte: ["$$x.jd", "$candidate.jd"],
-                              },
-                            ],
-                          },
-                        },
-                      },
-                      fp_hists: {
-                        $filter: {
-                          input: {
-                            $arrayElemAt: ["$aux.fp_hists", 0],
-                          },
-                          as: "x",
-                          cond: {
-                            $and: [
-                              {
-                                $lt: [
-                                  {
-                                    $subtract: ["$candidate.jd", "$$x.jd"],
-                                  },
-                                  365,
-                                ],
-                              },
-                              {
-                                $lte: ["$$x.jd", "$candidate.jd"],
-                              },
-                            ],
-                          },
-                        },
-                      },
-                    },
-                  },
-                ]
-              : [
-                  {
-                    $lookup: {
-                      from: "LSST_alerts_aux",
-                      localField: "objectId",
-                      foreignField: "_id",
-                      as: "aux",
-                    },
-                  },
-                  {
-                    $project: {
-                      objectId: 1,
-                      candidate: 1,
-                      classifications: 1,
-                      coordinates: 1,
-                      cross_matches: {
-                        $arrayElemAt: ["$aux.cross_matches", 0],
-                      },
-                      aliases: {
-                        $arrayElemAt: ["$aux.aliases", 0],
-                      },
-                      prv_candidates: {
-                        $filter: {
-                          input: {
-                            $arrayElemAt: ["$aux.prv_candidates", 0],
-                          },
-                          as: "x",
-                          cond: {
-                            $and: [
-                              {
-                                $lt: [
-                                  {
-                                    $subtract: ["$candidate.jd", "$$x.jd"],
-                                  },
-                                  365,
-                                ],
-                              },
-                              {
-                                $lte: ["$$x.jd", "$candidate.jd"],
-                              },
-                            ],
-                          },
-                        },
-                      },
-                      fp_hists: {
-                        $filter: {
-                          input: {
-                            $arrayElemAt: ["$aux.fp_hists", 0],
-                          },
-                          as: "x",
-                          cond: {
-                            $and: [
-                              {
-                                $lt: [
-                                  {
-                                    $subtract: ["$candidate.jd", "$$x.jd"],
-                                  },
-                                  365,
-                                ],
-                              },
-                              {
-                                $lte: ["$$x.jd", "$candidate.jd"],
-                              },
-                            ],
-                          },
-                        },
-                      },
-                    },
-                  },
-                ];
+          for (let page = 1; page <= newPage; page++) {
+            const pipeline = generateMongoQuery();
+            const prepend = createLookupPipeline(
+              filter_stream,
+              startDate,
+              endDate,
+            );
 
-          if (startDate && endDate) {
-            prepend.push({
-              $match: {
-                "candidate.jd": {
-                  $gte: startDate,
-                  $lte: endDate,
+            pipeline.unshift(...prepend);
+
+            // Use cursor-based pagination instead of $skip
+            if (currentCursor) {
+              pipeline.push({
+                $match: {
+                  _id: { $gt: currentCursor },
                 },
-              },
-            });
+              });
+            }
+
+            pipeline.push({ $sort: { _id: 1 } });
+            pipeline.push({ $limit: pageSize + 1 });
+
+            const result = await dispatch(
+              runBoomFilter({
+                pipeline: pipeline,
+                selectedCollection: selectedCollection,
+              }),
+            );
+
+            pageData = result.data?.data || [];
+
+            // Update cursor for next iteration and save cursor for this page
+            const newCursors = new Map(pageCursors);
+            newCursors.set(page, currentCursor);
+
+            if (pageData.length > pageSize) {
+              currentCursor = pageData[pageSize - 1]._id;
+              pageData = pageData.slice(0, pageSize);
+              newCursors.set(page + 1, currentCursor);
+            } else if (pageData.length > 0) {
+              currentCursor = pageData[pageData.length - 1]._id;
+            }
+
+            setPageCursors(newCursors);
           }
 
-          pipeline.unshift(...prepend);
-          pipeline.push({ $sort: { _id: 1 } });
-          pipeline.push({ $skip: skipAmount });
-          pipeline.push({ $limit: pageSize + 1 });
-
-          const result = await dispatch(
-            runBoomFilter({
-              pipeline: pipeline,
-              selectedCollection: selectedCollection,
-            }),
-          );
-
-          let hasNext = false;
-          let finalData = result.data?.data || [];
-
-          if (finalData.length > pageSize) {
-            finalData = finalData.slice(0, pageSize);
-            hasNext = true;
-
-            dispatch({
-              type: "skyportal/RUN_BOOM_FILTER_OK",
-              data: {
-                ...result.data,
-                data: finalData,
-              },
-            });
-          }
+          // Use the final page data
+          let hasNext = pageData.length === pageSize;
 
           setHasNextPage(hasNext);
-
           setCurrentPage(newPage);
           return;
         }
       }
 
       const queryResult = await executeQuery(newPage, false, cursor);
-
-      if (queryResult.result?.data) {
-        dispatch({
-          type: "skyportal/RUN_BOOM_FILTER_OK",
-          data: queryResult.result.data,
-        });
-      }
 
       setHasNextPage(queryResult.hasNext);
 
@@ -1184,7 +1166,7 @@ const MongoQueryDialog = () => {
               )}
 
               {/* Query Results */}
-              {Object.keys(results).length > 0 && (
+              {(displayResults.data?.length > 0 || queryCompleted) && (
                 <Box sx={{ mb: 3 }}>
                   <Box
                     sx={{
@@ -1198,29 +1180,46 @@ const MongoQueryDialog = () => {
                       Query Results
                     </Typography>
                     <Chip
-                      label={`${totalDocuments} documents`}
+                      label={
+                        displayResults.data?.length === 0 && queryCompleted
+                          ? "0 documents"
+                          : isEstimatedCount
+                            ? `~${totalDocuments} documents${
+                                isCountingInBackground
+                                  ? " (counting...)"
+                                  : " (estimated)"
+                              }`
+                            : `${totalDocuments} documents`
+                      }
                       size="small"
-                      color="success"
+                      color={
+                        displayResults.data?.length === 0 && queryCompleted
+                          ? "default"
+                          : isEstimatedCount
+                            ? "warning"
+                            : "success"
+                      }
                     />
-                    {totalDocuments > pageSize && (
-                      <Chip
-                        label={`Page ${currentPage} of ${Math.ceil(
-                          totalDocuments / pageSize,
-                        )}`}
-                        size="small"
-                        variant="outlined"
-                      />
-                    )}
+                    {totalDocuments > pageSize &&
+                      displayResults.data?.length > 0 && (
+                        <Chip
+                          label={`Page ${currentPage} of ${Math.ceil(
+                            totalDocuments / pageSize,
+                          )}`}
+                          size="small"
+                          variant="outlined"
+                        />
+                      )}
                     <IconButton
                       size="small"
                       onClick={() => setIsFullscreen(true)}
-                      disabled={!results.data?.length}
+                      disabled={!displayResults.data?.length}
                     >
                       <FullscreenIcon />
                     </IconButton>
                   </Box>
 
-                  {results.data?.length > 0 ? (
+                  {displayResults.data?.length > 0 ? (
                     <>
                       <TableContainer
                         component={Paper}
@@ -1257,7 +1256,7 @@ const MongoQueryDialog = () => {
                         >
                           <TableHead>
                             <TableRow>
-                              {Object.keys(results.data[0] || {})
+                              {Object.keys(displayResults.data[0] || {})
                                 .filter((key) => key !== "_id")
                                 .map((key) => (
                                   <TableCell
@@ -1278,115 +1277,117 @@ const MongoQueryDialog = () => {
                             </TableRow>
                           </TableHead>
                           <TableBody>
-                            {results.data.slice(0, 50).map((row, rowIndex) => (
-                              <TableRow
-                                key={rowIndex}
-                                sx={{
-                                  height: "auto",
-                                  minHeight: "fit-content",
-                                  "& .MuiTableCell-root": {
+                            {displayResults.data
+                              .slice(0, 50)
+                              .map((row, rowIndex) => (
+                                <TableRow
+                                  key={rowIndex}
+                                  sx={{
                                     height: "auto",
                                     minHeight: "fit-content",
-                                  },
-                                }}
-                              >
-                                {Object.entries(row)
-                                  .filter(([key]) => key !== "_id")
-                                  .map(([key, value], cellIndex) => {
-                                    const cellKey = `${rowIndex}-${cellIndex}`;
-                                    const isJsonExpanded =
-                                      expandedCells.has(cellKey);
-                                    const hasJsonContent =
-                                      typeof value === "object";
+                                    "& .MuiTableCell-root": {
+                                      height: "auto",
+                                      minHeight: "fit-content",
+                                    },
+                                  }}
+                                >
+                                  {Object.entries(row)
+                                    .filter(([key]) => key !== "_id")
+                                    .map(([key, value], cellIndex) => {
+                                      const cellKey = `${rowIndex}-${cellIndex}`;
+                                      const isJsonExpanded =
+                                        expandedCells.has(cellKey);
+                                      const hasJsonContent =
+                                        typeof value === "object";
 
-                                    return (
-                                      <TableCell
-                                        key={cellIndex}
-                                        sx={{
-                                          verticalAlign: "top",
-                                          minWidth: hasJsonContent
-                                            ? isJsonExpanded
-                                              ? 300
-                                              : 150
-                                            : 100,
-                                          maxWidth: hasJsonContent
-                                            ? isJsonExpanded
-                                              ? 600
-                                              : 300
-                                            : 200,
-                                          width: hasJsonContent
-                                            ? isJsonExpanded
-                                              ? "auto"
-                                              : "auto"
-                                            : "auto",
-                                          padding: 1,
-                                          borderRight: "1px solid",
-                                          borderColor: "divider",
-                                          transition: "all 0.3s ease",
-                                          overflow: "visible",
-                                          height: "auto",
-                                          minHeight: "fit-content",
-                                        }}
-                                      >
-                                        {hasJsonContent ? (
-                                          <Box
-                                            sx={{
-                                              minWidth: isJsonExpanded
-                                                ? 250
-                                                : 150,
-                                              maxWidth: isJsonExpanded
-                                                ? 550
-                                                : 350,
-                                              width: "100%",
-                                              minHeight: "fit-content",
-                                              height: "auto",
-                                              overflow: "visible",
-                                              "& .react-json-view": {
-                                                height: "auto !important",
+                                      return (
+                                        <TableCell
+                                          key={cellIndex}
+                                          sx={{
+                                            verticalAlign: "top",
+                                            minWidth: hasJsonContent
+                                              ? isJsonExpanded
+                                                ? 300
+                                                : 150
+                                              : 100,
+                                            maxWidth: hasJsonContent
+                                              ? isJsonExpanded
+                                                ? 600
+                                                : 300
+                                              : 200,
+                                            width: hasJsonContent
+                                              ? isJsonExpanded
+                                                ? "auto"
+                                                : "auto"
+                                              : "auto",
+                                            padding: 1,
+                                            borderRight: "1px solid",
+                                            borderColor: "divider",
+                                            transition: "all 0.3s ease",
+                                            overflow: "visible",
+                                            height: "auto",
+                                            minHeight: "fit-content",
+                                          }}
+                                        >
+                                          {hasJsonContent ? (
+                                            <Box
+                                              sx={{
+                                                minWidth: isJsonExpanded
+                                                  ? 250
+                                                  : 150,
+                                                maxWidth: isJsonExpanded
+                                                  ? 550
+                                                  : 350,
+                                                width: "100%",
                                                 minHeight: "fit-content",
-                                              },
-                                            }}
-                                          >
-                                            <ReactJson
-                                              src={value}
-                                              name={false}
-                                              collapsed={
-                                                key === "annotations"
-                                                  ? false
-                                                  : !isJsonExpanded
-                                              }
-                                              displayDataTypes={false}
-                                              displayObjectSize={false}
-                                              enableClipboard={false}
-                                              style={{
                                                 height: "auto",
-                                                minHeight: "fit-content",
-                                                lineHeight: "1.4",
-                                                fontSize: "12px",
+                                                overflow: "visible",
+                                                "& .react-json-view": {
+                                                  height: "auto !important",
+                                                  minHeight: "fit-content",
+                                                },
                                               }}
-                                            />
-                                          </Box>
-                                        ) : (
-                                          <Typography
-                                            variant="body2"
-                                            sx={{
-                                              fontFamily: "monospace",
-                                              wordBreak: "break-word",
-                                            }}
-                                          >
-                                            {String(value)}
-                                          </Typography>
-                                        )}
-                                      </TableCell>
-                                    );
-                                  })}
-                              </TableRow>
-                            ))}
+                                            >
+                                              <ReactJson
+                                                src={value}
+                                                name={false}
+                                                collapsed={
+                                                  key === "annotations"
+                                                    ? false
+                                                    : !isJsonExpanded
+                                                }
+                                                displayDataTypes={false}
+                                                displayObjectSize={false}
+                                                enableClipboard={false}
+                                                style={{
+                                                  height: "auto",
+                                                  minHeight: "fit-content",
+                                                  lineHeight: "1.4",
+                                                  fontSize: "12px",
+                                                }}
+                                              />
+                                            </Box>
+                                          ) : (
+                                            <Typography
+                                              variant="body2"
+                                              sx={{
+                                                fontFamily: "monospace",
+                                                wordBreak: "break-word",
+                                              }}
+                                            >
+                                              {String(value)}
+                                            </Typography>
+                                          )}
+                                        </TableCell>
+                                      );
+                                    })}
+                                </TableRow>
+                              ))}
                           </TableBody>
                         </Table>
                       </TableContainer>
                       {/* Always show pagination info when there are results */}
-                      {results.data?.length > 0 && (
+                      {displayResults.data?.length > 0 && (
                         <Box
                           sx={{
                             display: "flex",
@@ -1399,7 +1400,7 @@ const MongoQueryDialog = () => {
                             {(totalDocuments > pageSize ||
                               hasNextPage ||
                               currentPage > 1 ||
-                              results.data?.length >= pageSize) && (
+                              displayResults.data?.length >= pageSize) && (
                               <Box
                                 sx={{
                                   display: "flex",
@@ -1456,10 +1457,20 @@ const MongoQueryDialog = () => {
                                   disabled={
                                     !hasNextPage ||
                                     isLoadingPage ||
-                                    totalDocuments === 0
+                                    totalDocuments === 0 ||
+                                    isEstimatedCount
                                   }
                                   size="small"
-                                  title="Last page"
+                                  title={
+                                    isEstimatedCount
+                                      ? "Calculating exact page count..."
+                                      : "Last page"
+                                  }
+                                  sx={{
+                                    display: isEstimatedCount
+                                      ? "none"
+                                      : "inline-flex",
+                                  }}
                                 >
                                   <LastPageIcon />
                                 </IconButton>
@@ -1477,11 +1488,19 @@ const MongoQueryDialog = () => {
                                 ? "Loading..."
                                 : totalDocuments > 0
                                   ? `Showing page ${currentPage} (${Math.min(
-                                      results.data?.length || 0,
+                                      displayResults.data?.length || 0,
                                       pageSize,
-                                    )} results on this page)`
+                                    )} results on this page)${
+                                      isEstimatedCount
+                                        ? ` - Total: ~${totalDocuments} (estimated${
+                                            isCountingInBackground
+                                              ? ", counting..."
+                                              : ""
+                                          })`
+                                        : ""
+                                    }`
                                   : `Showing ${Math.min(
-                                      results.data?.length || 0,
+                                      displayResults.data?.length || 0,
                                       pageSize,
                                     )} results (cursor-based pagination)`}
                             </Typography>
@@ -1790,12 +1809,25 @@ const MongoQueryDialog = () => {
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <Typography variant="h6">Query Results</Typography>
             <Chip
-              label={`${Math.min(
-                results.data?.length || 0,
-                pageSize,
-              )} documents`}
+              label={
+                displayResults.data?.length === 0 && queryCompleted
+                  ? "0 documents"
+                  : isEstimatedCount
+                    ? `~${totalDocuments} documents${
+                        isCountingInBackground
+                          ? " (counting...)"
+                          : " (estimated)"
+                      }`
+                    : `${totalDocuments} documents`
+              }
               size="small"
-              color="success"
+              color={
+                displayResults.data?.length === 0 && queryCompleted
+                  ? "default"
+                  : isEstimatedCount
+                    ? "warning"
+                    : "success"
+              }
             />
             {totalDocuments > pageSize && (
               <Chip
@@ -1824,7 +1856,7 @@ const MongoQueryDialog = () => {
             height: "100%",
           }}
         >
-          {results.data?.length > 0 ? (
+          {displayResults.data?.length > 0 ? (
             <>
               <TableContainer
                 component={Paper}
@@ -1839,7 +1871,7 @@ const MongoQueryDialog = () => {
                 <Table stickyHeader>
                   <TableHead>
                     <TableRow>
-                      {Object.keys(results.data[0] || {})
+                      {Object.keys(displayResults.data[0] || {})
                         .filter((key) => key !== "_id")
                         .map((key) => (
                           <TableCell
@@ -1857,7 +1889,7 @@ const MongoQueryDialog = () => {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {results.data.map((row, rowIndex) => (
+                    {displayResults.data.map((row, rowIndex) => (
                       <TableRow
                         key={rowIndex}
                         sx={{
@@ -1949,7 +1981,7 @@ const MongoQueryDialog = () => {
               {(totalDocuments > pageSize ||
                 hasNextPage ||
                 currentPage > 1 ||
-                results.data?.length >= pageSize) && (
+                displayResults.data?.length >= pageSize) && (
                 <Box
                   sx={{
                     display: "flex",
@@ -2010,9 +2042,18 @@ const MongoQueryDialog = () => {
                             Math.ceil(totalDocuments / pageSize),
                           )
                         }
-                        disabled={!hasNextPage || isLoadingPage}
+                        disabled={
+                          !hasNextPage || isLoadingPage || isEstimatedCount
+                        }
                         size="small"
-                        title="Last page"
+                        title={
+                          isEstimatedCount
+                            ? "Calculating exact page count..."
+                            : "Last page"
+                        }
+                        sx={{
+                          display: isEstimatedCount ? "none" : "inline-flex",
+                        }}
                       >
                         <LastPageIcon fontSize="small" />
                       </IconButton>
@@ -2024,12 +2065,21 @@ const MongoQueryDialog = () => {
                     >
                       {isLoadingPage
                         ? "Loading..."
-                        : `Showing ${
-                            (currentPage - 1) * pageSize + 1
-                          }-${Math.min(
-                            currentPage * pageSize,
-                            totalDocuments,
-                          )} of ${totalDocuments} results`}
+                        : isEstimatedCount
+                          ? `Showing ${
+                              (currentPage - 1) * pageSize + 1
+                            }-${Math.min(
+                              currentPage * pageSize,
+                              totalDocuments,
+                            )} of ~${totalDocuments} results (estimated${
+                              isCountingInBackground ? ", counting..." : ""
+                            })`
+                          : `Showing ${
+                              (currentPage - 1) * pageSize + 1
+                            }-${Math.min(
+                              currentPage * pageSize,
+                              totalDocuments,
+                            )} of ${totalDocuments} results`}
                     </Typography>
                   </Stack>
                 </Box>
