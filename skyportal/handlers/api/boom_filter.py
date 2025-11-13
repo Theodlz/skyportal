@@ -50,7 +50,9 @@ def get_boom_token():
             return None, None
         auth_url = f"{boom_url}/auth"
         current_time = datetime.utcnow()
-        auth_response = requests.post(auth_url, json=boom_credentials)
+        auth_response = requests.post(auth_url, headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            }, data=boom_credentials)
         auth_response.raise_for_status()
         data = auth_response.json()
         token = data["access_token"]
@@ -200,7 +202,7 @@ class BoomFilterHandler(BaseHandler):
                     data_payload = {
                         "pipeline": data["altdata"],
                         "permissions": f.stream.altdata["selector"],
-                        "catalog": f.stream.altdata["collection"],
+                        "survey": f.stream.altdata["collection"].split("_")[0],
                     }
 
                     headers = {
