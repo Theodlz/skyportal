@@ -103,10 +103,13 @@ const combineWithPipeline = (
 
   // Add user pipeline stages
   finalPipeline.push(...userPipeline);
-
+  console.log(
+    "additionalStages",
+    additionalStages && additionalStages.length > 0,
+  );
   // Add any additional stages (like $limit, $count) before the final project stage
   if (additionalStages && additionalStages.length > 0) {
-    finalPipeline.push(...additionalStages);
+    finalPipeline.unshift(...additionalStages);
   }
 
   return finalPipeline;
@@ -207,6 +210,7 @@ const MongoQueryDialog = () => {
   const [pageSize] = useState(50);
   const [isLoadingPage, setIsLoadingPage] = useState(false);
   const [pageCursors, setPageCursors] = useState(new Map());
+  const [pageDataCache, setPageDataCache] = useState(new Map()); // Cache actual page data
   const [lastDocumentId, setLastDocumentId] = useState(null);
   const [hasNextPage, setHasNextPage] = useState(false);
   const [queryCompleted, setQueryCompleted] = useState(false);
@@ -462,7 +466,12 @@ const MongoQueryDialog = () => {
     }
   };
 
-  const executeQuery = async (page = 1, countOnly = false, cursor = null) => {
+  const executeQuery = async (
+    page = 1,
+    countOnly = false,
+    cursor = null,
+    direction = "forward",
+  ) => {
     const { startDate, endDate } = getConvertedDatesFromForm(getValues);
 
     const userPipeline = generateMongoQuery();
@@ -471,13 +480,13 @@ const MongoQueryDialog = () => {
 
     if (countOnly) {
       // For count queries, add $count stage
-      additionalStages.push({ $count: "total" });
+      // additionalStages.push({ $count: "total" });
       // userPipeline.push({ $count: "total" });
     } else {
       if (cursor) {
         additionalStages.push({
           $match: {
-            _id: { $gt: cursor },
+            _id: { [direction === "forward" ? "$gt" : "$lt"]: cursor },
           },
         });
       }
@@ -499,10 +508,11 @@ const MongoQueryDialog = () => {
     //     selectedCollection: selectedCollection,
     //   })
     // )
+    const sortOrder = direction === "backward" ? "Descending" : "Ascending";
     const result = countOnly
       ? await dispatch(
           runBoomFilter({
-            pipeline: userPipeline,
+            pipeline: pipeline,
             selectedCollection: selectedCollection,
             start_jd: startDate,
             end_jd: endDate,
@@ -511,14 +521,14 @@ const MongoQueryDialog = () => {
         )
       : await dispatch(
           runBoomTestFilter({
-            pipeline: userPipeline,
+            pipeline: pipeline,
             selectedCollection: selectedCollection,
             start_jd: startDate,
             end_jd: endDate,
             filter_id: filter_id,
             sort_by: "_id",
-            sort_order: "Ascending",
-            limit: 51,
+            sort_order: sortOrder,
+            limit: pageSize + 1,
           }),
         );
 
@@ -533,48 +543,65 @@ const MongoQueryDialog = () => {
     if (result.data?.data) {
       let originalData = result?.data?.data?.results;
 
-      if (originalData?.length > pageSize) {
-        const data = originalData.slice(0, pageSize);
-        const processedResult = {
-          ...result,
-          data: {
-            ...result.data,
-            data: data,
-          },
-        };
-
-        // Update local display results (only for non-count queries)
-        if (!countOnly) {
-          setDisplayResults(processedResult.data);
-        }
-
+      if (!originalData || originalData.length === 0) {
+        setDisplayResults({ data: [] });
         return {
-          result: processedResult,
-          hasNext: true,
-          nextCursor: data.length > 0 ? data[data.length - 1]._id : null,
-        };
-      } else {
-        const processedResult = {
-          ...result,
-          data: {
-            ...result.data,
-            data: originalData,
-          },
-        };
-
-        // Update local display results (only for non-count queries)
-        if (!countOnly) {
-          setDisplayResults(processedResult.data);
-        }
-
-        return {
-          result: processedResult,
+          result: result,
           hasNext: false,
           nextCursor: null,
+          firstId: null,
+          lastId: null,
         };
       }
+
+      let hasMore = originalData.length > pageSize;
+      let data;
+
+      if (direction === "backward") {
+        // For backward navigation with descending order and $lt cursor:
+        // originalData has items in descending order (excluding cursor)
+        // Take the first pageSize items, then reverse them
+        data = hasMore ? originalData.slice(0, pageSize + 1) : originalData;
+        data = [...data].reverse();
+      } else {
+        // Forward navigation with $gt cursor:
+        // originalData has items in ascending order (excluding cursor)
+        // Take the first pageSize items
+        data = hasMore ? originalData.slice(0, pageSize) : originalData;
+      }
+
+      const processedResult = {
+        ...result,
+        data: {
+          ...result.data,
+          data: data,
+        },
+      };
+
+      if (!countOnly) {
+        setDisplayResults({ data: data });
+      }
+
+      // Store the actual displayed data boundaries for cursor navigation
+      const firstId = data.length > 0 ? data[0]._id : null;
+      const lastId = data.length > 0 ? data[data.length - 1]._id : null;
+
+      return {
+        result: processedResult,
+        hasNext: hasMore,
+        nextCursor: lastId,
+        firstId: firstId,
+        lastId: lastId,
+        data: data, // Return data for caching
+      };
     }
-    return { result: result, hasNext: false, nextCursor: null };
+    return {
+      result: result,
+      hasNext: false,
+      nextCursor: null,
+      firstId: null,
+      lastId: null,
+    };
   };
 
   const handleRunQuery = async () => {
@@ -619,26 +646,26 @@ const MongoQueryDialog = () => {
           type: "skyportal/RUN_BOOM_FILTER_OK",
           data: firstPageQueryResult.result.data,
         });
-        // Update local display results for immediate UI update
-        // Ensure we set the correct structure: { data: [...] }
-        setDisplayResults({
-          data:
-            firstPageQueryResult.result.data.data ||
-            firstPageQueryResult.result.data,
-        });
       }
 
       setHasNextPage(firstPageQueryResult.hasNext);
 
       const newCursors = new Map();
-      newCursors.set(1, null);
-
-      if (firstPageQueryResult.nextCursor) {
-        newCursors.set(2, firstPageQueryResult.nextCursor);
-        setLastDocumentId(firstPageQueryResult.nextCursor);
+      if (firstPageQueryResult.firstId && firstPageQueryResult.lastId) {
+        newCursors.set(1, {
+          firstId: firstPageQueryResult.firstId,
+          lastId: firstPageQueryResult.lastId,
+        });
       }
 
       setPageCursors(newCursors);
+
+      // Cache page 1 data
+      if (firstPageQueryResult.data) {
+        const newCache = new Map();
+        newCache.set(1, firstPageQueryResult.data);
+        setPageDataCache(newCache);
+      }
 
       // Get actual count after first page
       const countQueryResult = await executeQuery(1, true);
@@ -663,97 +690,113 @@ const MongoQueryDialog = () => {
     setExpandedCells(new Set());
 
     try {
-      let cursor = null;
+      // Check if we have cached data for this page
+      if (pageDataCache.has(newPage)) {
+        console.log(`Using cached data for page ${newPage}`);
+        const cachedData = pageDataCache.get(newPage);
+        setDisplayResults({ data: cachedData });
+        setCurrentPage(newPage);
+        setIsLoadingPage(false);
+        return;
+      }
 
-      if (newPage > currentPage) {
-        cursor = pageCursors.get(newPage);
-      } else if (newPage < currentPage) {
-        if (pageCursors.has(newPage)) {
-          cursor = pageCursors.get(newPage);
-        } else {
-          // For backward navigation without cursor, we need to re-execute from beginning
-          // and build up to the desired page using cursor-based pagination
-          const { startDate, endDate } = getConvertedDatesFromForm(getValues);
+      // Check if this is sequential navigation
+      const isSequential = Math.abs(newPage - currentPage) === 1;
 
-          // Start from the beginning and navigate page by page to build cursors
-          let currentCursor = null;
-          let pageData = null;
+      if (isSequential) {
+        // Sequential navigation: use cursor from current page
+        let cursor = null;
+        let direction = "forward";
 
-          for (let page = 1; page <= newPage; page++) {
-            const userPipeline = generateMongoQuery();
+        if (newPage > currentPage) {
+          // Forward navigation: use last _id from current page
+          const currentPageData = pageCursors.get(currentPage);
+          cursor = currentPageData?.lastId;
+          direction = "forward";
+          console.log(
+            `Forward nav: page ${currentPage}→${newPage}, using cursor (lastId of ${currentPage}):`,
+            cursor,
+          );
+        } else if (newPage < currentPage) {
+          // Backward navigation: use first _id from current page with $lt
+          const currentPageData = pageCursors.get(currentPage);
+          cursor = currentPageData?.firstId;
+          direction = "backward";
+          console.log(
+            `Backward nav: page ${currentPage}→${newPage}, using cursor (firstId of ${currentPage}):`,
+            cursor,
+          );
+        }
 
-            // Prepare additional stages for cursor-based pagination and limiting
-            const additionalStages = [];
+        const queryResult = await executeQuery(
+          newPage,
+          false,
+          cursor,
+          direction,
+        );
+        setHasNextPage(queryResult.hasNext);
 
-            // Use cursor-based pagination instead of $skip
-            if (currentCursor) {
-              additionalStages.push({
-                $match: {
-                  _id: { $gt: currentCursor },
-                },
-              });
-            }
+        console.log(`Page ${newPage} results:`, {
+          firstId: queryResult.firstId,
+          lastId: queryResult.lastId,
+          count: queryResult.data?.length,
+        });
 
-            additionalStages.push({ $limit: pageSize + 1 });
+        // Store first and last IDs for this page
+        const newCursors = new Map(pageCursors);
+        if (queryResult.firstId && queryResult.lastId) {
+          newCursors.set(newPage, {
+            firstId: queryResult.firstId,
+            lastId: queryResult.lastId,
+          });
+        }
+        setPageCursors(newCursors);
 
-            const pipeline = combineWithPipeline(
-              userPipeline,
-              additionalStages,
-            );
+        // Cache the page data
+        if (queryResult.data) {
+          const newCache = new Map(pageDataCache);
+          newCache.set(newPage, queryResult.data);
+          setPageDataCache(newCache);
+        }
 
-            const result = await dispatch(
-              runBoomTestFilter({
-                pipeline: pipeline,
-                selectedCollection: selectedCollection,
-                start_jd: startDate,
-                end_jd: endDate,
-                filter_id: filter_id,
-              }),
-            );
+        setCurrentPage(newPage);
+      } else {
+        // Non-sequential navigation: rebuild cursor chain from page 1
+        const newCursors = new Map();
+        const newCache = new Map(pageDataCache); // Preserve existing cache
+        let cursor = null;
 
-            pageData = result.data?.data || [];
+        for (let page = 1; page <= newPage; page++) {
+          const queryResult = await executeQuery(
+            page,
+            false,
+            cursor,
+            "forward",
+          );
 
-            // Update cursor for next iteration and save cursor for this page
-            const newCursors = new Map(pageCursors);
-            newCursors.set(page, currentCursor);
-
-            if (pageData.length > pageSize) {
-              currentCursor = pageData[pageSize - 1]._id;
-              pageData = pageData.slice(0, pageSize);
-              newCursors.set(page + 1, currentCursor);
-            } else if (pageData.length > 0) {
-              currentCursor = pageData[pageData.length - 1]._id;
-            }
-
-            setPageCursors(newCursors);
+          if (queryResult.firstId && queryResult.lastId) {
+            newCursors.set(page, {
+              firstId: queryResult.firstId,
+              lastId: queryResult.lastId,
+            });
+            cursor = queryResult.lastId;
           }
 
-          // Use the final page data
-          let hasNext = pageData.length === pageSize;
+          // Cache page data
+          if (queryResult.data) {
+            newCache.set(page, queryResult.data);
+          }
 
-          setHasNextPage(hasNext);
-          setCurrentPage(newPage);
-          return;
+          // Update hasNext for the target page
+          if (page === newPage) {
+            setHasNextPage(queryResult.hasNext);
+          }
         }
+
+        setPageCursors(newCursors);
+        setPageDataCache(newCache);
+        setCurrentPage(newPage);
       }
-
-      const queryResult = await executeQuery(newPage, false, cursor);
-
-      setHasNextPage(queryResult.hasNext);
-
-      const newCursors = new Map(pageCursors);
-
-      if (cursor && newPage > 1) {
-        newCursors.set(newPage, cursor);
-      }
-
-      if (queryResult.nextCursor) {
-        newCursors.set(newPage + 1, queryResult.nextCursor);
-        setLastDocumentId(queryResult.nextCursor);
-      }
-
-      setPageCursors(newCursors);
-      setCurrentPage(newPage);
     } catch (error) {
       console.error("Page change error:", error);
       setQueryError(error.message);
@@ -1026,7 +1069,8 @@ const MongoQueryDialog = () => {
                             </TableRow>
                           </TableHead>
                           <TableBody>
-                            {displayResults?.data?.slice(0, 50)
+                            {displayResults?.data
+                              ?.slice(0, 50)
                               .map((row, rowIndex) => (
                                 <TableRow
                                   key={rowIndex}
