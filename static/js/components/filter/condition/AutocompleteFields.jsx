@@ -40,6 +40,15 @@ const GroupItems = styled("ul")({
   padding: 0,
 });
 
+const ChipSpan = styled("span")({
+  // Hide scrollbars across all browsers
+  scrollbarWidth: "none", // Firefox
+  msOverflowStyle: "none", // IE/Edge
+  "&::-webkit-scrollbar": {
+    display: "none", // Chrome, Safari, Opera
+  },
+});
+
 const AutocompleteFields = ({
   fieldOptions,
   value,
@@ -50,7 +59,8 @@ const AutocompleteFields = ({
   side,
   setEquationAnchor = null,
 }) => {
-  const [showFullPath, setShowFullPath] = useState(false);
+  // Show full path by default; clicking the chip toggles showing the group name vs short name
+  const [showGroupName, setShowGroupName] = useState(true);
   const [searchInput, setSearchInput] = useState("");
   // Initialize collapsed groups as empty Set, will be populated when groups are computed
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
@@ -168,9 +178,16 @@ const AutocompleteFields = ({
       fontSize: 15,
       padding: "2px 12px",
       transition: "all 0.2s ease",
-      overflow: "hidden",
-      whiteSpace: baseStyles.whiteSpace,
+      overflowX: "auto",
+      overflowY: "hidden",
+      whiteSpace: baseStyles.whiteSpace || "nowrap",
       textOverflow: "ellipsis",
+      WebkitOverflowScrolling: "touch",
+      // Note: Pseudo-elements like ::-webkit-scrollbar cannot be used in inline styles
+      // Hide scrollbars using standard properties
+      scrollbarWidth: "none", // Firefox
+      msOverflowStyle: "none", // IE/Edge
+      // Chrome/Safari scrollbar hiding requires a CSS class or styled component
     };
   };
 
@@ -205,7 +222,7 @@ const AutocompleteFields = ({
   // };
 
   const togglePathDisplay = () => {
-    setShowFullPath(!showFullPath);
+    setShowGroupName((s) => !s);
   };
 
   return (
@@ -424,7 +441,8 @@ const AutocompleteFields = ({
                   minWidth: 0,
                   maxWidth: "calc(100% - 16px)",
                   whiteSpace: "nowrap",
-                  overflow: "hidden",
+                  overflowX: "auto",
+                  overflowY: "hidden",
                   textOverflow: "ellipsis",
                   pointerEvents: "auto",
                   zIndex: 2,
@@ -489,7 +507,8 @@ const AutocompleteFields = ({
                   minWidth: 0,
                   maxWidth: "calc(100% - 16px)",
                   whiteSpace: "nowrap",
-                  overflow: "hidden",
+                  overflowX: "auto",
+                  overflowY: "hidden",
                   textOverflow: "ellipsis",
                   pointerEvents: "auto",
                   zIndex: 2,
@@ -527,18 +546,7 @@ const AutocompleteFields = ({
               arrayFieldOption.group &&
               arrayFieldOption.group !== "Other Fields";
             const displayText = () => {
-              if (showFullPath && hasCategory) {
-                return `${arrayFieldOption.group}.${getDisplayName(
-                  arrayFieldOption.label,
-                )}`;
-              } else if (
-                showFullPath &&
-                isNestedField(arrayFieldOption.label)
-              ) {
-                return arrayFieldOption.label;
-              } else {
-                return getDisplayName(arrayFieldOption.label);
-              }
+              return arrayFieldOption.label;
             };
 
             const currentDisplayText = displayText();
@@ -557,7 +565,8 @@ const AutocompleteFields = ({
               cursor: "pointer",
               minWidth: 0,
               whiteSpace: "nowrap",
-              overflow: "hidden",
+              overflowX: "auto",
+              overflowY: "hidden",
               textOverflow: "ellipsis",
               pointerEvents: "auto",
               zIndex: 2,
@@ -565,7 +574,7 @@ const AutocompleteFields = ({
             };
 
             return (
-              <span
+              <ChipSpan
                 style={getChipStyles(currentDisplayText, baseStyles)}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -574,7 +583,7 @@ const AutocompleteFields = ({
                 title={getTooltipText(arrayFieldOption, currentDisplayText)}
               >
                 {currentDisplayText}
-              </span>
+              </ChipSpan>
             );
           }
 
@@ -606,7 +615,8 @@ const AutocompleteFields = ({
                   minWidth: 0,
                   maxWidth: "calc(100% - 16px)",
                   whiteSpace: "nowrap",
-                  overflow: "hidden",
+                  overflowX: "auto",
+                  overflowY: "hidden",
                   textOverflow: "ellipsis",
                   pointerEvents: "auto",
                   zIndex: 2,
@@ -637,18 +647,7 @@ const AutocompleteFields = ({
           // Show chip if value matches a variable, a field option, or a list option (array type)
           if (variableOption) {
             const displayText = () => {
-              if (
-                showFullPath &&
-                (isNestedField(variableOption.label) ||
-                  (variableOption.group &&
-                    variableOption.group !== "Arithmetic Variables"))
-              ) {
-                return isNestedField(variableOption.label)
-                  ? variableOption.label
-                  : `${variableOption.group}.${variableOption.label}`;
-              } else {
-                return getDisplayName(variableOption.label);
-              }
+              return variableOption.label;
             };
 
             const currentDisplayText = displayText();
@@ -667,14 +666,15 @@ const AutocompleteFields = ({
               cursor: "pointer",
               minWidth: 0,
               whiteSpace: "nowrap",
-              overflow: "hidden",
+              overflowX: "auto",
+              overflowY: "hidden",
               textOverflow: "ellipsis",
               pointerEvents: "auto",
               zIndex: 2,
             };
 
             return (
-              <span
+              <ChipSpan
                 style={getChipStyles(currentDisplayText, baseStyles)}
                 onClick={(e) => {
                   if (
@@ -706,7 +706,7 @@ const AutocompleteFields = ({
                 }
               >
                 {currentDisplayText}
-              </span>
+              </ChipSpan>
             );
           }
           if (fieldOption) {
@@ -714,15 +714,7 @@ const AutocompleteFields = ({
               fieldOption.group &&
               !["candidate", "Other Fields"].includes(fieldOption.group);
             const displayText = () => {
-              if (showFullPath && hasCategory) {
-                return `${fieldOption.group}.${getDisplayName(
-                  fieldOption.label,
-                )}`;
-              } else if (showFullPath && isNestedField(fieldOption.label)) {
-                return fieldOption.label;
-              } else {
-                return getDisplayName(fieldOption.label);
-              }
+              return fieldOption.label;
             };
 
             const currentDisplayText = displayText();
@@ -742,14 +734,15 @@ const AutocompleteFields = ({
               cursor: "pointer",
               minWidth: 0,
               whiteSpace: "nowrap",
-              overflow: "hidden",
+              overflowX: "auto",
+              overflowY: "hidden",
               textOverflow: "ellipsis",
               pointerEvents: "auto",
               zIndex: 2,
             };
 
             return (
-              <span
+              <ChipSpan
                 style={getChipStyles(currentDisplayText, baseStyles)}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -758,7 +751,7 @@ const AutocompleteFields = ({
                 title={getTooltipText(fieldOption, currentDisplayText)}
               >
                 {currentDisplayText}
-              </span>
+              </ChipSpan>
             );
           }
           // Show chip for list/array type options
@@ -769,15 +762,7 @@ const AutocompleteFields = ({
             const hasCategory =
               listOption.group && listOption.group !== "Other Fields";
             const displayText = () => {
-              if (showFullPath && hasCategory) {
-                return `${listOption.group}.${getDisplayName(
-                  listOption.label,
-                )}`;
-              } else if (showFullPath && isNestedField(listOption.label)) {
-                return listOption.label;
-              } else {
-                return getDisplayName(listOption.label), showFullPath;
-              }
+              return listOption.label;
             };
 
             const currentDisplayText = displayText();
@@ -796,14 +781,15 @@ const AutocompleteFields = ({
               cursor: "pointer",
               minWidth: 0,
               whiteSpace: "nowrap",
-              overflow: "hidden",
+              overflowX: "auto",
+              overflowY: "hidden",
               textOverflow: "ellipsis",
               pointerEvents: "auto",
               zIndex: 2,
             };
 
             return (
-              <span
+              <ChipSpan
                 style={getChipStyles(currentDisplayText, baseStyles)}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -812,7 +798,7 @@ const AutocompleteFields = ({
                 title={getTooltipText(listOption, currentDisplayText)}
               >
                 {currentDisplayText}
-              </span>
+              </ChipSpan>
             );
           }
           // Do not show chip for free input values
