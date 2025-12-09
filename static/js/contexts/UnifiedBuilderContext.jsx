@@ -100,42 +100,53 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
       customListVariables,
     );
 
-    // If there are projection fields (annotations), add projection stage
+    // If there are projection fields (annotations), adapt the final project stage
     if (projectionFields && projectionFields.length > 0) {
-      // Generate projection stage
-      const projection = { objectId: 1 };
-      const annotations = {};
+      // Get the last stage (which is always a $project stage now)
+      const lastStageIndex = baseQuery.length - 1;
+      const lastStage = baseQuery[lastStageIndex];
 
-      projectionFields.forEach((field) => {
-        if (!field.fieldName || field.fieldName === "objectId") return;
-        const outputName = field.outputName || field.fieldName;
+      if (lastStage && lastStage.$project) {
+        // Start with existing projection (includes _id and used fields)
+        const enhancedProjection = { ...lastStage.$project };
 
-        // For now, handle basic projection types
-        switch (field.type) {
-          case "include":
-            annotations[outputName] = `$${field.fieldName}`;
-            break;
-          case "exclude":
-            annotations[outputName] = 0;
-            break;
-          case "round":
-            annotations[outputName] = {
-              $round: [`$${field.fieldName}`, field.roundDecimals || 4],
-            };
-            break;
-          default:
-            annotations[outputName] = `$${field.fieldName}`;
+        // Add objectId explicitly if not already there
+        if (!enhancedProjection.objectId) {
+          enhancedProjection.objectId = "$objectId";
         }
-      });
 
-      // Add annotations to projection if there are any
-      if (Object.keys(annotations).length > 0) {
-        projection.annotations = annotations;
-      }
+        // Build annotations object
+        const annotations = {};
 
-      if (Object.keys(projection).length > 1) {
-        // More than just objectId
-        return [...baseQuery, { $project: projection }];
+        projectionFields.forEach((field) => {
+          if (!field.fieldName || field.fieldName === "objectId") return;
+          const outputName = field.outputName || field.fieldName;
+
+          // Handle different projection types
+          switch (field.type) {
+            case "include":
+              annotations[outputName] = `$${field.fieldName}`;
+              break;
+            case "exclude":
+              annotations[outputName] = 0;
+              break;
+            case "round":
+              annotations[outputName] = {
+                $round: [`$${field.fieldName}`, field.roundDecimals || 4],
+              };
+              break;
+            default:
+              annotations[outputName] = `$${field.fieldName}`;
+          }
+        });
+
+        // Add annotations to projection if there are any
+        if (Object.keys(annotations).length > 0) {
+          enhancedProjection.annotations = annotations;
+        }
+
+        // Replace the last stage with the enhanced projection
+        baseQuery[lastStageIndex] = { $project: enhancedProjection };
       }
     }
 

@@ -47,7 +47,11 @@ import FormValidationError from "../../FormValidationError.jsx";
 import ReactJson from "react-json-view";
 import makeStyles from "@mui/styles/makeStyles";
 import { useDispatch, useSelector } from "react-redux";
-import { runBoomFilter, clearBoomFilter } from "../../../ducks/boom_run_filter";
+import {
+  runBoomFilter,
+  runBoomTestFilter,
+  clearBoomFilter,
+} from "../../../ducks/boom_run_filter";
 
 const useStyles = makeStyles((theme) => ({
   timeRange: {
@@ -88,93 +92,24 @@ const getStageDescription = (stageName) => {
   return descriptions[stageName] || "MongoDB aggregation stage";
 };
 
-const createLookupPipeline = (filter_stream, startDate, endDate) => {
-  const auxCollection =
-    filter_stream === "ZTF" ? "ZTF_alerts_aux" : "LSST_alerts_aux";
+// Helper function to properly combine user pipeline with additional stages
+// Note: Sorting is now handled by the API, not in the pipeline
+const combineWithPipeline = (
+  userPipeline,
+  additionalStages = [],
+  isCountOnly = false,
+) => {
+  const finalPipeline = [];
 
-  const prepend = [
-    {
-      $lookup: {
-        from: auxCollection,
-        localField: "objectId",
-        foreignField: "_id",
-        as: "aux",
-      },
-    },
-    {
-      $project: {
-        objectId: 1,
-        candidate: 1,
-        classifications: 1,
-        coordinates: 1,
-        cross_matches: {
-          $arrayElemAt: ["$aux.cross_matches", 0],
-        },
-        aliases: {
-          $arrayElemAt: ["$aux.aliases", 0],
-        },
-        prv_candidates: {
-          $filter: {
-            input: {
-              $arrayElemAt: ["$aux.prv_candidates", 0],
-            },
-            as: "x",
-            cond: {
-              $and: [
-                {
-                  $lt: [
-                    {
-                      $subtract: ["$candidate.jd", "$$x.jd"],
-                    },
-                    365,
-                  ],
-                },
-                {
-                  $lte: ["$$x.jd", "$candidate.jd"],
-                },
-              ],
-            },
-          },
-        },
-        fp_hists: {
-          $filter: {
-            input: {
-              $arrayElemAt: ["$aux.fp_hists", 0],
-            },
-            as: "x",
-            cond: {
-              $and: [
-                {
-                  $lt: [
-                    {
-                      $subtract: ["$candidate.jd", "$$x.jd"],
-                    },
-                    365,
-                  ],
-                },
-                {
-                  $lte: ["$$x.jd", "$candidate.jd"],
-                },
-              ],
-            },
-          },
-        },
-      },
-    },
-  ];
+  // Add user pipeline stages
+  finalPipeline.push(...userPipeline);
 
-  if (startDate && endDate) {
-    prepend.push({
-      $match: {
-        "candidate.jd": {
-          $gte: startDate,
-          $lte: endDate,
-        },
-      },
-    });
+  // Add any additional stages (like $limit, $count) before the final project stage
+  if (additionalStages && additionalStages.length > 0) {
+    finalPipeline.push(...additionalStages);
   }
 
-  return prepend;
+  return finalPipeline;
 };
 
 const resetPaginationAndQueryState = (setters) => {
@@ -186,12 +121,7 @@ const resetPaginationAndQueryState = (setters) => {
     setPageCursors,
     setLastDocumentId,
     setHasNextPage,
-    setIsReverseSorting,
-    setReversePageCursors,
     setLastPageOffset,
-    setIsEstimatedCount,
-    setIsCountingInBackground,
-    setEstimatedTotalDocuments,
     setDisplayResults,
     setQueryCompleted,
   } = setters;
@@ -203,12 +133,7 @@ const resetPaginationAndQueryState = (setters) => {
   setPageCursors(new Map());
   setLastDocumentId(null);
   setHasNextPage(false);
-  setIsReverseSorting(false);
-  setReversePageCursors(new Map());
   setLastPageOffset(0);
-  setIsEstimatedCount(false);
-  setIsCountingInBackground(false);
-  setEstimatedTotalDocuments(0);
   setDisplayResults({ data: [] });
 
   // Optional setters that may not be available in all contexts
@@ -250,6 +175,12 @@ const MongoQueryDialog = () => {
   const filter_stream = useSelector(
     (state) => state.filter_v.stream?.name?.split(" ")[0],
   );
+  const filter_id = useSelector((state) => state.filter_v.id);
+  const query_result = useSelector((state) => state.query_result);
+  const last_result_id = useSelector((state) =>
+    state.query_result?.data?.results?.at(-1),
+  );
+
   const dispatch = useDispatch();
   const { useAMPM } = useSelector((state) => state.profile.preferences);
 
@@ -264,6 +195,7 @@ const MongoQueryDialog = () => {
   );
   const [isRunning, setIsRunning] = useState(false);
   const [queryError, setQueryError] = useState(null);
+  const [dateValidationError, setDateValidationError] = useState(null);
   const [showPipeline, setShowPipeline] = useState(true);
   const [pipelineView, setPipelineView] = useState("complete");
   const [connectionStatus, setConnectionStatus] = useState("unknown");
@@ -279,12 +211,7 @@ const MongoQueryDialog = () => {
   const [hasNextPage, setHasNextPage] = useState(false);
   const [queryCompleted, setQueryCompleted] = useState(false);
   const [lastQueryString, setLastQueryString] = useState("");
-  const [isReverseSorting, setIsReverseSorting] = useState(false);
-  const [reversePageCursors, setReversePageCursors] = useState(new Map());
   const [lastPageOffset, setLastPageOffset] = useState(0);
-  const [isEstimatedCount, setIsEstimatedCount] = useState(false);
-  const [isCountingInBackground, setIsCountingInBackground] = useState(false);
-  const [estimatedTotalDocuments, setEstimatedTotalDocuments] = useState(0);
 
   useEffect(() => {
     if (hasValidQuery()) {
@@ -300,12 +227,7 @@ const MongoQueryDialog = () => {
           setPageCursors,
           setLastDocumentId,
           setHasNextPage,
-          setIsReverseSorting,
-          setReversePageCursors,
           setLastPageOffset,
-          setIsEstimatedCount,
-          setIsCountingInBackground,
-          setEstimatedTotalDocuments,
           setDisplayResults,
           setQueryCompleted,
         });
@@ -324,12 +246,7 @@ const MongoQueryDialog = () => {
           setPageCursors,
           setLastDocumentId,
           setHasNextPage,
-          setIsReverseSorting,
-          setReversePageCursors,
           setLastPageOffset,
-          setIsEstimatedCount,
-          setIsCountingInBackground,
-          setEstimatedTotalDocuments,
           setDisplayResults,
           setQueryCompleted,
         });
@@ -360,12 +277,7 @@ const MongoQueryDialog = () => {
         setPageCursors,
         setLastDocumentId,
         setHasNextPage,
-        setIsReverseSorting,
-        setReversePageCursors,
         setLastPageOffset,
-        setIsEstimatedCount,
-        setIsCountingInBackground,
-        setEstimatedTotalDocuments,
         setDisplayResults,
         setQueryCompleted,
       });
@@ -382,15 +294,74 @@ const MongoQueryDialog = () => {
     getValues,
     control,
     formState: { errors },
+    watch,
   } = useForm({
     startDate: defaultStartDate,
     endDate: defaultEndDate,
   });
 
-  const validateDates = () => {
+  // Watch for date changes and validate
+  const watchedStartDate = watch("startDate");
+  const watchedEndDate = watch("endDate");
+
+  useEffect(() => {
+    if (watchedStartDate && watchedEndDate) {
+      const startDate = new Date(watchedStartDate);
+      const endDate = new Date(watchedEndDate);
+
+      if (startDate > endDate) {
+        setDateValidationError("Start date must be before end date.");
+      } else {
+        const diffInMs = endDate.getTime() - startDate.getTime();
+        const diffInDays = diffInMs / (1000 * 60 * 60 * 24);
+
+        if (diffInDays > 7) {
+          setDateValidationError("Date range cannot exceed 7 days.");
+        } else {
+          setDateValidationError(null);
+        }
+      }
+    } else {
+      setDateValidationError(null);
+    }
+  }, [watchedStartDate, watchedEndDate]);
+
+  // const validateDates = () => {
+  //   const formState = getValues();
+  //   if (!!formState.startDate && !!formState.endDate) {
+  //     const startDate = new Date(formState.startDate);
+  //     const endDate = new Date(formState.endDate);
+
+  //     // Check if start date is before end date
+  //     if (startDate > endDate) {
+  //       return false;
+  //     }
+
+  //     // Check if date range is maximum 7 days
+  //     const diffInMs = endDate.getTime() - startDate.getTime();
+  //     const diffInDays = diffInMs / (1000 * 60 * 60 * 24);
+
+  //     return diffInDays <= 7;
+  //   }
+  //   return true;
+  // };
+
+  const isDateRangeValid = () => {
     const formState = getValues();
-    if (!!formState.startDate && !!formState.endDate) {
-      return formState.startDate <= formState.endDate;
+    if (formState.startDate && formState.endDate) {
+      const startDate = new Date(formState.startDate);
+      const endDate = new Date(formState.endDate);
+
+      // Check if start date is before end date
+      if (startDate > endDate) {
+        return false;
+      }
+
+      // Check if date range is maximum 7 days
+      const diffInMs = endDate.getTime() - startDate.getTime();
+      const diffInDays = diffInMs / (1000 * 60 * 60 * 24);
+
+      return diffInDays <= 7;
     }
     return true;
   };
@@ -418,12 +389,7 @@ const MongoQueryDialog = () => {
         setPageCursors,
         setLastDocumentId,
         setHasNextPage,
-        setIsReverseSorting,
-        setReversePageCursors,
         setLastPageOffset,
-        setIsEstimatedCount,
-        setIsCountingInBackground,
-        setEstimatedTotalDocuments,
         setDisplayResults,
         setQueryCompleted,
       });
@@ -454,12 +420,7 @@ const MongoQueryDialog = () => {
       setPageCursors,
       setLastDocumentId,
       setHasNextPage,
-      setIsReverseSorting,
-      setReversePageCursors,
       setLastPageOffset,
-      setIsEstimatedCount,
-      setIsCountingInBackground,
-      setEstimatedTotalDocuments,
       setDisplayResults,
     });
   };
@@ -501,41 +462,65 @@ const MongoQueryDialog = () => {
     }
   };
 
-  const executeQuery = async (
-    page = 1,
-    countOnly = false,
-    cursor = null,
-    reverse = false,
-  ) => {
+  const executeQuery = async (page = 1, countOnly = false, cursor = null) => {
     const { startDate, endDate } = getConvertedDatesFromForm(getValues);
 
-    const pipeline = generateMongoQuery();
-    const prepend = createLookupPipeline(filter_stream, startDate, endDate);
+    const userPipeline = generateMongoQuery();
 
-    pipeline.unshift(...prepend);
+    let additionalStages = [];
 
     if (countOnly) {
-      pipeline.push({ $count: "total" });
+      // For count queries, add $count stage
+      additionalStages.push({ $count: "total" });
+      // userPipeline.push({ $count: "total" });
     } else {
       if (cursor) {
-        pipeline.push({
+        additionalStages.push({
           $match: {
-            _id: reverse ? { $lt: cursor } : { $gt: cursor },
+            _id: { $gt: cursor },
           },
         });
       }
 
-      pipeline.push({ $sort: { _id: reverse ? -1 : 1 } });
-
-      pipeline.push({ $limit: pageSize + 1 });
+      // additionalStages.push({ $limit: pageSize + 1 });
     }
 
-    const result = await dispatch(
-      runBoomFilter({
-        pipeline: pipeline,
-        selectedCollection: selectedCollection,
-      }),
+    const pipeline = combineWithPipeline(
+      userPipeline,
+      additionalStages,
+      countOnly,
     );
+    // Here what if we have multiple match stages?
+    // Currently using regular query for count only not the count endpoint because it
+    // requires only the content of match stage which gets tricky when having nested filters
+    // const result = countOnly ? await dispatch(
+    //   runBoomFilter({
+    //     filter: userPipeline[0],
+    //     selectedCollection: selectedCollection,
+    //   })
+    // )
+    const result = countOnly
+      ? await dispatch(
+          runBoomFilter({
+            pipeline: userPipeline,
+            selectedCollection: selectedCollection,
+            start_jd: startDate,
+            end_jd: endDate,
+            filter_id: filter_id,
+          }),
+        )
+      : await dispatch(
+          runBoomTestFilter({
+            pipeline: userPipeline,
+            selectedCollection: selectedCollection,
+            start_jd: startDate,
+            end_jd: endDate,
+            filter_id: filter_id,
+            sort_by: "_id",
+            sort_order: "Ascending",
+            limit: 51,
+          }),
+        );
 
     if (countOnly) {
       return {
@@ -546,14 +531,9 @@ const MongoQueryDialog = () => {
     }
 
     if (result.data?.data) {
-      let originalData = result.data.data;
+      let originalData = result?.data?.data?.results;
 
-      // If reverse sorting, we need to reverse the data to maintain correct display order
-      if (reverse) {
-        originalData = [...originalData].reverse();
-      }
-
-      if (originalData.length > pageSize) {
+      if (originalData?.length > pageSize) {
         const data = originalData.slice(0, pageSize);
         const processedResult = {
           ...result,
@@ -597,146 +577,21 @@ const MongoQueryDialog = () => {
     return { result: result, hasNext: false, nextCursor: null };
   };
 
-  const estimateDocumentCount = async () => {
-    try {
-      // Use sampling to provide a fast initial estimate
-      // This gives users immediate feedback while the precise count runs in background
-
-      const sampleSize = 500; // Smaller sample for quick initial estimate
-      const { startDate, endDate } = getConvertedDatesFromForm(getValues);
-
-      // Create a sampling pipeline that gets a random sample
-      const samplingPipeline = [
-        ...createLookupPipeline(filter_stream, startDate, endDate),
-        { $sample: { size: sampleSize } },
-      ];
-
-      const sampleResult = await dispatch(
-        runBoomFilter({
-          pipeline: samplingPipeline,
-          selectedCollection: selectedCollection,
-        }),
-      );
-
-      if (sampleResult.data?.data) {
-        const sampleData = sampleResult.data.data;
-        const actualSampleSize = sampleData.length;
-
-        if (actualSampleSize === 0) {
-          return pageSize * 2; // Minimum fallback
-        }
-
-        // Apply user filters to the sample data manually (in-memory filtering)
-        const userPipeline = generateMongoQuery();
-        if (userPipeline.length === 0) {
-          // No additional filters, all sampled documents match
-          const estimatedTotal =
-            actualSampleSize < sampleSize
-              ? actualSampleSize // Small collection
-              : Math.round(actualSampleSize * 20); // Conservative estimate for larger collection
-
-          return Math.max(estimatedTotal, pageSize * 2);
-        } else {
-          // Estimate match ratio based on filter complexity rather than running another query
-          // This avoids the second exact count operation
-          let estimatedMatchRatio = 1.0;
-
-          // Analyze filter complexity to estimate matching ratio
-          const hasMatchStages = userPipeline.some((stage) => stage.$match);
-          const hasComplexFilters = userPipeline.some(
-            (stage) => stage.$match && Object.keys(stage.$match).length > 2,
-          );
-
-          if (hasComplexFilters) {
-            estimatedMatchRatio = 0.15; // Complex filters typically match ~15%
-          } else if (hasMatchStages) {
-            estimatedMatchRatio = 0.4; // Simple filters typically match ~40%
-          }
-
-          // Add some variance based on sample characteristics
-          const variance = 0.3;
-          const randomFactor = 1 + (Math.random() - 0.5) * 2 * variance;
-          estimatedMatchRatio *= randomFactor;
-          estimatedMatchRatio = Math.max(
-            0.05,
-            Math.min(0.8, estimatedMatchRatio),
-          ); // Clamp between 5% and 80%
-
-          // Estimate total collection size based on sample
-          let estimatedCollectionSize;
-          if (actualSampleSize < sampleSize) {
-            // Small collection
-            estimatedCollectionSize = actualSampleSize * 1.5;
-          } else {
-            // Large collection, conservative estimate
-            estimatedCollectionSize = actualSampleSize * 15;
-          }
-
-          const estimatedTotal = Math.round(
-            estimatedCollectionSize * estimatedMatchRatio,
-          );
-          return Math.max(estimatedTotal, pageSize * 2);
-        }
-      } else {
-        // Fallback to simple heuristic if sampling fails
-        return estimateDocumentCountHeuristic();
-      }
-    } catch (error) {
-      console.error("Sampling estimation error:", error);
-      // Fallback to heuristic method
-      return estimateDocumentCountHeuristic();
-    }
-  };
-
-  const estimateDocumentCountHeuristic = () => {
-    // Fallback heuristic method for when sampling fails
-    const pipeline = generateMongoQuery();
-    let baseEstimate = 50000; // Base estimate for the collection
-
-    const hasMatchStages = pipeline.some((stage) => stage.$match);
-    const hasComplexFilters = pipeline.some(
-      (stage) => stage.$match && Object.keys(stage.$match).length > 2,
-    );
-
-    // Reduce estimate for filtered queries
-    if (hasMatchStages) {
-      baseEstimate *= 0.3; // 30% of base for filtered queries
-    }
-
-    if (hasComplexFilters) {
-      baseEstimate *= 0.5; // Further reduction for complex filters
-    }
-
-    // Add some randomization to make it feel more realistic
-    const variance = 0.2; // ±20% variance
-    const randomFactor = 1 + (Math.random() - 0.5) * 2 * variance;
-
-    const estimate = Math.round(baseEstimate * randomFactor);
-
-    // Ensure minimum sensible estimate
-    return Math.max(estimate, pageSize * 2);
-  };
-
-  const performBackgroundCount = async () => {
-    try {
-      setIsCountingInBackground(true);
-
-      // Use the existing executeQuery function for count
-      const countQueryResult = await executeQuery(1, true);
-      const actualCount = countQueryResult.result?.data?.data?.[0]?.total || 0;
-
-      // Update count state - displayResults remain untouched
-      setTotalDocuments(actualCount);
-      setIsEstimatedCount(false);
-      setIsCountingInBackground(false);
-    } catch (error) {
-      console.error("Background count error:", error);
-      setIsCountingInBackground(false);
-      // Keep the estimated count if the actual count fails
-    }
-  };
-
   const handleRunQuery = async () => {
+    // Validate date range before running the query
+    const { startDate, endDate } = getConvertedDatesFromForm(getValues);
+    if (startDate && endDate) {
+      const diffInMs = endDate - startDate;
+      const diffInDays = diffInMs / (1000 * 60 * 60 * 24);
+
+      if (diffInDays > 7) {
+        setQueryError(
+          "Date range cannot exceed 7 days. Please select a shorter time period.",
+        );
+        return;
+      }
+    }
+
     setIsRunning(true);
     setQueryError(null);
 
@@ -748,32 +603,28 @@ const MongoQueryDialog = () => {
       setPageCursors,
       setLastDocumentId,
       setHasNextPage,
-      setIsReverseSorting,
-      setReversePageCursors,
       setLastPageOffset,
-      setIsEstimatedCount,
-      setIsCountingInBackground,
-      setEstimatedTotalDocuments,
       setDisplayResults,
       setQueryCompleted,
     });
 
     try {
-      // Step 1: Show instant estimate
-      const estimatedCount = await estimateDocumentCount();
-      setEstimatedTotalDocuments(estimatedCount);
-      setTotalDocuments(estimatedCount);
-      setIsEstimatedCount(true);
-
       dispatch(clearBoomFilter());
 
-      // Step 2: Get first page immediately
+      // Get first page data first
       const firstPageQueryResult = await executeQuery(1, false);
 
       if (firstPageQueryResult.result?.data) {
         dispatch({
           type: "skyportal/RUN_BOOM_FILTER_OK",
           data: firstPageQueryResult.result.data,
+        });
+        // Update local display results for immediate UI update
+        // Ensure we set the correct structure: { data: [...] }
+        setDisplayResults({
+          data:
+            firstPageQueryResult.result.data.data ||
+            firstPageQueryResult.result.data,
         });
       }
 
@@ -788,10 +639,17 @@ const MongoQueryDialog = () => {
       }
 
       setPageCursors(newCursors);
-      setQueryCompleted(true);
 
-      // Step 3: Start background count (don't await this)
-      performBackgroundCount();
+      // Get actual count after first page
+      const countQueryResult = await executeQuery(1, true);
+      // Good code when using queries/count endpoint
+      // const actualCount = countQueryResult.result?.data?.data || 0;
+      // temporary code to get count from results length
+      const actualCount = countQueryResult.result?.data?.data?.results?.length;
+      setTotalDocuments(actualCount);
+
+      // Set query completed only after both queries are done
+      setQueryCompleted(true);
     } catch (error) {
       console.error("Query error:", error);
       setQueryError(error.message);
@@ -801,114 +659,6 @@ const MongoQueryDialog = () => {
   };
 
   const handlePageChange = async (event, newPage) => {
-    const lastPage = Math.ceil(totalDocuments / pageSize);
-
-    // Handle navigation to the last page with reverse sorting
-    if (newPage === lastPage && newPage > currentPage) {
-      setIsLoadingPage(true);
-      setExpandedCells(new Set());
-
-      try {
-        // Switch to reverse sorting mode for the last page
-        setIsReverseSorting(true);
-
-        const { startDate, endDate } = getConvertedDatesFromForm(getValues);
-
-        const pipeline = generateMongoQuery();
-        const prepend = createLookupPipeline(filter_stream, startDate, endDate);
-
-        pipeline.unshift(...prepend);
-
-        // Calculate how many documents should be on the last page
-        const remainingDocs = totalDocuments % pageSize;
-        const lastPageSize = remainingDocs === 0 ? pageSize : remainingDocs;
-        setLastPageOffset(lastPageSize);
-
-        // Use reverse sort ($sort: { _id: -1 }) and limit to get the last page efficiently
-        pipeline.push({ $sort: { _id: -1 } });
-        pipeline.push({ $limit: lastPageSize });
-
-        const result = await dispatch(
-          runBoomFilter({
-            pipeline: pipeline,
-            selectedCollection: selectedCollection,
-          }),
-        );
-
-        // Reverse the results to display in correct order (oldest to newest)
-        const reversedData = result.data?.data
-          ? [...result.data.data].reverse()
-          : [];
-
-        // Update local display results
-        setDisplayResults({ data: reversedData });
-
-        // Initialize reverse page cursors
-        const newReverseCursors = new Map();
-        newReverseCursors.set(lastPage, null); // Last page has no cursor (it's the end)
-
-        if (reversedData.length > 0) {
-          // The cursor for the previous page (lastPage - 1) is the first document's _id
-          newReverseCursors.set(lastPage - 1, reversedData[0]._id);
-        }
-
-        setReversePageCursors(newReverseCursors);
-        setHasNextPage(false);
-        setCurrentPage(newPage);
-        return;
-      } catch (error) {
-        console.error("Last page navigation error:", error);
-        setQueryError(error.message);
-      } finally {
-        setIsLoadingPage(false);
-      }
-      return;
-    }
-
-    // Handle navigation when we're in reverse sorting mode (coming from last page)
-    if (isReverseSorting) {
-      setIsLoadingPage(true);
-      setExpandedCells(new Set());
-
-      try {
-        let cursor = null;
-
-        if (newPage > currentPage) {
-          // Going forward in reverse mode - shouldn't happen much, but handle it
-          cursor = reversePageCursors.get(newPage);
-        } else if (newPage < currentPage) {
-          // Going backward in reverse mode (which is actually forward through the data)
-          cursor = reversePageCursors.get(newPage);
-        }
-
-        const queryResult = await executeQuery(newPage, false, cursor, true); // true for reverse
-
-        setHasNextPage(queryResult.hasNext);
-
-        // Update reverse cursors
-        const newReverseCursors = new Map(reversePageCursors);
-        if (queryResult.nextCursor) {
-          newReverseCursors.set(newPage - 1, queryResult.nextCursor);
-        }
-        setReversePageCursors(newReverseCursors);
-        setCurrentPage(newPage);
-
-        // If we've navigated back to page 1, switch back to normal sorting mode
-        if (newPage === 1) {
-          setIsReverseSorting(false);
-        }
-
-        return;
-      } catch (error) {
-        console.error("Reverse navigation error:", error);
-        setQueryError(error.message);
-      } finally {
-        setIsLoadingPage(false);
-      }
-      return;
-    }
-
-    // Normal forward pagination (not in reverse mode)
     setIsLoadingPage(true);
     setExpandedCells(new Set());
 
@@ -930,31 +680,34 @@ const MongoQueryDialog = () => {
           let pageData = null;
 
           for (let page = 1; page <= newPage; page++) {
-            const pipeline = generateMongoQuery();
-            const prepend = createLookupPipeline(
-              filter_stream,
-              startDate,
-              endDate,
-            );
+            const userPipeline = generateMongoQuery();
 
-            pipeline.unshift(...prepend);
+            // Prepare additional stages for cursor-based pagination and limiting
+            const additionalStages = [];
 
             // Use cursor-based pagination instead of $skip
             if (currentCursor) {
-              pipeline.push({
+              additionalStages.push({
                 $match: {
                   _id: { $gt: currentCursor },
                 },
               });
             }
 
-            pipeline.push({ $sort: { _id: 1 } });
-            pipeline.push({ $limit: pageSize + 1 });
+            additionalStages.push({ $limit: pageSize + 1 });
+
+            const pipeline = combineWithPipeline(
+              userPipeline,
+              additionalStages,
+            );
 
             const result = await dispatch(
-              runBoomFilter({
+              runBoomTestFilter({
                 pipeline: pipeline,
                 selectedCollection: selectedCollection,
+                start_jd: startDate,
+                end_jd: endDate,
+                filter_id: filter_id,
               }),
             );
 
@@ -1079,8 +832,8 @@ const MongoQueryDialog = () => {
               )}
               <form>
                 <div>
-                  {(errors.startDate || errors.endDate) && (
-                    <FormValidationError message="Invalid date range." />
+                  {dateValidationError && (
+                    <FormValidationError message={dateValidationError} />
                   )}
 
                   {/* Date Range Instructions */}
@@ -1092,9 +845,6 @@ const MongoQueryDialog = () => {
                     >
                       Select Time Range for Query
                     </Typography>
-                    {/* <Typography variant="body2" color="text.secondary">
-                      Maximum range is 24 hours.
-                    </Typography> */}
                   </Box>
 
                   <div className={classes.timeRange}>
@@ -1111,7 +861,7 @@ const MongoQueryDialog = () => {
                           />
                         </LocalizationProvider>
                       )}
-                      rules={{ validate: validateDates }}
+                      // rules={{ validate: validateDates }}
                       name="startDate"
                       control={control}
                       defaultValue={defaultStartDate}
@@ -1129,7 +879,7 @@ const MongoQueryDialog = () => {
                           />
                         </LocalizationProvider>
                       )}
-                      rules={{ validate: validateDates }}
+                      // rules={{ validate: validateDates }}
                       name="endDate"
                       control={control}
                       defaultValue={defaultEndDate}
@@ -1149,7 +899,11 @@ const MongoQueryDialog = () => {
                       isRunning ? <CircularProgress size={16} /> : <RunIcon />
                     }
                     onClick={handleRunQuery}
-                    disabled={isRunning || connectionStatus === "disconnected"}
+                    disabled={
+                      isRunning ||
+                      connectionStatus === "disconnected" ||
+                      !!dateValidationError
+                    }
                     sx={{ minWidth: 120 }}
                   >
                     {isRunning ? "Running..." : "Run Query"}
@@ -1181,23 +935,19 @@ const MongoQueryDialog = () => {
                     </Typography>
                     <Chip
                       label={
-                        displayResults.data?.length === 0 && queryCompleted
+                        queryCompleted && totalDocuments === 0
                           ? "0 documents"
-                          : isEstimatedCount
-                            ? `~${totalDocuments} documents${
-                                isCountingInBackground
-                                  ? " (counting...)"
-                                  : " (estimated)"
-                              }`
-                            : `${totalDocuments} documents`
+                          : queryCompleted
+                            ? `${totalDocuments} documents`
+                            : "Loading..."
                       }
                       size="small"
                       color={
-                        displayResults.data?.length === 0 && queryCompleted
+                        queryCompleted && totalDocuments === 0
                           ? "default"
-                          : isEstimatedCount
-                            ? "warning"
-                            : "success"
+                          : queryCompleted
+                            ? "success"
+                            : "primary"
                       }
                     />
                     {totalDocuments > pageSize &&
@@ -1218,7 +968,6 @@ const MongoQueryDialog = () => {
                       <FullscreenIcon />
                     </IconButton>
                   </Box>
-
                   {displayResults.data?.length > 0 ? (
                     <>
                       <TableContainer
@@ -1277,8 +1026,7 @@ const MongoQueryDialog = () => {
                             </TableRow>
                           </TableHead>
                           <TableBody>
-                            {displayResults.data
-                              .slice(0, 50)
+                            {displayResults?.data?.slice(0, 50)
                               .map((row, rowIndex) => (
                                 <TableRow
                                   key={rowIndex}
@@ -1457,20 +1205,10 @@ const MongoQueryDialog = () => {
                                   disabled={
                                     !hasNextPage ||
                                     isLoadingPage ||
-                                    totalDocuments === 0 ||
-                                    isEstimatedCount
+                                    totalDocuments === 0
                                   }
                                   size="small"
-                                  title={
-                                    isEstimatedCount
-                                      ? "Calculating exact page count..."
-                                      : "Last page"
-                                  }
-                                  sx={{
-                                    display: isEstimatedCount
-                                      ? "none"
-                                      : "inline-flex",
-                                  }}
+                                  title="Last page"
                                 >
                                   <LastPageIcon />
                                 </IconButton>
@@ -1490,15 +1228,7 @@ const MongoQueryDialog = () => {
                                   ? `Showing page ${currentPage} (${Math.min(
                                       displayResults.data?.length || 0,
                                       pageSize,
-                                    )} results on this page)${
-                                      isEstimatedCount
-                                        ? ` - Total: ~${totalDocuments} (estimated${
-                                            isCountingInBackground
-                                              ? ", counting..."
-                                              : ""
-                                          })`
-                                        : ""
-                                    }`
+                                    )} results on this page)`
                                   : `Showing ${Math.min(
                                       displayResults.data?.length || 0,
                                       pageSize,
@@ -1810,23 +1540,19 @@ const MongoQueryDialog = () => {
             <Typography variant="h6">Query Results</Typography>
             <Chip
               label={
-                displayResults.data?.length === 0 && queryCompleted
+                queryCompleted && totalDocuments === 0
                   ? "0 documents"
-                  : isEstimatedCount
-                    ? `~${totalDocuments} documents${
-                        isCountingInBackground
-                          ? " (counting...)"
-                          : " (estimated)"
-                      }`
-                    : `${totalDocuments} documents`
+                  : queryCompleted
+                    ? `${totalDocuments} documents`
+                    : "Loading..."
               }
               size="small"
               color={
-                displayResults.data?.length === 0 && queryCompleted
+                queryCompleted && totalDocuments === 0
                   ? "default"
-                  : isEstimatedCount
-                    ? "warning"
-                    : "success"
+                  : queryCompleted
+                    ? "success"
+                    : "primary"
               }
             />
             {totalDocuments > pageSize && (
@@ -2042,18 +1768,9 @@ const MongoQueryDialog = () => {
                             Math.ceil(totalDocuments / pageSize),
                           )
                         }
-                        disabled={
-                          !hasNextPage || isLoadingPage || isEstimatedCount
-                        }
+                        disabled={!hasNextPage || isLoadingPage}
                         size="small"
-                        title={
-                          isEstimatedCount
-                            ? "Calculating exact page count..."
-                            : "Last page"
-                        }
-                        sx={{
-                          display: isEstimatedCount ? "none" : "inline-flex",
-                        }}
+                        title="Last page"
                       >
                         <LastPageIcon fontSize="small" />
                       </IconButton>
@@ -2065,21 +1782,12 @@ const MongoQueryDialog = () => {
                     >
                       {isLoadingPage
                         ? "Loading..."
-                        : isEstimatedCount
-                          ? `Showing ${
-                              (currentPage - 1) * pageSize + 1
-                            }-${Math.min(
-                              currentPage * pageSize,
-                              totalDocuments,
-                            )} of ~${totalDocuments} results (estimated${
-                              isCountingInBackground ? ", counting..." : ""
-                            })`
-                          : `Showing ${
-                              (currentPage - 1) * pageSize + 1
-                            }-${Math.min(
-                              currentPage * pageSize,
-                              totalDocuments,
-                            )} of ${totalDocuments} results`}
+                        : `Showing ${
+                            (currentPage - 1) * pageSize + 1
+                          }-${Math.min(
+                            currentPage * pageSize,
+                            totalDocuments,
+                          )} of ${totalDocuments} results`}
                     </Typography>
                   </Stack>
                 </Box>

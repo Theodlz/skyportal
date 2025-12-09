@@ -45,6 +45,7 @@ const FilterBuilderContent = ({
   } = useFilterBuilder();
   const navigate = useNavigate();
   const dispatch = useDispatch();
+  const filter_v = useSelector((state) => state.filter_v);
   const filter_stream = useSelector(
     (state) => state.filter_v.stream?.name?.split(" ")[0],
   );
@@ -296,7 +297,7 @@ const FilterBuilderContent = ({
       const currentFilters =
         localFilterData || contextFilters || filtersToRender;
       const result = await dispatch(
-        updateGroupFilter(filter.id, mongoQuery, currentFilters),
+        updateGroupFilter(filter.id, mongoQuery, currentFilters, filter_v.name),
       );
       dispatch(showNotification("Filter saved to boom database!"));
       if (result.status === "success") {

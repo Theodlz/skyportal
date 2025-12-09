@@ -1001,7 +1001,7 @@ const FilterPlugins = ({ group }) => {
                       >
                         {filter_v.fv.map((fv) => (
                           <MenuItem key={fv.fid} value={fv.fid}>
-                            {fv.fid}: {fv.created_at.toString().slice(0, 19)}
+                            {fv.fid}: {fv?.created_at?.toString().slice(0, 19)}
                           </MenuItem>
                         ))}
                       </Select>

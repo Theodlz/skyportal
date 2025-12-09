@@ -58,8 +58,3 @@ class Filter(Base):
         order_by="Candidate.passed_at",
         doc="Candidates that have passed the filter.",
     )
-    altdata = sa.Column(
-        JSONB,
-        nullable=True,
-        doc="Additional data associated with the filter.",
-    )

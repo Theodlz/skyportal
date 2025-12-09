@@ -74,10 +74,11 @@ export function editAutoFollowup({ filter_id, autoFollowup }) {
   });
 }
 
-export function updateGroupFilter(filter_id, altdata, filters) {
+export function updateGroupFilter(filter_id, altdata, filters, name) {
   return API.POST(`/api/filters/${filter_id}`, UPDATE_GROUP_FILTER, {
     altdata,
     filters,
+    name,
   });
 }
 

@@ -100,12 +100,53 @@ class BoomRunFilterHandler(BaseHandler):
     def post(self):
         data = self.get_json()
         with self.Session() as session:
-            data_url = f"{boom_url}/queries/pipeline"
-            data_payload = {
-                "catalog_name": data["selectedCollection"],
-                "max_time_ms": 30000,
-                "pipeline": data["pipeline"],
-            }
+            if "filter_id" not in data:
+                # data_url = f"{boom_url}/queries/count"
+                # data_payload = {
+                #     "catalog_name": data["selectedCollection"],
+                #     "filter": data["filter"],
+                # }
+                data_url = f"{boom_url}/queries/pipeline"
+                data_payload = {
+                    "catalog_name": data["selectedCollection"],
+                    "pipeline": data["pipeline"],
+                }
+
+            else:
+                f = session.scalar(
+                    Filter.select(session.user_or_token, mode="update").where(
+                        Filter.id == data["filter_id"]
+                    )
+                )
+                if "sort_by" not in data:
+                    data_url = f"{boom_url}/filters/test"
+                    data_payload = {
+                        "permissions": {
+                            data["selectedCollection"].split("_")[0]: f.stream.altdata[
+                                "selector"
+                            ]
+                        },
+                        "survey": data["selectedCollection"].split("_")[0],
+                        "pipeline": data["pipeline"],
+                        "start_jd": data["start_jd"],
+                        "end_jd": data["end_jd"],
+                    }
+                else:
+                    data_url = f"{boom_url}/filters/test"
+                    data_payload = {
+                        "permissions": {
+                            data["selectedCollection"].split("_")[0]: f.stream.altdata[
+                                "selector"
+                            ]
+                        },
+                        "survey": data["selectedCollection"].split("_")[0],
+                        "pipeline": data["pipeline"],
+                        "start_jd": data["start_jd"],
+                        "end_jd": data["end_jd"],
+                        "sort_by": data["sort_by"],
+                        "sort_order": data["sort_order"],
+                        "limit": data["limit"],
+                    }
 
             headers = {
                 "Authorization": f"Bearer {boom_token}",
@@ -114,4 +155,5 @@ class BoomRunFilterHandler(BaseHandler):
             response = requests.post(data_url, json=data_payload, headers=headers)
             response.raise_for_status()
             res = response.json()
+
         return self.success(data=res)
