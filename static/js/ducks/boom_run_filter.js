@@ -39,6 +39,7 @@ export function runBoomTestFilter({
   sort_by,
   sort_order,
   limit,
+  cursor = null,
 }) {
   return API.POST("/api/queries/pipeline/test", RUN_BOOM_FILTER, {
     pipeline,
@@ -49,6 +50,7 @@ export function runBoomTestFilter({
     sort_by,
     sort_order,
     limit,
+    cursor,
   });
 }
 

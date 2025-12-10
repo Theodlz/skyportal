@@ -100,60 +100,63 @@ class BoomRunFilterHandler(BaseHandler):
     def post(self):
         data = self.get_json()
         with self.Session() as session:
-            if "filter_id" not in data:
-                # data_url = f"{boom_url}/queries/count"
-                # data_payload = {
-                #     "catalog_name": data["selectedCollection"],
-                #     "filter": data["filter"],
-                # }
-                data_url = f"{boom_url}/queries/pipeline"
-                data_payload = {
-                    "catalog_name": data["selectedCollection"],
-                    "pipeline": data["pipeline"],
-                }
-
-            else:
-                f = session.scalar(
-                    Filter.select(session.user_or_token, mode="update").where(
-                        Filter.id == data["filter_id"]
-                    )
+            f = session.scalar(
+                Filter.select(session.user_or_token, mode="update").where(
+                    Filter.id == data["filter_id"]
                 )
-                if "sort_by" not in data:
-                    data_url = f"{boom_url}/filters/test"
-                    data_payload = {
-                        "permissions": {
-                            data["selectedCollection"].split("_")[0]: f.stream.altdata[
-                                "selector"
-                            ]
-                        },
-                        "survey": data["selectedCollection"].split("_")[0],
-                        "pipeline": data["pipeline"],
-                        "start_jd": data["start_jd"],
-                        "end_jd": data["end_jd"],
-                    }
-                else:
-                    data_url = f"{boom_url}/filters/test"
-                    data_payload = {
-                        "permissions": {
-                            data["selectedCollection"].split("_")[0]: f.stream.altdata[
-                                "selector"
-                            ]
-                        },
-                        "survey": data["selectedCollection"].split("_")[0],
-                        "pipeline": data["pipeline"],
-                        "start_jd": data["start_jd"],
-                        "end_jd": data["end_jd"],
-                        "sort_by": data["sort_by"],
-                        "sort_order": data["sort_order"],
-                        "limit": data["limit"],
-                    }
+            )
+            if "sort_by" not in data:
+                data_url = f"{boom_url}/filters/test/count"
+                data_payload = {
+                    "permissions": {
+                        data["selectedCollection"].split("_")[0]: f.stream.altdata[
+                            "selector"
+                        ]
+                    },
+                    "survey": data["selectedCollection"].split("_")[0],
+                    "pipeline": data["pipeline"],
+                    "start_jd": data["start_jd"],
+                    "end_jd": data["end_jd"],
+                }
+            else:
+                data_url = f"{boom_url}/filters/test"
+                data_payload = {
+                    "permissions": {
+                        data["selectedCollection"].split("_")[0]: f.stream.altdata[
+                            "selector"
+                        ]
+                    },
+                    "survey": data["selectedCollection"].split("_")[0],
+                    "pipeline": data["pipeline"],
+                    "start_jd": data["start_jd"],
+                    "end_jd": data["end_jd"],
+                    "sort_by": data["sort_by"],
+                    "sort_order": data["sort_order"],
+                    "limit": data["limit"],
+                }
+                if "cursor" in data and data["cursor"] is not None:
+                    data["cursor"] = int(data["cursor"])
+                    if data["sort_order"] == "Ascending":
+                        cursor_condition = {"$gt": int(data["cursor"])}
+                    else:
+                        cursor_condition = {"$lt": int(data["cursor"])}
+                    data_payload["pipeline"].insert(
+                        len(data_payload["pipeline"]) - 1,
+                        {"$match": {"_id": cursor_condition}},
+                    )
 
             headers = {
                 "Authorization": f"Bearer {boom_token}",
                 "Content-Type": "application/json",
             }
-            response = requests.post(data_url, json=data_payload, headers=headers)
-            response.raise_for_status()
-            res = response.json()
 
+            response = requests.post(data_url, json=data_payload, headers=headers)
+
+            if response.status_code != 200:
+                return self.error(f"Error querying Boom: {response.status_code}")
+            res = response.json()
+            if "sort_by" in data:
+                res["data"]["results"] = [
+                    {**doc, "_id": str(doc["_id"])} for doc in res["data"]["results"]
+                ]
         return self.success(data=res)

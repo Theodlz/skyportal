@@ -103,10 +103,7 @@ const combineWithPipeline = (
 
   // Add user pipeline stages
   finalPipeline.push(...userPipeline);
-  console.log(
-    "additionalStages",
-    additionalStages && additionalStages.length > 0,
-  );
+
   // Add any additional stages (like $limit, $count) before the final project stage
   if (additionalStages && additionalStages.length > 0) {
     finalPipeline.unshift(...additionalStages);
@@ -179,7 +176,6 @@ const MongoQueryDialog = () => {
     (state) => state.filter_v.stream?.name?.split(" ")[0],
   );
   const filter_id = useSelector((state) => state.filter_v.id);
-  const query_result = useSelector((state) => state.query_result);
   const last_result_id = useSelector((state) =>
     state.query_result?.data?.results?.at(-1),
   );
@@ -330,26 +326,6 @@ const MongoQueryDialog = () => {
     }
   }, [watchedStartDate, watchedEndDate]);
 
-  // const validateDates = () => {
-  //   const formState = getValues();
-  //   if (!!formState.startDate && !!formState.endDate) {
-  //     const startDate = new Date(formState.startDate);
-  //     const endDate = new Date(formState.endDate);
-
-  //     // Check if start date is before end date
-  //     if (startDate > endDate) {
-  //       return false;
-  //     }
-
-  //     // Check if date range is maximum 7 days
-  //     const diffInMs = endDate.getTime() - startDate.getTime();
-  //     const diffInDays = diffInMs / (1000 * 60 * 60 * 24);
-
-  //     return diffInDays <= 7;
-  //   }
-  //   return true;
-  // };
-
   const isDateRangeValid = () => {
     const formState = getValues();
     if (formState.startDate && formState.endDate) {
@@ -471,6 +447,7 @@ const MongoQueryDialog = () => {
     countOnly = false,
     cursor = null,
     direction = "forward",
+    limit = pageSize + 1,
   ) => {
     const { startDate, endDate } = getConvertedDatesFromForm(getValues);
 
@@ -478,36 +455,12 @@ const MongoQueryDialog = () => {
 
     let additionalStages = [];
 
-    if (countOnly) {
-      // For count queries, add $count stage
-      // additionalStages.push({ $count: "total" });
-      // userPipeline.push({ $count: "total" });
-    } else {
-      if (cursor) {
-        additionalStages.push({
-          $match: {
-            _id: { [direction === "forward" ? "$gt" : "$lt"]: cursor },
-          },
-        });
-      }
-
-      // additionalStages.push({ $limit: pageSize + 1 });
-    }
-
     const pipeline = combineWithPipeline(
       userPipeline,
       additionalStages,
       countOnly,
     );
-    // Here what if we have multiple match stages?
-    // Currently using regular query for count only not the count endpoint because it
-    // requires only the content of match stage which gets tricky when having nested filters
-    // const result = countOnly ? await dispatch(
-    //   runBoomFilter({
-    //     filter: userPipeline[0],
-    //     selectedCollection: selectedCollection,
-    //   })
-    // )
+
     const sortOrder = direction === "backward" ? "Descending" : "Ascending";
     const result = countOnly
       ? await dispatch(
@@ -528,7 +481,8 @@ const MongoQueryDialog = () => {
             filter_id: filter_id,
             sort_by: "_id",
             sort_order: sortOrder,
-            limit: pageSize + 1,
+            limit: limit,
+            cursor: cursor,
           }),
         );
 
@@ -539,10 +493,8 @@ const MongoQueryDialog = () => {
         nextCursor: null,
       };
     }
-
     if (result.data?.data) {
-      let originalData = result?.data?.data?.results;
-
+      const originalData = result?.data?.data?.results;
       if (!originalData || originalData.length === 0) {
         setDisplayResults({ data: [] });
         return {
@@ -553,21 +505,14 @@ const MongoQueryDialog = () => {
           lastId: null,
         };
       }
-
       let hasMore = originalData.length > pageSize;
       let data;
 
       if (direction === "backward") {
-        // For backward navigation with descending order and $lt cursor:
-        // originalData has items in descending order (excluding cursor)
-        // Take the first pageSize items, then reverse them
         data = hasMore ? originalData.slice(0, pageSize + 1) : originalData;
         data = [...data].reverse();
       } else {
-        // Forward navigation with $gt cursor:
-        // originalData has items in ascending order (excluding cursor)
-        // Take the first pageSize items
-        data = hasMore ? originalData.slice(0, pageSize) : originalData;
+        data = hasMore ? originalData.slice(0, pageSize + 1) : originalData;
       }
 
       const processedResult = {
@@ -672,7 +617,7 @@ const MongoQueryDialog = () => {
       // Good code when using queries/count endpoint
       // const actualCount = countQueryResult.result?.data?.data || 0;
       // temporary code to get count from results length
-      const actualCount = countQueryResult.result?.data?.data?.results?.length;
+      const actualCount = countQueryResult.result?.data?.data?.count;
       setTotalDocuments(actualCount);
 
       // Set query completed only after both queries are done
@@ -690,42 +635,31 @@ const MongoQueryDialog = () => {
     setExpandedCells(new Set());
 
     try {
-      // Check if we have cached data for this page
       if (pageDataCache.has(newPage)) {
-        console.log(`Using cached data for page ${newPage}`);
         const cachedData = pageDataCache.get(newPage);
         setDisplayResults({ data: cachedData });
         setCurrentPage(newPage);
+        cachedData.length < pageSize + 1
+          ? setHasNextPage(false)
+          : setHasNextPage(true);
         setIsLoadingPage(false);
         return;
       }
 
-      // Check if this is sequential navigation
       const isSequential = Math.abs(newPage - currentPage) === 1;
 
       if (isSequential) {
-        // Sequential navigation: use cursor from current page
         let cursor = null;
         let direction = "forward";
 
         if (newPage > currentPage) {
-          // Forward navigation: use last _id from current page
           const currentPageData = pageCursors.get(currentPage);
           cursor = currentPageData?.lastId;
           direction = "forward";
-          console.log(
-            `Forward nav: page ${currentPage}→${newPage}, using cursor (lastId of ${currentPage}):`,
-            cursor,
-          );
         } else if (newPage < currentPage) {
-          // Backward navigation: use first _id from current page with $lt
           const currentPageData = pageCursors.get(currentPage);
           cursor = currentPageData?.firstId;
           direction = "backward";
-          console.log(
-            `Backward nav: page ${currentPage}→${newPage}, using cursor (firstId of ${currentPage}):`,
-            cursor,
-          );
         }
 
         const queryResult = await executeQuery(
@@ -736,13 +670,6 @@ const MongoQueryDialog = () => {
         );
         setHasNextPage(queryResult.hasNext);
 
-        console.log(`Page ${newPage} results:`, {
-          firstId: queryResult.firstId,
-          lastId: queryResult.lastId,
-          count: queryResult.data?.length,
-        });
-
-        // Store first and last IDs for this page
         const newCursors = new Map(pageCursors);
         if (queryResult.firstId && queryResult.lastId) {
           newCursors.set(newPage, {
@@ -752,7 +679,6 @@ const MongoQueryDialog = () => {
         }
         setPageCursors(newCursors);
 
-        // Cache the page data
         if (queryResult.data) {
           const newCache = new Map(pageDataCache);
           newCache.set(newPage, queryResult.data);
@@ -761,40 +687,33 @@ const MongoQueryDialog = () => {
 
         setCurrentPage(newPage);
       } else {
-        // Non-sequential navigation: rebuild cursor chain from page 1
-        const newCursors = new Map();
-        const newCache = new Map(pageDataCache); // Preserve existing cache
-        let cursor = null;
+        const lastPageOffsetCalc = totalDocuments - (newPage - 1) * pageSize;
+        const countQueryResult = await executeQuery(
+          newPage,
+          false,
+          null,
+          "backward",
+          lastPageOffsetCalc,
+        );
 
-        for (let page = 1; page <= newPage; page++) {
-          const queryResult = await executeQuery(
-            page,
-            false,
-            cursor,
-            "forward",
-          );
+        setHasNextPage(countQueryResult.hasNext);
 
-          if (queryResult.firstId && queryResult.lastId) {
-            newCursors.set(page, {
-              firstId: queryResult.firstId,
-              lastId: queryResult.lastId,
-            });
-            cursor = queryResult.lastId;
-          }
+        const newCursors = new Map(pageCursors);
+        if (countQueryResult.firstId && countQueryResult.lastId) {
+          newCursors.set(newPage, {
+            firstId: countQueryResult.firstId,
+            lastId: countQueryResult.lastId,
+          });
+        }
+        setPageCursors(newCursors);
 
-          // Cache page data
-          if (queryResult.data) {
-            newCache.set(page, queryResult.data);
-          }
-
-          // Update hasNext for the target page
-          if (page === newPage) {
-            setHasNextPage(queryResult.hasNext);
-          }
+        if (countQueryResult.data) {
+          const newCache = new Map(pageDataCache);
+          newCache.set(newPage, countQueryResult.data);
+          setPageDataCache(newCache);
         }
 
-        setPageCursors(newCursors);
-        setPageDataCache(newCache);
+        setLastPageOffset(lastPageOffsetCalc);
         setCurrentPage(newPage);
       }
     } catch (error) {
