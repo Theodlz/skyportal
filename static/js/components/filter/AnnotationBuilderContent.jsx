@@ -464,7 +464,6 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
     // Pass empty array as schemaFieldOptions since fieldOptions already contains them
     return getFieldOptionsWithVariable(
       fieldOptions,
-      fieldOptions,
       filterContext.customVariables || [],
       filterContext.customListVariables || [],
       [], // Empty array to avoid duplication since fieldOptions already contains schema fields
