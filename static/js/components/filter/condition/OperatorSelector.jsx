@@ -54,7 +54,6 @@ const AutocompleteOperators = ({
       sx={{
         width: "100%",
         minWidth: 150,
-        maxWidth: 300,
         "& .MuiAutocomplete-popper": {
           zIndex: 1300,
         },

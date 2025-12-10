@@ -268,30 +268,23 @@ const AutocompleteFields = ({
           }}
           slotProps={{
             popper: {
-              style: {
+              sx: {
                 zIndex: 10000,
               },
               placement: "bottom-start",
               modifiers: [
                 {
-                  name: "preventOverflow",
-                  enabled: true,
+                  name: "offset",
                   options: {
-                    altAxis: true,
-                    altBoundary: true,
-                    tether: false,
-                    rootBoundary: "document",
-                  },
-                },
-                {
-                  name: "flip",
-                  enabled: true,
-                  options: {
-                    altBoundary: true,
-                    rootBoundary: "document",
+                    offset: [0, 4],
                   },
                 },
               ],
+            },
+            paper: {
+              sx: {
+                marginTop: "4px",
+              },
             },
           }}
           disablePortal={false} // Ensure dropdown is rendered in a portal to escape clipping
