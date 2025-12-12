@@ -54,7 +54,10 @@ export const convertToMongoAggregation = (
   }
 
   // Build dependency graph for arithmetic variables
-  const dependencyGraph = buildVariableDependencyGraph(customVariables);
+  const dependencyGraph = buildVariableDependencyGraph(
+    customVariables,
+    customListVariables,
+  );
 
   // Count variable usage in filters to determine optimization strategy
   const variableUsageCounts = countVariableUsage(
@@ -264,6 +267,13 @@ export const convertToMongoAggregation = (
             currentGroup.requiredVariables.add(depVar);
           }
         });
+        // Also ensure list variable dependencies are marked as used
+        if (deps.listVariables) {
+          deps.listVariables.forEach((listVarName) => {
+            console.log("usedFields.listVariables.add", usedFields);
+            usedFields.listVariables.push(listVarName);
+          });
+        }
       });
     }
 
@@ -285,58 +295,110 @@ export const convertToMongoAggregation = (
         dependencyGraph,
       );
 
-      // For the first group, merge with initial project stage if it exists
-      // For subsequent groups, create a new project stage
-      let projectStage;
-      if (groupIndex === 0 && initialProjectStage) {
-        projectStage = initialProjectStage;
-        // Remove the initial project stage from pipeline since we'll add it back
-        pipeline.pop();
-      } else {
-        projectStage = { $project: {} };
+      // Group variables into layers based on dependencies
+      // Variables in the same layer don't depend on each other
+      const variableLayers = [];
+      const processedVars = new Set();
 
-        // Include objectId
-        projectStage.$project.objectId = 1;
+      sortedVars.forEach((varName) => {
+        const deps = getAllVariableDependencies(varName, dependencyGraph);
 
-        // Include all base fields that are already in the pipeline
-        usedFields.baseFields.forEach((field) => {
-          projectStage.$project[field] = 1;
+        // Find the highest layer index among this variable's dependencies
+        let requiredLayer = 0;
+        deps.variables.forEach((depVar) => {
+          if (processedVars.has(depVar)) {
+            // Find which layer this dependency is in
+            for (let i = 0; i < variableLayers.length; i++) {
+              if (variableLayers[i].has(depVar)) {
+                requiredLayer = Math.max(requiredLayer, i + 1);
+                break;
+              }
+            }
+          }
         });
 
-        // Include already projected list variables
-        usedFields.listVariables.forEach((varName) => {
-          projectStage.$project[varName] = 1;
-        });
+        // Add this variable to the appropriate layer
+        while (variableLayers.length <= requiredLayer) {
+          variableLayers.push(new Set());
+        }
+        variableLayers[requiredLayer].add(varName);
+        processedVars.add(varName);
+      });
 
-        // Include already projected arithmetic variables
-        projectedVariables.forEach((varName) => {
-          projectStage.$project[varName] = 1;
+      // Check if any of the variables in the first layer depend on list variables
+      let firstLayerDependsOnListVariables = false;
+      if (variableLayers.length > 0) {
+        Array.from(variableLayers[0]).forEach((varName) => {
+          const deps = getAllVariableDependencies(varName, dependencyGraph);
+          if (deps.listVariables && deps.listVariables.length > 0) {
+            firstLayerDependsOnListVariables = true;
+          }
         });
       }
 
-      // Add the new arithmetic variables in dependency order
-      sortedVars.forEach((varName) => {
-        const customVar = customVariables.find((v) => v.name === varName);
-        if (customVar && customVar.variable) {
-          const eqParts = customVar.variable.split("=");
-          if (eqParts.length === 2) {
-            const latexExpression = eqParts[1].trim();
-            try {
-              const mongoExpression =
-                latexToMongoConverter.convertToMongo(latexExpression);
-              projectStage.$project[varName] = mongoExpression;
-              projectedVariables.add(varName);
-            } catch (error) {
-              console.warn(
-                `Failed to convert LaTeX expression for variable ${varName}:`,
-                error,
-              );
+      // Process each layer as a separate $project stage
+      variableLayers.forEach((layerVars, layerIndex) => {
+        // For the first layer of the first group, only merge with initial project stage if:
+        // 1. It exists AND
+        // 2. The variables don't depend on list variables (which are in the initial stage)
+        // For all other layers/groups, create a new project stage
+        let projectStage;
+        if (
+          groupIndex === 0 &&
+          layerIndex === 0 &&
+          initialProjectStage &&
+          !firstLayerDependsOnListVariables
+        ) {
+          projectStage = initialProjectStage;
+          // Remove the initial project stage from pipeline since we'll add it back
+          pipeline.pop();
+        } else {
+          projectStage = { $project: {} };
+
+          // Include objectId
+          projectStage.$project.objectId = 1;
+
+          // Include all base fields that are already in the pipeline
+          usedFields.baseFields.forEach((field) => {
+            projectStage.$project[field] = 1;
+          });
+
+          // Include already projected list variables
+          usedFields.listVariables.forEach((varName) => {
+            projectStage.$project[varName] = 1;
+          });
+
+          // Include already projected arithmetic variables
+          projectedVariables.forEach((varName) => {
+            projectStage.$project[varName] = 1;
+          });
+        }
+
+        // Add the new arithmetic variables in this layer
+        Array.from(layerVars).forEach((varName) => {
+          const customVar = customVariables.find((v) => v.name === varName);
+          if (customVar && customVar.variable) {
+            const eqParts = customVar.variable.split("=");
+            if (eqParts.length === 2) {
+              const latexExpression = eqParts[1].trim();
+              try {
+                const mongoExpression =
+                  latexToMongoConverter.convertToMongo(latexExpression);
+                projectStage.$project[varName] = mongoExpression;
+                projectedVariables.add(varName);
+              } catch (error) {
+                console.warn(
+                  `Failed to convert LaTeX expression for variable ${varName}:`,
+                  error,
+                );
+              }
             }
           }
-        }
-      });
+        });
 
-      pipeline.push(projectStage);
+        // Add this layer's project stage to the pipeline
+        pipeline.push(projectStage);
+      });
     }
 
     // Add match stage for all blocks in this group
@@ -2645,7 +2707,10 @@ const handleInlinedVariableCondition = (mongoExpression, operator, value) => {
 };
 
 // Helper function to build dependency graph for arithmetic variables
-const buildVariableDependencyGraph = (customVariables = []) => {
+const buildVariableDependencyGraph = (
+  customVariables = [],
+  customListVariables = [],
+) => {
   const dependencyGraph = new Map();
 
   customVariables.forEach((variable) => {
@@ -2662,14 +2727,18 @@ const buildVariableDependencyGraph = (customVariables = []) => {
     const fieldDependencies =
       latexToMongoConverter.extractFieldDependencies(latexExpression);
 
-    // Separate base fields from variable dependencies
+    // Separate base fields from variable dependencies (including list variables)
     const baseDeps = [];
     const varDeps = [];
+    const listVarDeps = [];
 
     fieldDependencies.forEach((dep) => {
       const isVariable = customVariables.some((v) => v.name === dep);
+      const isListVariable = customListVariables.some((lv) => lv.name === dep);
       if (isVariable) {
         varDeps.push(dep);
+      } else if (isListVariable) {
+        listVarDeps.push(dep);
       } else {
         baseDeps.push(dep);
       }
@@ -2678,6 +2747,7 @@ const buildVariableDependencyGraph = (customVariables = []) => {
     dependencyGraph.set(variable.name, {
       baseFields: baseDeps,
       variables: varDeps,
+      listVariables: listVarDeps,
       latexExpression,
     });
   });
@@ -2779,11 +2849,12 @@ const getAllVariableDependencies = (
 
   const deps = dependencyGraph.get(varName);
   if (!deps) {
-    return { baseFields: [], variables: [] };
+    return { baseFields: [], variables: [], listVariables: [] };
   }
 
   const allBaseFields = new Set(deps.baseFields);
   const allVariables = new Set(deps.variables);
+  const allListVariables = new Set(deps.listVariables || []);
 
   // Get transitive dependencies
   deps.variables.forEach((depVar) => {
@@ -2794,11 +2865,13 @@ const getAllVariableDependencies = (
     );
     transitiveDeps.baseFields.forEach((f) => allBaseFields.add(f));
     transitiveDeps.variables.forEach((v) => allVariables.add(v));
+    transitiveDeps.listVariables.forEach((lv) => allListVariables.add(lv));
   });
 
   return {
     baseFields: Array.from(allBaseFields),
     variables: Array.from(allVariables),
+    listVariables: Array.from(allListVariables),
   };
 };
 
@@ -2923,7 +2996,20 @@ const collectUsedFieldsInCondition = (
         const fieldDependencies =
           latexToMongoConverter.extractFieldDependencies(latexExpression);
         fieldDependencies.forEach((depField) => {
-          usedFields.baseFields.add(depField);
+          // Check if dependency is a list variable or another custom variable
+          const isDepListVariable = customListVariables.some(
+            (lv) => lv.name === depField,
+          );
+          const isDepCustomVariable = customVariables.some(
+            (v) => v.name === depField,
+          );
+          if (isDepListVariable) {
+            usedFields.listVariables.add(depField);
+          } else if (isDepCustomVariable) {
+            usedFields.customVariables.add(depField);
+          } else {
+            usedFields.baseFields.add(depField);
+          }
         });
       }
     }

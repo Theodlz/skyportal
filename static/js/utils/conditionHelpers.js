@@ -370,7 +370,9 @@ export const getFieldOptionsWithVariable = (
         label: lv.name,
         type: isBooleanArray ? "array_variable_boolean" : "array_variable",
         isListVariable: true,
+        isVariable: false,
         listCondition: lv.listCondition,
+        group: "Database List Variables",
       };
     }) || [];
 
@@ -379,7 +381,9 @@ export const getFieldOptionsWithVariable = (
       label: eq.name,
       type: "number",
       isVariable: true,
+      isListVariable: false,
       equation: eq.variable,
+      group: "Arithmetic Variables",
     })) || [];
 
   const baseOptions = fieldOptionsList;

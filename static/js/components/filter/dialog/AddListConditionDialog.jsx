@@ -444,6 +444,7 @@ const AddListConditionDialog = () => {
     createDefaultBlock,
     setCustomListVariables,
     customListVariables,
+    customVariables,
     localFiltersUpdater,
     fieldOptions, // Get fieldOptions from context instead of computing it here
   } = useCurrentBuilder();
@@ -526,6 +527,24 @@ const AddListConditionDialog = () => {
 
     if (validationError) {
       alert(validationError);
+      return;
+    }
+
+    // Check if an arithmetic variable with the same name already exists
+    if (customVariables?.some((v) => v.name === form.conditionName.trim())) {
+      alert(
+        `An arithmetic variable with the name "${form.conditionName.trim()}" already exists. Please choose a different name.`,
+      );
+      return;
+    }
+
+    // Check if a list variable with the same name already exists
+    if (
+      customListVariables?.some((lv) => lv.name === form.conditionName.trim())
+    ) {
+      alert(
+        `A list variable with the name "${form.conditionName.trim()}" already exists. Please choose a different name.`,
+      );
       return;
     }
 

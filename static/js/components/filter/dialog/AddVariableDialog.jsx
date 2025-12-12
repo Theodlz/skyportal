@@ -33,6 +33,8 @@ const AddVariableDialog = () => {
     setCustomVariables,
     setFilters,
     schema,
+    customVariables,
+    customListVariables,
   } = useCurrentBuilder() || {};
 
   const dispatch = useDispatch();
@@ -56,9 +58,60 @@ const AddVariableDialog = () => {
   // Use actual schema from context, no defaults
   const activeSchema = schema || {};
 
+  // Helper to resolve named types in the schema
+  const resolveNamedType = (typeName, schema) => {
+    if (typeof typeName !== "string" || !schema || !schema.fields) return null;
+
+    for (const field of schema.fields) {
+      const fieldType = Array.isArray(field.type)
+        ? field.type.find((t) => t !== "null")
+        : field.type;
+
+      // Direct match in field type
+      if (typeof fieldType === "object" && fieldType.name === typeName) {
+        return fieldType;
+      }
+
+      // Search in nested records
+      if (
+        typeof fieldType === "object" &&
+        fieldType.type === "record" &&
+        fieldType.fields &&
+        fieldType.name === typeName
+      ) {
+        return fieldType;
+      }
+
+      // Search in array items
+      if (
+        typeof fieldType === "object" &&
+        fieldType.type === "array" &&
+        typeof fieldType.items === "object" &&
+        fieldType.items.name === typeName
+      ) {
+        return fieldType.items;
+      }
+    }
+
+    return null;
+  };
+
   // Get all available array collections from Avro schema and list conditions
   const getAvailableArrayCollections = () => {
     const collections = [];
+
+    // Helper to get array type from potential union
+    const getArrayTypeFromField = (field) => {
+      if (typeof field.type === "object" && field.type.type === "array") {
+        return field.type;
+      }
+      if (Array.isArray(field.type)) {
+        return field.type.find(
+          (t) => typeof t === "object" && t.type === "array",
+        );
+      }
+      return null;
+    };
 
     // Handle Avro schema format
     if (
@@ -67,41 +120,66 @@ const AddVariableDialog = () => {
       Array.isArray(activeSchema.fields)
     ) {
       activeSchema.fields.forEach((field) => {
-        // Look for fields that are arrays or records that could represent collections
-        if (
-          field.type &&
-          ((Array.isArray(field.type) &&
-            field.type.some(
-              (t) => typeof t === "object" && t.type === "array",
-            )) ||
-            (typeof field.type === "object" && field.type.type === "array") ||
-            (typeof field.type === "object" && field.type.type === "record"))
-        ) {
-          collections.push({
-            name: field.name,
-            source: "schema",
-            description: `Schema collection: ${field.name}`,
-          });
-        }
-      });
-    }
+        const arrayType = getArrayTypeFromField(field);
 
-    // Also check if schema itself represents multiple collections
-    // (in case the schema is a union of different record types)
-    if (activeSchema && typeof activeSchema === "object") {
-      Object.keys(activeSchema).forEach((key) => {
-        if (
-          key !== "type" &&
-          key !== "name" &&
-          key !== "namespace" &&
-          key !== "fields"
-        ) {
-          const value = activeSchema[key];
-          if (value && typeof value === "object" && value.fields) {
+        if (arrayType) {
+          // Check if this array contains records with nested catalogs/unions (like cross_matches)
+          let itemsType = arrayType.items;
+
+          // Resolve string references
+          if (typeof itemsType === "string") {
+            const resolvedType = resolveNamedType(itemsType, activeSchema);
+            if (resolvedType) {
+              itemsType = resolvedType;
+            }
+          }
+
+          // Check if items are records with union-type fields (catalog structure)
+          const hasCatalogStructure =
+            itemsType &&
+            typeof itemsType === "object" &&
+            itemsType.type === "record" &&
+            itemsType.fields &&
+            itemsType.fields.some(
+              (f) =>
+                Array.isArray(f.type) &&
+                f.type.some(
+                  (t) =>
+                    t !== "null" &&
+                    typeof t === "object" &&
+                    t.type === "record" &&
+                    t.fields,
+                ),
+            );
+
+          if (hasCatalogStructure) {
+            // Add each catalog as a separate collection
+            itemsType.fields.forEach((catalogField) => {
+              if (Array.isArray(catalogField.type)) {
+                const recordType = catalogField.type.find(
+                  (t) =>
+                    t !== "null" &&
+                    typeof t === "object" &&
+                    t.type === "record" &&
+                    t.fields,
+                );
+                if (recordType) {
+                  collections.push({
+                    name: `${field.name}.${catalogField.name}`,
+                    source: "schema",
+                    description: `${field.name} → ${catalogField.name}`,
+                    parentArray: field.name,
+                    catalogField: catalogField.name,
+                  });
+                }
+              }
+            });
+          } else {
+            // Regular array - add as single collection
             collections.push({
-              name: key,
+              name: field.name,
               source: "schema",
-              description: `Schema collection: ${key}`,
+              description: `Schema collection: ${field.name}`,
             });
           }
         }
@@ -146,7 +224,8 @@ const AddVariableDialog = () => {
     const lastWord = beforeCursor.match(/[a-zA-Z._]*$/)?.[0] || "";
 
     // Don't show suggestions if there's no partial word being typed
-    if (!lastWord || lastWord.length === 0) {
+    // EXCEPT when in arrayElement context where we want to show "this.*" suggestions
+    if ((!lastWord || lastWord.length === 0) && context !== "arrayElement") {
       return [];
     }
 
@@ -183,6 +262,50 @@ const AddVariableDialog = () => {
       );
     };
 
+    // Arithmetic variable suggestions (all are numerical) - ADD FIRST for priority
+    if (customVariables && Array.isArray(customVariables)) {
+      customVariables.forEach((variable) => {
+        if (
+          variable.name &&
+          variable.name.toLowerCase().includes(lastWord.toLowerCase()) &&
+          wouldChangeMeaningfully(variable.name)
+        ) {
+          suggestions.push({
+            type: "variable",
+            display: variable.name,
+            value: variable.name,
+            fullPath: variable.name,
+            description: "Arithmetic Variable",
+          });
+        }
+      });
+    }
+
+    // List variable suggestions (only numerical aggregation operators) - ADD SECOND for priority
+    if (customListVariables && Array.isArray(customListVariables)) {
+      const numericalOperators = ["$min", "$max", "$avg", "$sum"];
+      customListVariables.forEach((listVar) => {
+        if (
+          listVar.name &&
+          listVar.listCondition &&
+          numericalOperators.includes(listVar.listCondition.operator) &&
+          listVar.name.toLowerCase().includes(lastWord.toLowerCase()) &&
+          wouldChangeMeaningfully(listVar.name)
+        ) {
+          const operatorName = listVar.listCondition.operator
+            .replace("$", "")
+            .toUpperCase();
+          suggestions.push({
+            type: "listVariable",
+            display: listVar.name,
+            value: listVar.name,
+            fullPath: listVar.name,
+            description: `List Variable: ${operatorName}`,
+          });
+        }
+      });
+    }
+
     // Field suggestions for Avro schema
     if (
       activeSchema &&
@@ -191,106 +314,258 @@ const AddVariableDialog = () => {
     ) {
       activeSchema.fields.forEach((field) => {
         if (field.name && field.type) {
-          // For simple fields
-          const prefix =
-            context === "arrayElement" && field.name === arrayCollection
-              ? "this"
-              : field.name;
-          const fullPath = `${prefix}`;
+          // Get the field type
+          const fieldType =
+            typeof field.type === "string" ? field.type : field.type?.type;
 
-          // Only include if it's a partial match and would change the expression meaningfully
-          if (
-            fullPath.toLowerCase().includes(lastWord.toLowerCase()) &&
-            wouldChangeMeaningfully(fullPath)
-          ) {
-            suggestions.push({
-              type: "field",
-              display: field.name,
-              fullPath: fullPath,
-              collection: field.name,
-              description: `Field: ${field.name}`,
-            });
+          // Helper function to extract array type from potential union types
+          const getArrayType = () => {
+            // Direct array type
+            if (fieldType === "array" && typeof field.type === "object") {
+              return field.type;
+            }
+            // Union type (like ["null", {type: "array", ...}])
+            if (Array.isArray(field.type)) {
+              const arrayTypeInUnion = field.type.find(
+                (t) => typeof t === "object" && t.type === "array",
+              );
+              return arrayTypeInUnion;
+            }
+            return null;
+          };
+
+          // Special handling for arrays in arrayElement context
+          if (fieldType === "array" && context === "arrayElement") {
+            // Check if arrayCollection is a nested path (like "cross_matches.NED_BetaV3")
+            const isNestedPath = arrayCollection.includes(".");
+
+            if (isNestedPath) {
+              const [parentArray, catalogName] = arrayCollection.split(".");
+
+              if (field.name === parentArray) {
+                const arrayType = getArrayType();
+                if (!arrayType) return;
+
+                let itemsType = arrayType.items;
+
+                // Resolve string references
+                if (typeof itemsType === "string") {
+                  const resolvedType = resolveNamedType(
+                    itemsType,
+                    activeSchema,
+                  );
+                  if (resolvedType) {
+                    itemsType = resolvedType;
+                  }
+                }
+
+                // Find the catalog field within the items
+                if (
+                  itemsType &&
+                  typeof itemsType === "object" &&
+                  itemsType.type === "record" &&
+                  itemsType.fields
+                ) {
+                  const catalogField = itemsType.fields.find(
+                    (f) => f.name === catalogName,
+                  );
+
+                  if (catalogField && Array.isArray(catalogField.type)) {
+                    const catalogRecordType = catalogField.type.find(
+                      (t) =>
+                        t !== "null" &&
+                        typeof t === "object" &&
+                        t.type === "record" &&
+                        t.fields,
+                    );
+
+                    if (catalogRecordType && catalogRecordType.fields) {
+                      catalogRecordType.fields.forEach((catalogSubField) => {
+                        const catalogSubFieldType =
+                          typeof catalogSubField.type === "string"
+                            ? catalogSubField.type
+                            : catalogSubField.type?.type;
+
+                        const isExcluded = ["boolean", "array"].includes(
+                          catalogSubFieldType,
+                        );
+
+                        if (!isExcluded) {
+                          const itemPath = `this.${catalogSubField.name}`;
+
+                          if (
+                            itemPath
+                              .toLowerCase()
+                              .includes(lastWord.toLowerCase()) &&
+                            (wouldChangeMeaningfully(itemPath) ||
+                              lastWord.length < 2)
+                          ) {
+                            suggestions.push({
+                              type: "field",
+                              display: catalogSubField.name,
+                              fullPath: itemPath,
+                              collection: arrayCollection,
+                              description: `${catalogName} → ${catalogSubField.name}`,
+                            });
+                          }
+                        }
+                      });
+                    }
+                  }
+                }
+                return; // Skip further processing
+              }
+            } else if (field.name === arrayCollection) {
+              // Standard array handling (non-nested path)
+              const arrayType = getArrayType();
+              if (!arrayType) {
+                return; // Skip if we couldn't find the array type
+              }
+
+              let itemsType = arrayType.items;
+
+              // If items is a string reference, resolve it
+              if (typeof itemsType === "string") {
+                const resolvedType = resolveNamedType(itemsType, activeSchema);
+                if (resolvedType) {
+                  itemsType = resolvedType;
+                }
+              }
+
+              // If the array contains records with fields, suggest them with "this." prefix
+              if (
+                itemsType &&
+                typeof itemsType === "object" &&
+                itemsType.type === "record" &&
+                itemsType.fields
+              ) {
+                itemsType.fields.forEach((itemField) => {
+                  // Exclude booleans and arrays from suggestions
+                  const itemFieldType =
+                    typeof itemField.type === "string"
+                      ? itemField.type
+                      : itemField.type?.type;
+                  const isExcluded = ["boolean", "array"].includes(
+                    itemFieldType,
+                  );
+
+                  if (!isExcluded) {
+                    const itemPath = `this.${itemField.name}`;
+
+                    // Show suggestions if it matches the search or if lastWord is empty/very short
+                    if (
+                      itemPath.toLowerCase().includes(lastWord.toLowerCase()) &&
+                      (wouldChangeMeaningfully(itemPath) || lastWord.length < 2)
+                    ) {
+                      suggestions.push({
+                        type: "field",
+                        display: itemField.name,
+                        fullPath: itemPath,
+                        collection: field.name,
+                        description: `Array element → ${itemField.name}`,
+                      });
+                    }
+                  }
+                });
+              }
+              return; // Skip further processing for this array field
+            }
           }
 
-          // If it's a record type, suggest its nested fields
+          // Skip array types in normal context - they can't be used in arithmetic operations
+          if (fieldType === "array") {
+            return;
+          }
+
+          // Exclude booleans from suggestions
+          const isExcluded = fieldType === "boolean";
+
+          // Include all fields except booleans for simple types
+          if (typeof field.type === "string" || !field.type.type) {
+            if (!isExcluded) {
+              const prefix =
+                context === "arrayElement" && field.name === arrayCollection
+                  ? "this"
+                  : field.name;
+              const fullPath = `${prefix}`;
+
+              if (
+                fullPath.toLowerCase().includes(lastWord.toLowerCase()) &&
+                wouldChangeMeaningfully(fullPath)
+              ) {
+                suggestions.push({
+                  type: "field",
+                  display: field.name,
+                  fullPath: fullPath,
+                  collection: field.name,
+                  description: `Field: ${field.name}`,
+                });
+              }
+            }
+            return;
+          }
+
+          // If it's a record type, suggest its nested fields (except booleans and arrays)
+          // This function recursively processes nested records
+          const processNestedRecord = (recordField, parentPath, depth = 0) => {
+            if (depth > 5) return; // Prevent infinite recursion
+
+            if (
+              recordField.type &&
+              typeof recordField.type === "object" &&
+              recordField.type.type === "record" &&
+              recordField.type.fields
+            ) {
+              recordField.type.fields.forEach((nestedField) => {
+                const nestedFieldType =
+                  typeof nestedField.type === "string"
+                    ? nestedField.type
+                    : nestedField.type?.type;
+
+                const nestedPath = `${parentPath}.${nestedField.name}`;
+
+                // If it's a simple numeric field, suggest it
+                if (
+                  typeof nestedField.type === "string" &&
+                  !["boolean", "array"].includes(nestedField.type)
+                ) {
+                  if (
+                    nestedPath.toLowerCase().includes(lastWord.toLowerCase()) &&
+                    wouldChangeMeaningfully(nestedPath)
+                  ) {
+                    suggestions.push({
+                      type: "field",
+                      display: nestedField.name,
+                      fullPath: nestedPath,
+                      collection: field.name,
+                      description: `${parentPath.replace(/^[^.]+\.?/, "")} → ${
+                        nestedField.name
+                      }`.replace(/^→ /, ""),
+                    });
+                  }
+                }
+                // If it's a nested record, recurse
+                else if (
+                  typeof nestedField.type === "object" &&
+                  nestedField.type.type === "record"
+                ) {
+                  processNestedRecord(nestedField, nestedPath, depth + 1);
+                }
+              });
+            }
+          };
+
           if (
             field.type &&
             typeof field.type === "object" &&
             field.type.type === "record" &&
             field.type.fields
           ) {
-            field.type.fields.forEach((nestedField) => {
-              const nestedPrefix =
-                context === "arrayElement" && field.name === arrayCollection
-                  ? "this"
-                  : field.name;
-              const nestedPath = `${nestedPrefix}.${nestedField.name}`;
-
-              // Only include if it's a partial match and would change the expression meaningfully
-              if (
-                nestedPath.toLowerCase().includes(lastWord.toLowerCase()) &&
-                wouldChangeMeaningfully(nestedPath)
-              ) {
-                suggestions.push({
-                  type: "field",
-                  display: nestedField.name,
-                  fullPath: nestedPath,
-                  collection: field.name,
-                  description: `${field.name} → ${nestedField.name}`,
-                });
-              }
-            });
-          }
-
-          // If it's an array type, suggest array element access
-          if (
-            field.type &&
-            typeof field.type === "object" &&
-            field.type.type === "array"
-          ) {
-            const arrayPrefix =
+            const prefix =
               context === "arrayElement" && field.name === arrayCollection
                 ? "this"
                 : field.name;
-
-            // Suggest the array itself
-            if (
-              arrayPrefix.toLowerCase().includes(lastWord.toLowerCase()) &&
-              wouldChangeMeaningfully(arrayPrefix)
-            ) {
-              suggestions.push({
-                type: "field",
-                display: field.name,
-                fullPath: arrayPrefix,
-                collection: field.name,
-                description: `Array: ${field.name}`,
-              });
-            }
-
-            // If array contains records, suggest their fields
-            if (
-              field.type.items &&
-              typeof field.type.items === "object" &&
-              field.type.items.type === "record" &&
-              field.type.items.fields
-            ) {
-              field.type.items.fields.forEach((itemField) => {
-                const itemPath =
-                  context === "arrayElement" && field.name === arrayCollection
-                    ? `this.${itemField.name}`
-                    : `${field.name}.${itemField.name}`;
-
-                if (itemPath.toLowerCase().includes(lastWord.toLowerCase())) {
-                  suggestions.push({
-                    type: "field",
-                    display: itemField.name,
-                    fullPath: itemPath,
-                    collection: field.name,
-                    description: `${field.name} item → ${itemField.name}`,
-                  });
-                }
-              });
-            }
+            processNestedRecord(field, prefix);
           }
         }
       });
@@ -340,7 +615,7 @@ const AddVariableDialog = () => {
       }
     });
 
-    return suggestions.slice(0, 10);
+    return suggestions.slice(0, 20);
   };
 
   const suggestions = getSuggestions();
@@ -449,7 +724,7 @@ const AddVariableDialog = () => {
       }
     }
   };
-
+  console.log("suggestions", suggestions);
   const handleCloseSpecialCondition = () => {
     setSpecialConditionDialog({ open: false, blockId: null, equation: "" });
     setVariableName("");
@@ -474,6 +749,22 @@ const AddVariableDialog = () => {
   const handleAddVariable = () => {
     if (!variableName.trim() || !expression.trim()) {
       alert("Please enter both a variable name and an expression");
+      return;
+    }
+
+    // Check if a list variable with the same name already exists
+    if (customListVariables?.some((lv) => lv.name === variableName)) {
+      alert(
+        `A list variable with the name "${variableName}" already exists. Please choose a different name.`,
+      );
+      return;
+    }
+
+    // Check if an arithmetic variable with the same name already exists
+    if (customVariables?.some((v) => v.name === variableName)) {
+      alert(
+        `An arithmetic variable with the name "${variableName}" already exists. Please choose a different name.`,
+      );
       return;
     }
 
@@ -654,7 +945,7 @@ const AddVariableDialog = () => {
       >
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <Typography variant="h6" component="div">
-            Add Special Condition
+            Add Arithmetic Variable
           </Typography>
         </Box>
         <IconButton onClick={handleCloseSpecialCondition} size="small">
@@ -791,6 +1082,9 @@ const AddVariableDialog = () => {
                 ref={suggestionsRef}
                 sx={{
                   position: "absolute",
+                  top: "100%",
+                  left: 0,
+                  right: 0,
                   zIndex: 1000,
                   width: "100%",
                   mt: 0.5,
@@ -870,13 +1164,21 @@ const AddVariableDialog = () => {
                           py: 0.5,
                           borderRadius: 1,
                           bgcolor:
-                            suggestion.type === "field"
-                              ? "success.100"
-                              : "secondary.100",
+                            suggestion.type === "variable"
+                              ? "warning.100"
+                              : suggestion.type === "listVariable"
+                                ? "success.100"
+                                : suggestion.type === "field"
+                                  ? "info.100"
+                                  : "secondary.100",
                           color:
-                            suggestion.type === "field"
-                              ? "success.800"
-                              : "secondary.800",
+                            suggestion.type === "variable"
+                              ? "warning.800"
+                              : suggestion.type === "listVariable"
+                                ? "success.800"
+                                : suggestion.type === "field"
+                                  ? "info.800"
+                                  : "secondary.800",
                         }}
                       >
                         <Typography variant="caption" fontWeight="bold">
