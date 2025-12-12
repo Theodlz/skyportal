@@ -262,49 +262,11 @@ const AddVariableDialog = () => {
       );
     };
 
-    // Arithmetic variable suggestions (all are numerical) - ADD FIRST for priority
-    if (customVariables && Array.isArray(customVariables)) {
-      customVariables.forEach((variable) => {
-        if (
-          variable.name &&
-          variable.name.toLowerCase().includes(lastWord.toLowerCase()) &&
-          wouldChangeMeaningfully(variable.name)
-        ) {
-          suggestions.push({
-            type: "variable",
-            display: variable.name,
-            value: variable.name,
-            fullPath: variable.name,
-            description: "Arithmetic Variable",
-          });
-        }
-      });
-    }
-
-    // List variable suggestions (only numerical aggregation operators) - ADD SECOND for priority
-    if (customListVariables && Array.isArray(customListVariables)) {
-      const numericalOperators = ["$min", "$max", "$avg", "$sum"];
-      customListVariables.forEach((listVar) => {
-        if (
-          listVar.name &&
-          listVar.listCondition &&
-          numericalOperators.includes(listVar.listCondition.operator) &&
-          listVar.name.toLowerCase().includes(lastWord.toLowerCase()) &&
-          wouldChangeMeaningfully(listVar.name)
-        ) {
-          const operatorName = listVar.listCondition.operator
-            .replace("$", "")
-            .toUpperCase();
-          suggestions.push({
-            type: "listVariable",
-            display: listVar.name,
-            value: listVar.name,
-            fullPath: listVar.name,
-            description: `List Variable: ${operatorName}`,
-          });
-        }
-      });
-    }
+    // Separate arrays for different suggestion types to control order
+    const thisFieldSuggestions = []; // this.* fields (highest priority in array context)
+    const fieldSuggestions = [];
+    const operatorSuggestions = [];
+    const variableSuggestions = [];
 
     // Field suggestions for Avro schema
     if (
@@ -400,7 +362,7 @@ const AddVariableDialog = () => {
                             (wouldChangeMeaningfully(itemPath) ||
                               lastWord.length < 2)
                           ) {
-                            suggestions.push({
+                            thisFieldSuggestions.push({
                               type: "field",
                               display: catalogSubField.name,
                               fullPath: itemPath,
@@ -457,7 +419,7 @@ const AddVariableDialog = () => {
                       itemPath.toLowerCase().includes(lastWord.toLowerCase()) &&
                       (wouldChangeMeaningfully(itemPath) || lastWord.length < 2)
                     ) {
-                      suggestions.push({
+                      thisFieldSuggestions.push({
                         type: "field",
                         display: itemField.name,
                         fullPath: itemPath,
@@ -493,7 +455,7 @@ const AddVariableDialog = () => {
                 fullPath.toLowerCase().includes(lastWord.toLowerCase()) &&
                 wouldChangeMeaningfully(fullPath)
               ) {
-                suggestions.push({
+                fieldSuggestions.push({
                   type: "field",
                   display: field.name,
                   fullPath: fullPath,
@@ -533,7 +495,7 @@ const AddVariableDialog = () => {
                     nestedPath.toLowerCase().includes(lastWord.toLowerCase()) &&
                     wouldChangeMeaningfully(nestedPath)
                   ) {
-                    suggestions.push({
+                    fieldSuggestions.push({
                       type: "field",
                       display: nestedField.name,
                       fullPath: nestedPath,
@@ -588,7 +550,7 @@ const AddVariableDialog = () => {
           fullPath.toLowerCase().includes(lastWord.toLowerCase()) &&
           wouldChangeMeaningfully(fullPath)
         ) {
-          suggestions.push({
+          thisFieldSuggestions.push({
             type: "field",
             display: field,
             fullPath: fullPath,
@@ -606,7 +568,7 @@ const AddVariableDialog = () => {
           op.symbol.includes(lastWord)) &&
         wouldChangeMeaningfully(op.symbol)
       ) {
-        suggestions.push({
+        operatorSuggestions.push({
           type: "operator",
           display: op.name,
           value: op.symbol,
@@ -615,7 +577,66 @@ const AddVariableDialog = () => {
       }
     });
 
-    return suggestions.slice(0, 20);
+    // Arithmetic variable suggestions (all are numerical) - ADD LAST
+    if (customVariables && Array.isArray(customVariables)) {
+      customVariables.forEach((variable) => {
+        if (
+          variable.name &&
+          variable.name.toLowerCase().includes(lastWord.toLowerCase()) &&
+          wouldChangeMeaningfully(variable.name)
+        ) {
+          variableSuggestions.push({
+            type: "variable",
+            display: variable.name,
+            value: variable.name,
+            fullPath: variable.name,
+            description: "Arithmetic Variable",
+          });
+        }
+      });
+    }
+
+    // List variable suggestions (only numerical aggregation operators) - ADD LAST
+    if (customListVariables && Array.isArray(customListVariables)) {
+      const numericalOperators = ["$min", "$max", "$avg", "$sum"];
+      customListVariables.forEach((listVar) => {
+        if (
+          listVar.name &&
+          listVar.listCondition &&
+          numericalOperators.includes(listVar.listCondition.operator) &&
+          listVar.name.toLowerCase().includes(lastWord.toLowerCase()) &&
+          wouldChangeMeaningfully(listVar.name)
+        ) {
+          const operatorName = listVar.listCondition.operator
+            .replace("$", "")
+            .toUpperCase();
+          variableSuggestions.push({
+            type: "listVariable",
+            display: listVar.name,
+            value: listVar.name,
+            fullPath: listVar.name,
+            description: `List Variable: ${operatorName}`,
+          });
+        }
+      });
+    }
+
+    // Combine suggestions with context-aware ordering
+    // In arrayElement context, prioritize this.* fields at the very top
+    if (context === "arrayElement") {
+      return [
+        ...thisFieldSuggestions,
+        ...fieldSuggestions,
+        ...operatorSuggestions,
+        ...variableSuggestions,
+      ].slice(0, 20);
+    }
+    // In simple context, show fields, operators, then variables
+    return [
+      ...fieldSuggestions,
+      ...operatorSuggestions,
+      ...variableSuggestions,
+    ].slice(0, 20);
   };
 
   const suggestions = getSuggestions();
