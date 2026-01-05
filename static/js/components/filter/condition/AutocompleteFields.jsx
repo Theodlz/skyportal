@@ -80,10 +80,12 @@ const AutocompleteFields = ({
           ? "Arithmetic Variables"
           : option.isListVariable
             ? "Database List Variables"
-            : option.group ||
-              (option.label?.split(".").length > 1
-                ? option.label?.split(".")[0]
-                : "Other Fields"),
+            : option.isSwitchCase
+              ? "Switch Cases"
+              : option.group ||
+                (option.label?.split(".").length > 1
+                  ? option.label?.split(".")[0]
+                  : "Other Fields"),
       };
     });
 
@@ -398,11 +400,60 @@ const AutocompleteFields = ({
           );
           const fieldOption = options.find(
             (opt) =>
-              opt.label === value && !opt.isVariable && !opt.isListVariable,
+              opt.label === value && !opt.isVariable && !opt.isListVariable && !opt.isSwitchCase,
           );
           const listVariableOption = options.find(
             (opt) => opt.label === value && opt.isListVariable,
           );
+          const switchCaseOption = options.find(
+            (opt) => opt.label === value && opt.isSwitchCase,
+          );
+
+          // Check for switch case variable
+          if (switchCaseOption) {
+            return (
+              <span
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: 8,
+                  transform: "translateY(-50%)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  background: "linear-gradient(90deg, #e5e7eb 60%, #d1d5db 100%)",
+                  color: "#374151",
+                  borderRadius: 16,
+                  padding: "2px 12px",
+                  fontWeight: 700,
+                  fontSize: 15,
+                  border: "1.5px solid #6b7280",
+                  cursor: "pointer",
+                  minWidth: 0,
+                  maxWidth: "calc(100% - 16px)",
+                  whiteSpace: "nowrap",
+                  overflowX: "auto",
+                  overflowY: "hidden",
+                  textOverflow: "ellipsis",
+                  pointerEvents: "auto",
+                  zIndex: 2,
+                  boxShadow: "0 2px 8px 0 rgba(168,85,247,0.12)",
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // Use the global switch case popover callback
+                  if (window.openSwitchCasePopover) {
+                    window.openSwitchCasePopover(
+                      switchCaseOption.label,
+                      e.currentTarget,
+                    );
+                  }
+                }}
+                title={`Click to view switch case: ${switchCaseOption.label}`}
+              >
+                {switchCaseOption.label}
+              </span>
+            );
+          }
 
           // Check for aggregation list condition (when conditionOrBlock has aggregation value)
           if (

@@ -408,6 +408,7 @@ export const mongoOperatorLabels = {
   $lengthLt: "Length <",
   $regex: "Regex Match",
   $type: "Type Check",
+  $switch: "Switch",
 };
 
 export const mongoOperatorTypes = {
@@ -434,6 +435,7 @@ export const mongoOperatorTypes = {
   $lengthLt: "array_single",
   $regex: "string",
   $type: "string",
+  $switch: "conditional",
 };
 
 // Helper functions for handling nested objects in arrays

@@ -100,6 +100,15 @@ class BoomFilterModulesHandler(BaseHandler):
                             "created_at": datetime.datetime.utcnow(),
                         }
                     )
+                elif data["elements"] == "switchCases":
+                    result = collection.insert_one(
+                        {
+                            "name": name,
+                            "switchCondition": data["data"]["switchCondition"],
+                            "type": data["data"]["type"],
+                            "created_at": datetime.datetime.utcnow(),
+                        }
+                    )
             except Exception as e:
                 traceback.print_exc()
                 return self.error(f"Error inserting data into MongoDB: {e}")

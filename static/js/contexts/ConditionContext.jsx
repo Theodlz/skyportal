@@ -7,6 +7,7 @@ export const ConditionProvider = ({
   children,
   customVariables,
   customListVariables,
+  customSwitchCases,
   fieldOptionsList,
   isListDialogOpen,
   setListConditionDialog,
@@ -14,6 +15,7 @@ export const ConditionProvider = ({
   const value = {
     customVariables,
     customListVariables,
+    customSwitchCases,
     fieldOptionsList,
     isListDialogOpen,
     setListConditionDialog,
@@ -34,6 +36,7 @@ ConditionProvider.propTypes = {
   children: PropTypes.node.isRequired,
   customVariables: PropTypes.array.isRequired,
   customListVariables: PropTypes.array.isRequired,
+  customSwitchCases: PropTypes.array.isRequired,
   fieldOptionsList: PropTypes.array.isRequired,
   isListDialogOpen: PropTypes.bool.isRequired,
   setListConditionDialog: PropTypes.func.isRequired,

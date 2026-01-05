@@ -13,6 +13,7 @@ import { flattenFieldOptions } from "../../constants/filterConstants";
 import AddVariableDialog from "./dialog/AddVariableDialog";
 import BlockComponent from "./block/BlockComponent";
 import AddListConditionDialog from "./dialog/AddListConditionDialog";
+import AddSwitchDialog from "./dialog/AddSwitchDialog";
 import SaveBlockDialogMenu from "./block/SaveBlockDialogMenu";
 import MongoQueryDialog from "./dialog/MongoQueryDialog";
 import { filterBuilderStyles } from "../../styles/componentStyles";
@@ -417,6 +418,7 @@ const FilterBuilderContent = ({
       {/* Dialogs */}
       <AddVariableDialog />
       <AddListConditionDialog />
+      <AddSwitchDialog />
       <SaveBlockDialogMenu />
       <MongoQueryDialog />
     </Box>

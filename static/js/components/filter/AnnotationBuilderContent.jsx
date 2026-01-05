@@ -35,6 +35,7 @@ import {
 import { getFieldOptionsWithVariable } from "../../utils/conditionHelpers";
 import AddVariableDialog from "./dialog/AddVariableDialog";
 import AddListConditionDialog from "./dialog/AddListConditionDialog";
+import AddSwitchDialog from "./dialog/AddSwitchDialog";
 import SaveBlockDialogMenu from "./block/SaveBlockDialogMenu";
 import MongoQueryDialog from "./dialog/MongoQueryDialog";
 import { filterBuilderStyles } from "../../styles/componentStyles";
@@ -466,6 +467,7 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
       fieldOptions,
       filterContext.customVariables || [],
       filterContext.customListVariables || [],
+      filterContext.customSwitchCases || [],
       [], // Empty array to avoid duplication since fieldOptions already contains schema fields
     )
       .map((field) => {
@@ -1185,6 +1187,7 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
       {/* Dialogs */}
       <AddVariableDialog />
       <AddListConditionDialog />
+      <AddSwitchDialog />
       <SaveBlockDialogMenu />
 
       {/* Map dialog for map type */}

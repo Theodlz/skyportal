@@ -33,6 +33,8 @@ import SaveIcon from "@mui/icons-material/Save";
 import AutocompleteFields from "../condition/AutocompleteFields";
 import OperatorSelector from "../condition/OperatorSelector";
 import ListConditionPopover from "../condition/ListConditionPopover";
+import SwitchCasePopover from "../condition/SwitchCasePopover";
+import ConditionalValueBuilder from "../condition/ConditionalValueBuilder";
 import { ConditionProvider } from "../../../contexts/ConditionContext";
 import { useCurrentBuilder } from "../../../hooks/useContexts";
 import { usePopoverRegistry } from "../../../hooks/useDialog";
@@ -108,11 +110,15 @@ const CustomAddElement = ({
   filters,
   setSpecialConditionDialog,
   setListConditionDialog,
+  setSwitchDialog,
   setCollapsedBlocks,
+  disableSwitchOption = false,
 }) => {
   const [customBlockSearch, setCustomBlockSearch] = useState("");
   const [hoveredVariable, setHoveredVariable] = useState(false);
+  const [hoveredCondition, setHoveredCondition] = useState(false);
   const [variableButtonRef, setVariableButtonRef] = useState(null);
+  const [conditionButtonRef, setConditionButtonRef] = useState(null);
   const [addButtonRef, setAddButtonRef] = useState(null);
 
   const addItemToBlock = (blockId, category) => {
@@ -121,8 +127,28 @@ const CustomAddElement = ({
         const updateBlock = (currentBlock) => {
           if (currentBlock.id === blockId) {
             // Found the target block, add the new item to its children
-            const newItem =
-              category === "condition" ? defaultCondition() : defaultBlock();
+            let newItem;
+            if (category === "condition") {
+              newItem = defaultCondition();
+            } else if (category === "switch") {
+              // Create a switch condition with the $switch operator
+              newItem = {
+                ...defaultCondition(),
+                operator: "$switch",
+                value: { 
+                  cases: [{ 
+                    block: {
+                      ...defaultBlock(),
+                      operator: "$and",
+                    },
+                    then: "" 
+                  }], 
+                  default: "" 
+                },
+              };
+            } else {
+              newItem = defaultBlock();
+            }
             return {
               ...currentBlock,
               children: [...currentBlock.children, newItem],
@@ -158,12 +184,21 @@ const CustomAddElement = ({
     });
     setActiveBlockForAdd(null);
     setHoveredVariable(false);
+    setHoveredCondition(false);
   };
 
   const handleOpenListCondition = (blockId, conditionId = null) => {
     setListConditionDialog({ open: true, blockId, conditionId });
     setActiveBlockForAdd(null);
     setHoveredVariable(false);
+    setHoveredCondition(false);
+  };
+
+  const handleOpenSwitchDialog = (blockId) => {
+    setSwitchDialog({ open: true, blockId });
+    setActiveBlockForAdd(null);
+    setHoveredVariable(false);
+    setHoveredCondition(false);
   };
 
   const addCustomBlockToBlock = (blockId, customBlockName) => {
@@ -351,7 +386,10 @@ const CustomAddElement = ({
                   bgcolor: "info.light",
                 },
               }}
-              onClick={() => addItemToBlock(block.id, "condition")}
+              onClick={() => {
+                addItemToBlock(block.id, "condition");
+                setActiveBlockForAdd(null);
+              }}
             >
               + Condition
             </Button>
@@ -439,6 +477,25 @@ const CustomAddElement = ({
                   >
                     + List
                   </Button>
+                  {!disableSwitchOption && (
+                    <Button
+                      fullWidth
+                      variant="text"
+                      sx={{
+                        justifyContent: "flex-start",
+                        fontWeight: 600,
+                        borderRadius: 1,
+                        color: "primary.dark",
+                        fontSize: "0.875rem",
+                        "&:hover": {
+                          bgcolor: "primary.light",
+                        },
+                      }}
+                      onClick={() => handleOpenSwitchDialog(block.id)}
+                    >
+                      + Switch
+                    </Button>
+                  )}
                 </Paper>
               </Popper>
             </Box>
@@ -558,7 +615,9 @@ CustomAddElement.propTypes = {
   filters: PropTypes.array.isRequired,
   setSpecialConditionDialog: PropTypes.func.isRequired,
   setListConditionDialog: PropTypes.func.isRequired,
+  setSwitchDialog: PropTypes.func.isRequired,
   setCollapsedBlocks: PropTypes.func.isRequired,
+  disableSwitchOption: PropTypes.bool,
 };
 
 const SaveBlockComponent = ({
@@ -747,11 +806,13 @@ const ValueInput = ({
   setOpenEquationIds,
   setSelectedChip,
   setEquationAnchor = null,
+  createDefaultCondition,
+  createDefaultBlock,
 }) => {
   const schema = useSelector((state) => state.filter_modules?.schema);
   const fieldOptions = flattenFieldOptions(schema);
 
-  const { customListVariables, customVariables, fieldOptionsList } =
+  const { customListVariables, customVariables, customSwitchCases, fieldOptionsList } =
     useConditionContext();
 
   // Check conditions that don't require context first
@@ -840,6 +901,19 @@ const ValueInput = ({
         setOpenEquationIds={setOpenEquationIds}
         setSelectedChip={setSelectedChip}
         setEquationAnchor={setEquationAnchor}
+      />
+    );
+  }
+
+  // Check if this is a switch operator
+  if (conditionOrBlock.operator === "$switch") {
+    return (
+      <ConditionalValueInput
+        conditionOrBlock={conditionOrBlock}
+        block={block}
+        updateCondition={updateCondition}
+        defaultCondition={createDefaultCondition}
+        defaultBlock={createDefaultBlock}
       />
     );
   }
@@ -968,6 +1042,9 @@ const ListVariableInput = ({
           fieldOptionsList,
           customVariables,
           customListVariables,
+          customSwitchCases || [],
+          [],
+          conditionOrBlock.createdAt,
         )}
         value={conditionOrBlock.value ? String(conditionOrBlock.value) : ""}
         onChange={(newValue) =>
@@ -1026,6 +1103,9 @@ const ListVariableInput = ({
           fieldOptionsList,
           customVariables,
           customListVariables,
+          customSwitchCases || [],
+          [],
+          conditionOrBlock.createdAt,
         )}
         value={conditionOrBlock.value ? String(conditionOrBlock.value) : ""}
         onChange={(newValue) =>
@@ -1127,6 +1207,49 @@ ListVariableInput.propTypes = {
   setEquationAnchor: PropTypes.func,
 };
 
+const ConditionalValueInput = ({ conditionOrBlock, block, updateCondition, defaultCondition, defaultBlock, fieldOptionsList }) => {
+  const handleSwitchDataChange = (newSwitchData) => {
+    updateCondition(block.id, conditionOrBlock.id, "value", newSwitchData);
+  };
+
+  return (
+    <ConditionalValueBuilder
+      value={conditionOrBlock.value}
+      onChange={handleSwitchDataChange}
+      defaultCondition={defaultCondition}
+      defaultBlock={defaultBlock}
+      fieldOptionsList={fieldOptionsList}
+    />
+  );
+};
+
+ConditionalValueInput.propTypes = {
+  conditionOrBlock: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    operator: PropTypes.string,
+    value: PropTypes.any,
+  }).isRequired,
+  block: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+  }).isRequired,
+  updateCondition: PropTypes.func.isRequired,
+  defaultCondition: PropTypes.func.isRequired,
+  defaultBlock: PropTypes.func.isRequired,
+  fieldOptionsList: PropTypes.array,
+};
+
+ConditionalValueInput.propTypes = {
+  conditionOrBlock: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    operator: PropTypes.string,
+    value: PropTypes.any,
+  }).isRequired,
+  block: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+  }).isRequired,
+  updateCondition: PropTypes.func.isRequired,
+};
+
 const RegularValueInput = ({
   conditionOrBlock,
   block,
@@ -1138,6 +1261,7 @@ const RegularValueInput = ({
   const {
     customVariables,
     customListVariables,
+    customSwitchCases,
     fieldOptionsList,
     isListDialogOpen,
   } = useConditionContext();
@@ -1149,6 +1273,9 @@ const RegularValueInput = ({
         fieldOptionsList,
         customVariables,
         customListVariables,
+        customSwitchCases || [],
+        [],
+        conditionOrBlock.createdAt,
       )}
       value={(() => {
         // Check if this is an aggregation operator that should be shown on the left
@@ -1224,6 +1351,7 @@ const BlockHeader = ({
   localFilters = null,
   setLocalFilters = null,
   isStickyHeader = false,
+  disableSwitchOption = false,
 }) => {
   const {
     filters: contextFilters,
@@ -1236,6 +1364,7 @@ const BlockHeader = ({
     createDefaultBlock,
     setSpecialConditionDialog,
     setListConditionDialog,
+    setSwitchDialog,
     customBlocks,
     updateBlockLogic,
     removeBlock,
@@ -1245,6 +1374,56 @@ const BlockHeader = ({
   // Use local filters if provided, otherwise use context filters
   const filters = localFilters || contextFilters;
   const setFilters = setLocalFilters || contextSetFilters;
+
+  // Keyboard shortcut to add a condition
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const isShortcut = e.metaKey && e.shiftKey && e.key === 'C';
+      
+      if (!isShortcut) return;
+
+      // // Don't trigger if user is typing in an input, textarea, or contenteditable
+      // const activeElement = document.activeElement;
+      // const isInputField = 
+      //   activeElement.tagName === 'INPUT' ||
+      //   activeElement.tagName === 'TEXTAREA' ||
+      //   activeElement.isContentEditable;
+      
+      // if (isInputField) return;
+
+      // Prevent default browser behavior
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Add a condition to this block
+      const defaultCondition = createDefaultCondition();
+      setFilters((prevFilters) => {
+        return prevFilters.map((rootBlock) => {
+          const updateBlock = (currentBlock) => {
+            if (currentBlock.id === block.id) {
+              return {
+                ...currentBlock,
+                children: [...currentBlock.children, defaultCondition],
+              };
+            }
+            if (currentBlock.children) {
+              return {
+                ...currentBlock,
+                children: currentBlock.children.map((child) =>
+                  child.category === "block" ? updateBlock(child) : child,
+                ),
+              };
+            }
+            return currentBlock;
+          };
+          return updateBlock(rootBlock);
+        });
+      });
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [block.id, createDefaultCondition, setFilters]);
 
   // Create a wrapper for removeBlock that works with both local and context filters
   const handleRemoveBlock = (blockId) => {
@@ -1595,7 +1774,7 @@ const BlockHeader = ({
           <>
             <FormControl size="small" sx={{ minWidth: 80 }}>
               <Select
-                value={(block?.operator || block?.logic || "and").toLowerCase()}
+                value={(block?.operator || block?.logic || "$and").replace("$", "").toLowerCase()}
                 onChange={(e) => {
                   if (localFilters && setLocalFilters) {
                     const updatedFilters = localFilters.map((currentBlock) => {
@@ -1603,7 +1782,7 @@ const BlockHeader = ({
                         if (blockToUpdate.id === block.id) {
                           return {
                             ...blockToUpdate,
-                            operator: e.target.value.toLowerCase(),
+                            operator: "$" + e.target.value.toLowerCase(),
                             logic: e.target.value,
                           };
                         }
@@ -1624,7 +1803,7 @@ const BlockHeader = ({
                     setLocalFilters(updatedFilters);
                   } else {
                     // Fallback to context update
-                    updateBlockLogic(block.id, e.target.value);
+                    updateBlockLogic(block.id, "$" + e.target.value.toLowerCase());
                   }
                 }}
               >
@@ -1644,7 +1823,9 @@ const BlockHeader = ({
               filters={filters}
               setSpecialConditionDialog={setSpecialConditionDialog}
               setListConditionDialog={setListConditionDialog}
+              setSwitchDialog={setSwitchDialog}
               setCollapsedBlocks={setCollapsedBlocks}
+              disableSwitchOption={disableSwitchOption}
             />
           </>
         )}
@@ -1728,7 +1909,7 @@ const BlockHeader = ({
                   return prevFilters.map(updateBlock);
                 });
               }}
-              color="primary"
+              color="default"
               size="medium"
               inputProps={{ "aria-label": "Custom block boolean value" }}
             />
@@ -1782,7 +1963,7 @@ const BlockHeader = ({
                   return prevFilters.map(updateBlock);
                 });
               }}
-              color="primary"
+              color="default"
               size="medium"
               inputProps={{ "aria-label": "Nested custom block boolean value" }}
             />
@@ -1833,7 +2014,7 @@ const BlockHeader = ({
                   return prevFilters.map(updateBlock);
                 });
               }}
-              color="primary"
+              color="default"
               size="medium"
               inputProps={{ "aria-label": "Block boolean value" }}
             />
@@ -1885,6 +2066,7 @@ BlockHeader.propTypes = {
   localFilters: PropTypes.array,
   setLocalFilters: PropTypes.func,
   isStickyHeader: PropTypes.bool,
+  disableSwitchOption: PropTypes.bool,
 };
 
 const SpecialOperatorInputs = ({
@@ -1906,7 +2088,7 @@ const SpecialOperatorInputs = ({
                 e.target.checked,
               )
             }
-            color="primary"
+            color="default"
           />
         }
         label={
@@ -2062,7 +2244,9 @@ const ConditionComponent = ({
     setFilters: contextSetFilters,
     customVariables,
     customListVariables,
+    customSwitchCases,
     createDefaultCondition, // Fixed: use createDefaultCondition instead of defaultCondition
+    createDefaultBlock,
   } = useCurrentBuilder();
 
   // Use local filters if provided, otherwise use context filters
@@ -2072,6 +2256,7 @@ const ConditionComponent = ({
     <ConditionProvider
       customVariables={customVariables || []}
       customListVariables={customListVariables || []}
+      customSwitchCases={customSwitchCases || []}
       fieldOptionsList={fieldOptionsList}
       isListDialogOpen={isListDialogOpen}
       setListConditionDialog={setListConditionDialog}
@@ -2082,9 +2267,11 @@ const ConditionComponent = ({
         setFilters={setFilters}
         filters={filters}
         createDefaultCondition={createDefaultCondition} // Fixed: pass createDefaultCondition
+        createDefaultBlock={createDefaultBlock}
         customVariables={customVariables || []}
         fieldOptionsList={fieldOptionsList}
         customListVariables={customListVariables || []}
+        customSwitchCases={customSwitchCases || []}
         isListDialogOpen={isListDialogOpen}
       />
     </ConditionProvider>
@@ -2113,19 +2300,22 @@ const ConditionComponentInner = ({
   setFilters,
   filters,
   createDefaultCondition,
+  createDefaultBlock,
   customVariables,
   fieldOptionsList,
   customListVariables,
+  customSwitchCases,
   isListDialogOpen = false,
 }) => {
   const [openEquationIds, setOpenEquationIds] = useState([]);
   const [selectedChip, setSelectedChip] = useState("");
   const [listPopoverAnchor, setListPopoverAnchor] = useState(null);
+  const [switchPopoverAnchor, setSwitchPopoverAnchor] = useState(null);
   const [equationAnchor, setEquationAnchor] = useState(null);
   const schema = useSelector((state) => state.filter_modules?.schema);
   const final_schema = schema?.versions?.find(
     (v) => v.vid === schema.active_id,
-  ).schema;
+  )?.schema;
   const fieldOptions = flattenFieldOptions(final_schema);
 
   // Custom hooks
@@ -2133,6 +2323,8 @@ const ConditionComponentInner = ({
     conditionOrBlock.id,
     customListVariables,
     setListPopoverAnchor,
+    customSwitchCases,
+    setSwitchPopoverAnchor,
   );
   const { isYoungestHovered, handleMouseEnter, handleMouseLeave } =
     useHoverState(conditionOrBlock.id, filters);
@@ -2148,7 +2340,11 @@ const ConditionComponentInner = ({
     fieldOptionsList,
     customVariables,
     customListVariables,
+    customSwitchCases || [],
+    fieldOptions, // Pass schema field options
+    conditionOrBlock.createdAt, // Filter switch cases created after this condition
   );
+  
   const operatorOptions = conditionOrBlock.field
     ? getOperatorsForField(
         conditionOrBlock.field,
@@ -2256,18 +2452,72 @@ const ConditionComponentInner = ({
     />
   );
 
+  // Special rendering for Switch operator - replaces entire condition row
+  if (conditionOrBlock.operator === "$switch") {
+    return (
+      <Box
+        key={conditionOrBlock.id}
+        sx={{
+          ml: 2,
+          pr: "140px",
+          position: "relative",
+          transition: "all 0.2s ease",
+          display: "flex",
+          gap: 1,
+          alignItems: "flex-start",
+          flex: 1,
+          p: 1,
+          borderRadius: 1,
+          border: 1,
+          borderColor: isYoungestHovered ? "primary.light" : "transparent",
+          background: isYoungestHovered
+            ? "linear-gradient(to right, #e3f2fd, #f3e5f5)"
+            : "transparent",
+          boxShadow: isYoungestHovered ? 2 : 0,
+          zIndex: 1,
+        }}
+        onMouseEnter={() => handleMouseEnter(conditionOrBlock.id)}
+        onMouseLeave={() => handleMouseLeave(conditionOrBlock.id)}
+      >
+        {/* Remove button on the left */}
+        <IconButton
+          size="small"
+          color="error"
+          onClick={() => removeItem(block.id, conditionOrBlock.id)}
+          sx={{ p: 0.5, mt: 1 }}
+        >
+          <ClearIcon fontSize="small" />
+        </IconButton>
+
+        {/* Main switch content */}
+        <Box sx={{ flex: 1 }}>
+
+          {/* Switch Logic Builder */}
+          <ConditionalValueInput
+            conditionOrBlock={conditionOrBlock}
+            block={block}
+            updateCondition={updateCondition}
+            defaultCondition={createDefaultCondition}
+            defaultBlock={createDefaultBlock}
+            fieldOptionsList={fieldOptionsList}
+          />
+        </Box>
+      </Box>
+    );
+  }
+
+  // Regular condition rendering
   return (
     <Box
       key={conditionOrBlock.id}
       sx={{
         ml: 2,
-        width: "100%",
+        pr: "140px",
         display: "grid",
         gridTemplateColumns:
           "auto minmax(250px, 2fr) minmax(200px, 1fr) minmax(250px, 2fr)",
         gap: 1,
         alignItems: "center",
-        maxWidth: "100%",
         position: "relative",
         transition: "all 0.2s ease",
         p: 1,
@@ -2322,6 +2572,8 @@ const ConditionComponentInner = ({
         setOpenEquationIds={setOpenEquationIds}
         setSelectedChip={setSelectedChip}
         setEquationAnchor={setEquationAnchor}
+        createDefaultCondition={createDefaultCondition}
+        createDefaultBlock={createDefaultBlock}
       />
 
       {/* Special Operator Inputs */}
@@ -2345,6 +2597,14 @@ const ConditionComponentInner = ({
         block={block}
         updateCondition={updateCondition}
         fieldOptions={fieldOptions}
+        fieldOptionsList={fieldOptionsList}
+      />
+
+      {/* Switch Case Popover */}
+      <SwitchCasePopover
+        switchPopoverAnchor={switchPopoverAnchor}
+        setSwitchPopoverAnchor={setSwitchPopoverAnchor}
+        customSwitchCases={customSwitchCases}
         fieldOptionsList={fieldOptionsList}
       />
     </Box>
@@ -2448,6 +2708,7 @@ const BlockComponent = ({
   localFilters = null,
   setLocalFilters = null,
   stickyBlockId = null,
+  disableSwitchOption = false,
 }) => {
   const [activeBlockForAdd, setActiveBlockForAdd] = useState(null);
 
@@ -2479,6 +2740,7 @@ const BlockComponent = ({
                 localFilters={localFilters}
                 setLocalFilters={setLocalFilters}
                 stickyBlockId={stickyBlockId}
+                disableSwitchOption={disableSwitchOption}
               />
             );
           }
@@ -2551,6 +2813,7 @@ const BlockComponent = ({
         localFilters={localFilters}
         setLocalFilters={setLocalFilters}
         isStickyHeader={isStickyHeader}
+        disableSwitchOption={disableSwitchOption}
       />
 
       {/* Content */}
@@ -2571,6 +2834,7 @@ BlockComponent.propTypes = {
   localFilters: PropTypes.array,
   setLocalFilters: PropTypes.func,
   stickyBlockId: PropTypes.string,
+  disableSwitchOption: PropTypes.bool,
 };
 
 export default BlockComponent;

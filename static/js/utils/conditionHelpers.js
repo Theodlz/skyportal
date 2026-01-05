@@ -358,7 +358,9 @@ export const getFieldOptionsWithVariable = (
   fieldOptionsList,
   customVariables,
   customListVariables,
+  customSwitchCases = [],
   schemaFieldOptions = [], // Add schema field options parameter
+  currentContextTime = null, // Optional: filter switches created after this time
 ) => {
   const listVariableOptions =
     customListVariables?.map((lv) => {
@@ -375,6 +377,22 @@ export const getFieldOptionsWithVariable = (
         group: "Database List Variables",
       };
     }) || [];
+
+  // Filter switch cases to only show those created before current context
+  const filteredSwitchCases = currentContextTime
+    ? customSwitchCases?.filter((sc) => !sc.createdAt || sc.createdAt < currentContextTime)
+    : customSwitchCases;
+
+  const switchCaseOptions =
+    filteredSwitchCases?.map((sc) => ({
+      label: sc.name,
+      type: "switch_variable",
+      isSwitchCase: true,
+      isVariable: false,
+      isListVariable: false,
+      switchCondition: sc.switchCondition,
+      group: "Switch Cases",
+    })) || [];
 
   const variableOptions =
     customVariables?.map((eq) => ({
@@ -394,6 +412,7 @@ export const getFieldOptionsWithVariable = (
     ...schemaFieldOptions,
     ...variableOptions,
     ...listVariableOptions,
+    ...switchCaseOptions,
   ];
 
   return combined;

@@ -34,6 +34,7 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
   const [customBlocks, setCustomBlocks] = useState([]);
   const [customVariables, setCustomVariables] = useState([]);
   const [customListVariables, setCustomListVariables] = useState([]);
+  const [customSwitchCases, setCustomSwitchCases] = useState([]);
 
   // Local filters updater function reference (for FilterBuilderContent)
   const [localFiltersUpdater, setLocalFiltersUpdater] = useState(null);
@@ -64,15 +65,20 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
         const listVariables = await dispatch(
           fetchAllElements({ elements: "listVariables" }),
         );
+        const switchCases = await dispatch(
+          fetchAllElements({ elements: "switchCases" }),
+        );
         setCustomBlocks(blocks.data.blocks || []);
         setCustomVariables(variables.data.variables || []);
         setCustomListVariables(listVariables.data.listVariables || []);
+        setCustomSwitchCases(switchCases.data.switchCases || []);
       } catch (error) {
         console.error("Error loading unified builder data:", error);
         // Set empty arrays as fallback
         setCustomBlocks([]);
         setCustomVariables([]);
         setCustomListVariables([]);
+        setCustomSwitchCases([]);
       }
     };
 
@@ -90,6 +96,13 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
 
   // MongoDB aggregation conversion
   const generateMongoQuery = () => {
+    // Collect field names from projection fields that need to be available
+    const annotationFields = projectionFields
+      ? projectionFields
+          .filter((f) => f.fieldName && f.fieldName !== "objectId")
+          .map((f) => f.fieldName)
+      : [];
+
     // Always use filters as the base query, regardless of mode
     // This ensures annotations show both filters + projections
     const baseQuery = convertToMongoAggregation(
@@ -98,6 +111,8 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
       fieldOptions,
       customVariables,
       customListVariables,
+      customSwitchCases,
+      annotationFields, // Pass annotation fields so switch cases can be projected
     );
 
     // If there are projection fields (annotations), adapt the final project stage
@@ -199,6 +214,8 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
     setCustomVariables,
     customListVariables,
     setCustomListVariables,
+    customSwitchCases,
+    setCustomSwitchCases,
 
     // Local filters updater (for filter mode)
     localFiltersUpdater,

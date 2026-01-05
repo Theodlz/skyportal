@@ -16,6 +16,10 @@ export const useDialogStates = () => {
     open: false,
     blockId: null,
   });
+  const [switchDialog, setSwitchDialog] = useState({
+    open: false,
+    blockId: null,
+  });
   const [mongoDialog, setMongoDialog] = useState({ open: false });
 
   // Reset all dialog states
@@ -25,6 +29,7 @@ export const useDialogStates = () => {
     setSaveError("");
     setSpecialConditionDialog({ open: false, blockId: null });
     setListConditionDialog({ open: false, blockId: null });
+    setSwitchDialog({ open: false, blockId: null });
     setMongoDialog({ open: false });
   }, []);
 
@@ -55,6 +60,14 @@ export const useDialogStates = () => {
     setListConditionDialog({ open: false, blockId: null });
   }, []);
 
+  const openSwitchDialog = useCallback((blockId) => {
+    setSwitchDialog({ open: true, blockId });
+  }, []);
+
+  const closeSwitchDialog = useCallback(() => {
+    setSwitchDialog({ open: false, blockId: null });
+  }, []);
+
   return {
     // Dialog states
     saveDialog,
@@ -62,6 +75,7 @@ export const useDialogStates = () => {
     saveError,
     specialConditionDialog,
     listConditionDialog,
+    switchDialog,
     mongoDialog,
 
     // Dialog actions
@@ -74,6 +88,9 @@ export const useDialogStates = () => {
     openListConditionDialog,
     closeListConditionDialog,
     setListConditionDialog, // Direct state setter for complex updates
+    openSwitchDialog,
+    closeSwitchDialog,
+    setSwitchDialog, // Direct state setter for complex updates
 
     // Save dialog actions
     setSaveName,
@@ -495,6 +512,8 @@ export const usePopoverRegistry = (
   conditionId,
   customListVariables,
   setListPopoverAnchor,
+  customSwitchCases,
+  setSwitchPopoverAnchor,
 ) => {
   useEffect(() => {
     // Initialize registries if they don't exist
@@ -550,10 +569,44 @@ export const usePopoverRegistry = (
       };
     }
 
+    // Initialize switch case registry
+    if (!window.switchCasePopoverRegistry) {
+      window.switchCasePopoverRegistry = new Map();
+    }
+
+    // Register switch case callback for this component
+    const switchCaseCallback = (switchCaseName, anchorElement) => {
+      const switchCase = customSwitchCases.find(
+        (sc) => sc.name === switchCaseName,
+      );
+      if (switchCase) {
+        setSwitchPopoverAnchor(anchorElement);
+        window.currentSwitchCase = switchCase;
+        return true;
+      }
+      return false;
+    };
+
+    window.switchCasePopoverRegistry.set(conditionId, switchCaseCallback);
+
+    // Set up the global switch case callback if it doesn't exist
+    if (!window.openSwitchCasePopover) {
+      window.openSwitchCasePopover = (switchCaseName, anchorElement) => {
+        for (const callback of window.switchCasePopoverRegistry?.values() ||
+          []) {
+          if (callback(switchCaseName, anchorElement)) {
+            return true;
+          }
+        }
+        return false;
+      };
+    }
+
     return () => {
       // Clean up this component's callbacks
       window.listPopoverRegistry?.delete(conditionId);
       window.listVariablePopoverRegistry?.delete(conditionId);
+      window.switchCasePopoverRegistry?.delete(conditionId);
 
       // If this was the last component, clean up global callbacks
       if (window.listPopoverRegistry?.size === 0) {
@@ -562,6 +615,9 @@ export const usePopoverRegistry = (
       if (window.listVariablePopoverRegistry?.size === 0) {
         window.openListVariablePopover = null;
       }
+      if (window.switchCasePopoverRegistry?.size === 0) {
+        window.openSwitchCasePopover = null;
+      }
     };
-  }, [conditionId, customListVariables, setListPopoverAnchor]);
+  }, [conditionId, customListVariables, setListPopoverAnchor, customSwitchCases, setSwitchPopoverAnchor]);
 };

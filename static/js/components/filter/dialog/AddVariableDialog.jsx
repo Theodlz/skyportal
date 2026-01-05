@@ -745,7 +745,6 @@ const AddVariableDialog = () => {
       }
     }
   };
-  console.log("suggestions", suggestions);
   const handleCloseSpecialCondition = () => {
     setSpecialConditionDialog({ open: false, blockId: null, equation: "" });
     setVariableName("");

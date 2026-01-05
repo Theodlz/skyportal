@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -6,6 +6,7 @@ import {
   TextField,
   DialogActions,
   Button,
+  Autocomplete,
 } from "@mui/material";
 import {
   saveBlock,
@@ -26,18 +27,76 @@ const SaveBlockDialogMenu = () => {
     setCustomBlocks,
     setCollapsedBlocks,
     setFilters,
+    fieldOptions,
   } = useCurrentBuilder();
 
   const dispatch = useDispatch();
 
+  // Track whether the selected name is a field reference
+  const [isFieldReference, setIsFieldReference] = useState(false);
+
   const handleSaveDialogConfirm = async () => {
-    if (!saveName.trim()) {
+    if (!saveName || (typeof saveName === 'string' && !saveName.trim())) {
       setSaveError("Name is required.");
       return;
     }
+
+    const nameValue = typeof saveName === 'object' && saveName.label 
+      ? saveName.label 
+      : saveName.trim ? saveName.trim() : saveName;
+
+    // If it's a field reference, we don't save to database - just set it locally
+    // It will be used in a $set stage later during query execution
+    if (isFieldReference) {
+      setCustomBlocks((prev) => {
+        const newId = saveDialog.block.id;
+        const newName = `Custom.${nameValue}`;
+        return [
+          ...prev.filter((cb) => cb.block?.id !== newId && cb.name !== newName),
+          { 
+            name: newName, 
+            block: saveDialog.block,
+            isFieldReference: true, // Flag to indicate this is a field reference
+            fieldPath: nameValue, // Store the field path
+          },
+        ];
+      });
+      // Collapse the block in the main filter builder (collapsed by default)
+      setCollapsedBlocks((prev) => ({
+        ...prev,
+        [saveDialog.block.id]: true,
+      }));
+      setFilters((prevFilters) => {
+        const replaceBlock = (block) => {
+          if (block.id !== saveDialog.block.id) {
+            return {
+              ...block,
+              children: block.children.map((child) =>
+                child.category === "block" ? replaceBlock(child) : child,
+              ),
+            };
+          }
+          const newBlock = {
+            ...saveDialog.block,
+            customBlockName: nameValue,
+            isFieldReference: true, // Mark that this uses a field reference
+            isTrue: block.isTrue, // preserve boolean state if present
+          };
+          return { ...newBlock };
+        };
+        return prevFilters.map(replaceBlock);
+      });
+      setSaveDialog({ open: false, block: null });
+      setSaveName("");
+      setSaveError("");
+      setIsFieldReference(false);
+      return;
+    }
+
+    // For custom names (non-field references), save to database
     // Check for duplicate name
     const notAvailable = await dispatch(
-      fetchElement({ name: saveName.trim(), elements: "blocks" }),
+      fetchElement({ name: nameValue, elements: "blocks" }),
     );
     if (notAvailable.data.blocks) {
       setSaveError("Name already exists. Please choose another.");
@@ -46,7 +105,7 @@ const SaveBlockDialogMenu = () => {
     // Save customBlocks
     const saved = await dispatch(
       postElement({
-        name: saveName.trim(),
+        name: nameValue,
         data: { block: saveDialog.block },
         elements: "blocks",
       }),
@@ -54,7 +113,7 @@ const SaveBlockDialogMenu = () => {
     if (saved) {
       setCustomBlocks((prev) => {
         const newId = saveDialog.block.id;
-        const newName = `Custom.${saveName.trim()}`;
+        const newName = `Custom.${nameValue}`;
         return [
           ...prev.filter((cb) => cb.block?.id !== newId && cb.name !== newName),
           { name: newName, block: saveDialog.block },
@@ -77,7 +136,7 @@ const SaveBlockDialogMenu = () => {
           }
           const newBlock = {
             ...saveDialog.block,
-            customBlockName: saveName.trim(),
+            customBlockName: nameValue,
             isTrue: block.isTrue, // preserve boolean state if present
           };
           return { ...newBlock };
@@ -87,6 +146,7 @@ const SaveBlockDialogMenu = () => {
       setSaveDialog({ open: false, block: null });
       setSaveName("");
       setSaveError("");
+      setIsFieldReference(false);
     } else {
       setSaveError("Failed to save block.");
     }
@@ -95,23 +155,62 @@ const SaveBlockDialogMenu = () => {
   return (
     <Dialog
       open={saveDialog.open}
-      onClose={() => setSaveDialog({ open: false, block: null })}
+      onClose={() => {
+        setSaveDialog({ open: false, block: null });
+        setIsFieldReference(false);
+        setSaveName("");
+        setSaveError("");
+      }}
     >
       <DialogTitle>Save Block</DialogTitle>
       <DialogContent>
-        <TextField
+        <Autocomplete
+          freeSolo
           autoFocus
-          margin="dense"
-          label="Name"
-          fullWidth
+          options={fieldOptions || []}
+          getOptionLabel={(option) => {
+            if (typeof option === 'string') return option;
+            return option.label || '';
+          }}
           value={saveName}
-          onChange={(e) => setSaveName(e.target.value)}
-          error={!!saveError}
-          helperText={saveError}
+          onChange={(event, newValue) => {
+            if (typeof newValue === 'object' && newValue?.label) {
+              // User selected a field from the list
+              setSaveName(newValue.label);
+              setIsFieldReference(true);
+            } else {
+              // User typed a custom name
+              setSaveName(newValue || '');
+              setIsFieldReference(false);
+            }
+            setSaveError("");
+          }}
+          onInputChange={(event, newInputValue) => {
+            // Handle manual typing
+            setSaveName(newInputValue);
+            setIsFieldReference(false);
+            setSaveError("");
+          }}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              margin="dense"
+              label="Name (select a field or type custom name)"
+              fullWidth
+              error={!!saveError}
+              helperText={saveError || (isFieldReference ? "Field reference - will use $set stage" : "Custom name - will be saved to database")}
+            />
+          )}
+          sx={{ mt: 1 }}
         />
       </DialogContent>
       <DialogActions>
-        <Button onClick={() => setSaveDialog({ open: false, block: null })}>
+        <Button onClick={() => {
+          setSaveDialog({ open: false, block: null });
+          setIsFieldReference(false);
+          setSaveName("");
+          setSaveError("");
+        }}>
           Cancel
         </Button>
         <Button onClick={handleSaveDialogConfirm} variant="contained">

@@ -31,8 +31,10 @@ export const convertToMongoAggregation = (
   fieldOptions = [],
   customVariables = [],
   customListVariables = [],
+  customSwitchCases = [],
+  additionalFieldsToProject = [], // Fields that will be used later (e.g., in annotations)
 ) => {
-  if (!filters || filters.length === 0) {
+  if (!filters || filters.length === 0 && additionalFieldsToProject.length === 0) {
     return [];
   }
 
@@ -44,6 +46,7 @@ export const convertToMongoAggregation = (
       filters,
       customVariables,
       customListVariables,
+      customSwitchCases,
       schema,
       fieldOptions,
     );
@@ -57,6 +60,7 @@ export const convertToMongoAggregation = (
   const dependencyGraph = buildVariableDependencyGraph(
     customVariables,
     customListVariables,
+    customSwitchCases,
   );
 
   // Count variable usage in filters to determine optimization strategy
@@ -223,6 +227,15 @@ export const convertToMongoAggregation = (
     pipeline.push(initialProjectStage);
   }
 
+  // Identify switch cases in additionalFieldsToProject that need to be projected
+  const additionalSwitchCases = new Set();
+  additionalFieldsToProject.forEach((fieldName) => {
+    const isSwitchCase = customSwitchCases.some((sc) => sc.name === fieldName);
+    if (isSwitchCase && !projectedVariables.has(fieldName)) {
+      additionalSwitchCases.add(fieldName);
+    }
+  });
+
   // Group blocks by the arithmetic variables they use to minimize project/match pairs
   const blockGroups = [];
   let currentGroup = {
@@ -236,6 +249,7 @@ export const convertToMongoAggregation = (
       block,
       customVariables,
       customListVariables,
+      customSwitchCases,
     );
 
     // Filter to only arithmetic variables (not list variables)
@@ -283,6 +297,19 @@ export const convertToMongoAggregation = (
   // Add the last group if it has blocks
   if (currentGroup.blocks.length > 0) {
     blockGroups.push(currentGroup);
+  }
+
+  // If we have additional switch cases to project and no block groups yet, create one
+  if (additionalSwitchCases.size > 0 && blockGroups.length === 0) {
+    blockGroups.push({
+      blocks: [],
+      requiredVariables: additionalSwitchCases,
+    });
+  } else if (additionalSwitchCases.size > 0 && blockGroups.length > 0) {
+    // Add additional switch cases to the first group's required variables
+    additionalSwitchCases.forEach((switchCase) => {
+      blockGroups[0].requiredVariables.add(switchCase);
+    });
   }
 
   // Process each group: project variables (if needed), then add match stage for all blocks in the group
@@ -374,9 +401,11 @@ export const convertToMongoAggregation = (
           });
         }
 
-        // Add the new arithmetic variables in this layer
+        // Add the new arithmetic variables and switch cases in this layer
         Array.from(layerVars).forEach((varName) => {
           const customVar = customVariables.find((v) => v.name === varName);
+          const switchCase = customSwitchCases.find((v) => v.name === varName);
+          
           if (customVar && customVar.variable) {
             const eqParts = customVar.variable.split("=");
             if (eqParts.length === 2) {
@@ -392,6 +421,20 @@ export const convertToMongoAggregation = (
                   error,
                 );
               }
+            }
+          } else if (switchCase && switchCase.switchCondition) {
+            // Convert switch case to MongoDB $switch expression
+            const switchExpr = convertSwitchCaseToMongo(
+              switchCase.switchCondition,
+              schema,
+              fieldOptions,
+              customVariables,
+              customListVariables,
+              customSwitchCases,
+            );
+            if (switchExpr) {
+              projectStage.$project[varName] = switchExpr;
+              projectedVariables.add(varName);
             }
           }
         });
@@ -595,11 +638,16 @@ const convertConditionToMongo = (
   variableUsageCounts = {},
   arrayFieldName = null, // New parameter to track the array field being filtered
 ) => {
-  if (!condition.field || !condition.operator) {
+  const operator = condition.operator;
+  
+  // $switch doesn't require a field, but other operators do
+  if (operator !== "$switch" && (!condition.field || !condition.operator)) {
     return {};
   }
 
-  const operator = condition.operator;
+  if (!condition.operator) {
+    return {};
+  }
   const value = condition.value;
 
   // Check if this field name references a saved list condition variable
@@ -960,6 +1008,146 @@ const convertConditionToMongo = (
     case "$sum":
       return convertArrayOperatorToMongo(field, operator, value);
 
+    case "$switch": {
+      // Handle switch/case conditional logic
+      // Note: $switch is typically used in $expr context or $project stages
+      // Here we wrap it in $expr for use in $match
+      if (!value || !value.cases || !Array.isArray(value.cases)) {
+        return {};
+      }
+
+      const branches = [];
+      
+      // Process each case
+      for (const caseItem of value.cases) {
+        if (!caseItem.block || !caseItem.then) {
+          continue; // Skip invalid cases
+        }
+
+        // Convert the block to a MongoDB expression
+        const caseCondition = convertBlockToMongoExpr(
+          caseItem.block,
+          schema,
+          fieldOptions,
+          customVariables,
+          customListVariables,
+          [],
+        );
+
+        if (caseCondition && Object.keys(caseCondition).length > 0) {
+          // Determine the "then" value - could be a field reference, variable, or literal
+          let thenValue;
+          
+          if (caseItem.then && typeof caseItem.then === "string") {
+            // Check if it's a custom variable
+            const customVar = customVariables.find((v) => v.name === caseItem.then);
+            if (customVar && customVar.variable) {
+              // Parse the LaTeX expression
+              const eqParts = customVar.variable.split("=");
+              if (eqParts.length === 2) {
+                const latexExpression = eqParts[1].trim();
+                try {
+                  const mongoExpression = latexToMongoConverter.convertToMongo(latexExpression);
+                  if (mongoExpression) {
+                    thenValue = mongoExpression;
+                  } else {
+                    thenValue = `$${caseItem.then}`;
+                  }
+                } catch (error) {
+                  console.warn(`Failed to convert LaTeX expression for then value ${caseItem.then}:`, error);
+                  thenValue = `$${caseItem.then}`;
+                }
+              } else {
+                thenValue = `$${caseItem.then}`;
+              }
+            } else {
+              // Check if it's a list variable
+              const listVar = customListVariables.find((v) => v.name === caseItem.then);
+              // Check if it's a field from fieldOptions
+              const isField = fieldOptions.some(f => 
+                (typeof f === 'string' && f === caseItem.then) ||
+                (f && (f.value === caseItem.then || f.name === caseItem.then || f.field === caseItem.then))
+              );
+              
+              if (listVar || isField) {
+                // It's a field or list variable reference - prefix with $
+                thenValue = `$${caseItem.then}`;
+              } else {
+                // It's a literal string value
+                thenValue = caseItem.then;
+              }
+            }
+          } else {
+            // It's a literal value (number, boolean, etc.)
+            thenValue = parseNumberIfNeeded(caseItem.then);
+          }
+
+          branches.push({
+            case: caseCondition,
+            then: thenValue,
+          });
+        }
+      }
+
+      // Build the $switch expression
+      const switchExpr = {
+        $switch: {
+          branches,
+        },
+      };
+
+      // Add default value if provided
+      if (value.default !== undefined && value.default !== null && value.default !== "") {
+        if (typeof value.default === "string") {
+          // Check if it's a custom variable
+          const customVar = customVariables.find((v) => v.name === value.default);
+          if (customVar && customVar.variable) {
+            // Parse the LaTeX expression
+            const eqParts = customVar.variable.split("=");
+            if (eqParts.length === 2) {
+              const latexExpression = eqParts[1].trim();
+              try {
+                const mongoExpression = latexToMongoConverter.convertToMongo(latexExpression);
+                if (mongoExpression) {
+                  switchExpr.$switch.default = mongoExpression;
+                } else {
+                  switchExpr.$switch.default = `$${value.default}`;
+                }
+              } catch (error) {
+                console.warn(`Failed to convert LaTeX expression for default value ${value.default}:`, error);
+                switchExpr.$switch.default = `$${value.default}`;
+              }
+            } else {
+              switchExpr.$switch.default = `$${value.default}`;
+            }
+          } else {
+            // Check if it's a list variable
+            const listVar = customListVariables.find((v) => v.name === value.default);
+            // Check if it's a field from fieldOptions
+            const isField = fieldOptions.some(f => 
+              (typeof f === 'string' && f === value.default) ||
+              (f && (f.value === value.default || f.name === value.default || f.field === value.default))
+            );
+            
+            if (listVar || isField) {
+              // It's a field or list variable reference - prefix with $
+              switchExpr.$switch.default = `$${value.default}`;
+            } else {
+              // It's a literal string value
+              switchExpr.$switch.default = value.default;
+            }
+          }
+        } else {
+          switchExpr.$switch.default = parseNumberIfNeeded(value.default);
+        }
+      }
+
+      // Since $switch requires $expr context in $match, wrap it
+      // But actually, since we return this, let the caller decide if it needs $expr wrapping
+      // For now, just return the $switch object - it can be used in $project or wrapped in $expr
+      return { $expr: switchExpr };
+    }
+
     default:
       // Fallback for unknown operators - but now parse numbers correctly
       return { [field]: parseNumberIfNeeded(value) };
@@ -1089,11 +1277,16 @@ const convertConditionToProjectExpr = (
   customVariables = [],
   customListVariables = [],
 ) => {
-  if (!condition.field || !condition.operator) {
+  const operator = condition.operator;
+  
+  // $switch doesn't require a field, but other operators do
+  if (operator !== "$switch" && (!condition.field || !condition.operator)) {
     return {};
   }
 
-  const operator = condition.operator;
+  if (!condition.operator) {
+    return {};
+  }
   const value = condition.value;
   const field = condition.field;
 
@@ -1338,6 +1531,142 @@ const convertConditionToProjectExpr = (
       // For complex filter conditions, we need more structure - fallback to existence check
       return { $ne: [fieldPath, null] };
 
+    case "$switch": {
+      // Handle switch/case conditional logic
+      if (!value || !value.cases || !Array.isArray(value.cases)) {
+        return {};
+      }
+
+      const branches = [];
+      
+      // Process each case
+      for (const caseItem of value.cases) {
+        if (!caseItem.block || !caseItem.then) {
+          continue; // Skip invalid cases
+        }
+
+        // Convert the block to a MongoDB expression
+        const caseCondition = convertBlockToMongoExpr(
+          caseItem.block,
+          schema,
+          fieldOptions,
+          customVariables,
+          customListVariables,
+          [],
+        );
+
+        if (caseCondition && Object.keys(caseCondition).length > 0) {
+          // Determine the "then" value - could be a field reference or literal
+          let thenValue;
+          
+          // Check if the "then" value is a field reference (from fieldOptions or variables)
+          if (caseItem.then && typeof caseItem.then === "string") {
+            // Check if it's a custom variable
+            const customVar = customVariables.find((v) => v.name === caseItem.then);
+            if (customVar && customVar.variable) {
+              // Parse the LaTeX expression
+              const eqParts = customVar.variable.split("=");
+              if (eqParts.length === 2) {
+                const latexExpression = eqParts[1].trim();
+                try {
+                  const mongoExpression = latexToMongoConverter.convertToMongo(latexExpression);
+                  if (mongoExpression) {
+                    thenValue = mongoExpression;
+                  } else {
+                    thenValue = `$${caseItem.then}`;
+                  }
+                } catch (error) {
+                  console.warn(`Failed to convert LaTeX expression for then value ${caseItem.then}:`, error);
+                  thenValue = `$${caseItem.then}`;
+                }
+              } else {
+                thenValue = `$${caseItem.then}`;
+              }
+            } else {
+              // Check if it's a list variable
+              const listVar = customListVariables.find((v) => v.name === caseItem.then);
+              // Check if it's a field from fieldOptions
+              const isField = fieldOptions.some(f => 
+                (typeof f === 'string' && f === caseItem.then) ||
+                (f && (f.value === caseItem.then || f.name === caseItem.then || f.field === caseItem.then))
+              );
+              
+              if (listVar || isField) {
+                // It's a field or list variable reference - prefix with $
+                thenValue = `$${caseItem.then}`;
+              } else {
+                // It's a literal string value
+                thenValue = caseItem.then;
+              }
+            }
+          } else {
+            // It's a literal value (number, boolean, etc.)
+            thenValue = parseNumberIfNeeded(caseItem.then);
+          }
+
+          branches.push({
+            case: caseCondition,
+            then: thenValue,
+          });
+        }
+      }
+
+      // Build the $switch expression
+      const switchExpr = {
+        $switch: {
+          branches,
+        },
+      };
+
+      // Add default value if provided
+      if (value.default !== undefined && value.default !== null && value.default !== "") {
+        if (typeof value.default === "string") {
+          // Check if it's a custom variable
+          const customVar = customVariables.find((v) => v.name === value.default);
+          if (customVar && customVar.variable) {
+            // Parse the LaTeX expression
+            const eqParts = customVar.variable.split("=");
+            if (eqParts.length === 2) {
+              const latexExpression = eqParts[1].trim();
+              try {
+                const mongoExpression = latexToMongoConverter.convertToMongo(latexExpression);
+                if (mongoExpression) {
+                  switchExpr.$switch.default = mongoExpression;
+                } else {
+                  switchExpr.$switch.default = `$${value.default}`;
+                }
+              } catch (error) {
+                console.warn(`Failed to convert LaTeX expression for default value ${value.default}:`, error);
+                switchExpr.$switch.default = `$${value.default}`;
+              }
+            } else {
+              switchExpr.$switch.default = `$${value.default}`;
+            }
+          } else {
+            // Check if it's a list variable
+            const listVar = customListVariables.find((v) => v.name === value.default);
+            // Check if it's a field from fieldOptions
+            const isField = fieldOptions.some(f => 
+              (typeof f === 'string' && f === value.default) ||
+              (f && (f.value === value.default || f.name === value.default || f.field === value.default))
+            );
+            
+            if (listVar || isField) {
+              // It's a field or list variable reference - prefix with $
+              switchExpr.$switch.default = `$${value.default}`;
+            } else {
+              // It's a literal string value
+              switchExpr.$switch.default = value.default;
+            }
+          }
+        } else {
+          switchExpr.$switch.default = parseNumberIfNeeded(value.default);
+        }
+      }
+
+      return switchExpr;
+    }
+
     default:
       // Fallback to equality
       return { $eq: [fieldPath, parseNumberIfNeeded(value)] };
@@ -1353,11 +1682,16 @@ const convertConditionToMongoExpr = (
   fieldOptions = [],
   arrayFieldName = null, // New parameter to track the array field being filtered
 ) => {
-  if (!condition.field || !condition.operator) {
+  const operator = condition.operator;
+  
+  // $switch doesn't require a field, but other operators do
+  if (operator !== "$switch" && (!condition.field || !condition.operator)) {
     return {};
   }
 
-  const operator = condition.operator;
+  if (!condition.operator) {
+    return {};
+  }
   const value = condition.value;
   const field = condition.field;
 
@@ -1682,6 +2016,155 @@ const convertConditionToMongoExpr = (
         };
       }
       return {};
+
+    case "$switch": {
+      // Handle switch/case conditional logic
+      if (!value || !value.cases || !Array.isArray(value.cases)) {
+        return {};
+      }
+
+      const branches = [];
+      
+      // Process each case
+      for (const caseItem of value.cases) {
+        if (!caseItem.block || !caseItem.then) {
+          continue; // Skip invalid cases
+        }
+
+        // Convert the block to a MongoDB expression
+        const caseCondition = convertBlockToMongoExpr(
+          caseItem.block,
+          schema,
+          fieldOptions,
+          customVariables,
+          customListVariables,
+          [],
+        );
+
+        if (caseCondition && Object.keys(caseCondition).length > 0) {
+          // Determine the "then" value - could be a field reference, variable, or literal
+          let thenValue;
+          
+          if (caseItem.then && typeof caseItem.then === "string") {
+            // Check if it's a custom variable
+            const customVar = customVariables.find((v) => v.name === caseItem.then);
+            if (customVar && customVar.variable) {
+              // Parse the LaTeX expression
+              const eqParts = customVar.variable.split("=");
+              if (eqParts.length === 2) {
+                const latexExpression = eqParts[1].trim();
+                try {
+                  const mongoExpression = latexToMongoConverter.convertToMongo(latexExpression);
+                  if (mongoExpression) {
+                    thenValue = mongoExpression;
+                  } else {
+                    thenValue = arrayFieldName ? `$$this.${caseItem.then}` : `$${caseItem.then}`;
+                  }
+                } catch (error) {
+                  console.warn(`Failed to convert LaTeX expression for then value ${caseItem.then}:`, error);
+                  thenValue = arrayFieldName ? `$$this.${caseItem.then}` : `$${caseItem.then}`;
+                }
+              } else {
+                thenValue = arrayFieldName ? `$$this.${caseItem.then}` : `$${caseItem.then}`;
+              }
+            } else {
+              // Check if it's a list variable
+              const listVar = customListVariables.find((v) => v.name === caseItem.then);
+              // Check if it's a field from fieldOptions
+              const isField = fieldOptions.some(f => 
+                (typeof f === 'string' && f === caseItem.then) ||
+                (f && (f.value === caseItem.then || f.name === caseItem.then || f.field === caseItem.then))
+              );
+              
+              if (listVar || isField) {
+                // It's a field or list variable reference
+                if (arrayFieldName && caseItem.then.startsWith(`${arrayFieldName}.`)) {
+                  // Field is from the array - strip prefix and use $$this
+                  const fieldForArray = caseItem.then.substring(arrayFieldName.length + 1);
+                  thenValue = `$$this.${fieldForArray}`;
+                } else {
+                  // Field is not from the array - use as reference
+                  thenValue = `$${caseItem.then}`;
+                }
+              } else {
+                // It's a literal string value
+                thenValue = caseItem.then;
+              }
+            }
+          } else {
+            // It's a literal value (number, boolean, etc.)
+            thenValue = parseNumberIfNeeded(caseItem.then);
+          }
+
+          branches.push({
+            case: caseCondition,
+            then: thenValue,
+          });
+        }
+      }
+
+      // Build the $switch expression
+      const switchExpr = {
+        $switch: {
+          branches,
+        },
+      };
+
+      // Add default value if provided
+      if (value.default !== undefined && value.default !== null && value.default !== "") {
+        if (typeof value.default === "string") {
+          // Check if it's a custom variable
+          const customVar = customVariables.find((v) => v.name === value.default);
+          if (customVar && customVar.variable) {
+            // Parse the LaTeX expression
+            const eqParts = customVar.variable.split("=");
+            if (eqParts.length === 2) {
+              const latexExpression = eqParts[1].trim();
+              try {
+                const mongoExpression = latexToMongoConverter.convertToMongo(latexExpression);
+                if (mongoExpression) {
+                  switchExpr.$switch.default = mongoExpression;
+                } else {
+                  switchExpr.$switch.default = arrayFieldName ? `$$this.${value.default}` : `$${value.default}`;
+                }
+              } catch (error) {
+                console.warn(`Failed to convert LaTeX expression for default value ${value.default}:`, error);
+                switchExpr.$switch.default = arrayFieldName ? `$$this.${value.default}` : `$${value.default}`;
+              }
+            } else {
+              switchExpr.$switch.default = arrayFieldName ? `$$this.${value.default}` : `$${value.default}`;
+            }
+          } else {
+            // Check if it's a list variable
+            const listVar = customListVariables.find((v) => v.name === value.default);
+            // Check if it's a field from fieldOptions
+            const isField = fieldOptions.some(f => 
+              (typeof f === 'string' && f === value.default) ||
+              (f && (f.value === value.default || f.name === value.default || f.field === value.default))
+            );
+            
+            if (listVar || isField) {
+              // It's a field or list variable reference
+              if (arrayFieldName && value.default.startsWith(`${arrayFieldName}.`)) {
+                // Field is from the array - strip prefix and use $$this
+                const fieldForArray = value.default.substring(arrayFieldName.length + 1);
+                switchExpr.$switch.default = `$$this.${fieldForArray}`;
+              } else {
+                // Field is not from the array - use as reference
+                switchExpr.$switch.default = `$${value.default}`;
+              }
+            } else {
+              // It's a literal string value
+              switchExpr.$switch.default = value.default;
+            }
+          }
+        } else {
+          switchExpr.$switch.default = parseNumberIfNeeded(value.default);
+        }
+      }
+
+      return switchExpr;
+    }
 
     default:
       // Fallback to equality
@@ -2706,10 +3189,153 @@ const handleInlinedVariableCondition = (mongoExpression, operator, value) => {
   }
 };
 
+// Helper function to convert a switch case definition to a MongoDB $switch expression
+const convertSwitchCaseToMongo = (
+  switchCondition,
+  schema = {},
+  fieldOptions = [],
+  customVariables = [],
+  customListVariables = [],
+  customSwitchCases = [],
+) => {
+  if (!switchCondition || !switchCondition.value || !switchCondition.value.cases) {
+    return null;
+  }
+
+  const branches = [];
+
+  // Process each case
+  for (const caseItem of switchCondition.value.cases) {
+    if (!caseItem.block || !caseItem.then) {
+      continue; // Skip invalid cases
+    }
+
+    // Convert the block to a MongoDB expression
+    const caseCondition = convertBlockToMongoExpr(
+      caseItem.block,
+      schema,
+      fieldOptions,
+      customVariables,
+      customListVariables,
+      [],
+    );
+
+    if (caseCondition && Object.keys(caseCondition).length > 0) {
+      // Determine the "then" value - could be a field reference, variable, or literal
+      let thenValue;
+      
+      if (caseItem.then && typeof caseItem.then === "string") {
+        // Check if it's a custom variable
+        const customVar = customVariables.find((v) => v.name === caseItem.then);
+        if (customVar && customVar.variable) {
+          // Parse the LaTeX expression
+          const eqParts = customVar.variable.split("=");
+          if (eqParts.length === 2) {
+            const latexExpression = eqParts[1].trim();
+            try {
+              const mongoExpression = latexToMongoConverter.convertToMongo(latexExpression);
+              if (mongoExpression) {
+                thenValue = mongoExpression;
+              } else {
+                thenValue = `$${caseItem.then}`;
+              }
+            } catch (error) {
+              console.warn(`Failed to convert LaTeX expression for then value ${caseItem.then}:`, error);
+              thenValue = `$${caseItem.then}`;
+            }
+          } else {
+            thenValue = `$${caseItem.then}`;
+          }
+        } else {
+          // Check if it's a list variable
+          const listVar = customListVariables.find((v) => v.name === caseItem.then);
+          // Check if it's a field from fieldOptions
+          const isField = fieldOptions.some(f => 
+            (typeof f === 'string' && f === caseItem.then) ||
+            (f && (f.value === caseItem.then || f.name === caseItem.then || f.field === caseItem.then))
+          );
+          
+          if (listVar || isField) {
+            // It's a field or list variable reference - prefix with $
+            thenValue = `$${caseItem.then}`;
+          } else {
+            // It's a literal string value
+            thenValue = caseItem.then;
+          }
+        }
+      } else {
+        // It's a literal value (number, boolean, etc.)
+        thenValue = parseNumberIfNeeded(caseItem.then);
+      }
+
+      branches.push({
+        case: caseCondition,
+        then: thenValue,
+      });
+    }
+  }
+
+  // Build the $switch expression
+  const switchExpr = {
+    $switch: {
+      branches,
+    },
+  };
+
+  // Add default value if provided
+  if (switchCondition.value.default !== undefined && switchCondition.value.default !== null && switchCondition.value.default !== "") {
+    if (typeof switchCondition.value.default === "string") {
+      // Check if it's a custom variable
+      const customVar = customVariables.find((v) => v.name === switchCondition.value.default);
+      if (customVar && customVar.variable) {
+        // Parse the LaTeX expression
+        const eqParts = customVar.variable.split("=");
+        if (eqParts.length === 2) {
+          const latexExpression = eqParts[1].trim();
+          try {
+            const mongoExpression = latexToMongoConverter.convertToMongo(latexExpression);
+            if (mongoExpression) {
+              switchExpr.$switch.default = mongoExpression;
+            } else {
+              switchExpr.$switch.default = `$${switchCondition.value.default}`;
+            }
+          } catch (error) {
+            console.warn(`Failed to convert LaTeX expression for default value ${switchCondition.value.default}:`, error);
+            switchExpr.$switch.default = `$${switchCondition.value.default}`;
+          }
+        } else {
+          switchExpr.$switch.default = `$${switchCondition.value.default}`;
+        }
+      } else {
+        // Check if it's a list variable
+        const listVar = customListVariables.find((v) => v.name === switchCondition.value.default);
+        // Check if it's a field from fieldOptions
+        const isField = fieldOptions.some(f => 
+          (typeof f === 'string' && f === switchCondition.value.default) ||
+          (f && (f.value === switchCondition.value.default || f.name === switchCondition.value.default || f.field === switchCondition.value.default))
+        );
+        
+        if (listVar || isField) {
+          // It's a field or list variable reference - prefix with $
+          switchExpr.$switch.default = `$${switchCondition.value.default}`;
+        } else {
+          // It's a literal string value
+          switchExpr.$switch.default = switchCondition.value.default;
+        }
+      }
+    } else {
+      switchExpr.$switch.default = parseNumberIfNeeded(switchCondition.value.default);
+    }
+  }
+
+  return switchExpr;
+};
+
 // Helper function to build dependency graph for arithmetic variables
 const buildVariableDependencyGraph = (
   customVariables = [],
   customListVariables = [],
+  customSwitchCases = [],
 ) => {
   const dependencyGraph = new Map();
 
@@ -2749,6 +3375,80 @@ const buildVariableDependencyGraph = (
       variables: varDeps,
       listVariables: listVarDeps,
       latexExpression,
+    });
+  });
+
+  // Add switch cases to the dependency graph
+  customSwitchCases.forEach((switchCase) => {
+    if (!switchCase.name || !switchCase.switchCondition) {
+      return;
+    }
+
+    const baseDeps = new Set();
+    const varDeps = new Set();
+    const listVarDeps = new Set();
+
+    // Extract dependencies from switch case blocks
+    const extractDepsFromBlock = (block) => {
+      if (!block) return;
+
+      if (block.field) {
+        const fieldName = getFieldName(block.field);
+        const isVariable = customVariables.some((v) => v.name === fieldName);
+        const isListVariable = customListVariables.some((lv) => lv.name === fieldName);
+        
+        if (isVariable) {
+          varDeps.add(fieldName);
+        } else if (isListVariable) {
+          listVarDeps.add(fieldName);
+        } else if (fieldName) {
+          baseDeps.add(fieldName);
+        }
+      }
+
+      if (block.children && Array.isArray(block.children)) {
+        block.children.forEach((child) => extractDepsFromBlock(child));
+      }
+    };
+
+    // Process each case in the switch condition
+    if (switchCase.switchCondition.value && switchCase.switchCondition.value.cases) {
+      switchCase.switchCondition.value.cases.forEach((caseItem) => {
+        if (caseItem.block) {
+          extractDepsFromBlock(caseItem.block);
+        }
+        // Check if 'then' value is a field reference
+        if (caseItem.then && typeof caseItem.then === 'string') {
+          const isVariable = customVariables.some((v) => v.name === caseItem.then);
+          const isListVariable = customListVariables.some((lv) => lv.name === caseItem.then);
+          if (isVariable) {
+            varDeps.add(caseItem.then);
+          } else if (isListVariable) {
+            listVarDeps.add(caseItem.then);
+          }
+        }
+      });
+    }
+
+    // Check default value
+    if (switchCase.switchCondition.value && switchCase.switchCondition.value.default) {
+      const defaultVal = switchCase.switchCondition.value.default;
+      if (typeof defaultVal === 'string') {
+        const isVariable = customVariables.some((v) => v.name === defaultVal);
+        const isListVariable = customListVariables.some((lv) => lv.name === defaultVal);
+        if (isVariable) {
+          varDeps.add(defaultVal);
+        } else if (isListVariable) {
+          listVarDeps.add(defaultVal);
+        }
+      }
+    }
+
+    dependencyGraph.set(switchCase.name, {
+      baseFields: Array.from(baseDeps),
+      variables: Array.from(varDeps),
+      listVariables: Array.from(listVarDeps),
+      switchCondition: switchCase.switchCondition,
     });
   });
 
@@ -2805,6 +3505,7 @@ const getVariablesUsedInBlock = (
   block,
   customVariables = [],
   customListVariables = [],
+  customSwitchCases = [],
 ) => {
   const usedVariables = new Set();
 
@@ -2817,8 +3518,11 @@ const getVariablesUsedInBlock = (
       const isCustomVariable = customVariables.some(
         (v) => v.name === fieldName,
       );
+      const isSwitchCase = customSwitchCases.some(
+        (v) => v.name === fieldName,
+      );
 
-      if (isCustomVariable) {
+      if (isCustomVariable || isSwitchCase) {
         usedVariables.add(fieldName);
       }
     }
@@ -3592,6 +4296,7 @@ const isSimpleCondition = (
   condition,
   customVariables = [],
   customListVariables = [],
+  customSwitchCases = [],
 ) => {
   if (!condition || typeof condition !== "object") {
     return false;
@@ -3605,6 +4310,9 @@ const isSimpleCondition = (
       return false;
     }
     if (customListVariables.some((v) => v.name === fieldName)) {
+      return false;
+    }
+    if (customSwitchCases.some((v) => v.name === fieldName)) {
       return false;
     }
   }
@@ -3662,6 +4370,7 @@ const isBlockEntirelySimple = (
   block,
   customVariables = [],
   customListVariables = [],
+  customSwitchCases = [],
 ) => {
   if (!block) {
     return false;
@@ -3674,7 +4383,7 @@ const isBlockEntirelySimple = (
 
   // Check direct conditions
   if (block.type === "condition" || block.category === "condition") {
-    return isSimpleCondition(block, customVariables, customListVariables);
+    return isSimpleCondition(block, customVariables, customListVariables, customSwitchCases);
   }
 
   // For blocks with children, all children must be simple
@@ -3685,9 +4394,10 @@ const isBlockEntirelySimple = (
           child,
           customVariables,
           customListVariables,
+          customSwitchCases,
         );
       } else if (child.type === "condition" || child.category === "condition") {
-        return isSimpleCondition(child, customVariables, customListVariables);
+        return isSimpleCondition(child, customVariables, customListVariables, customSwitchCases);
       }
       return false;
     });
@@ -3774,6 +4484,7 @@ const separateSimpleAndComplexConditions = (
   filters,
   customVariables = [],
   customListVariables = [],
+  customSwitchCases = [],
   schema = {},
   fieldOptions = [],
 ) => {
@@ -3781,7 +4492,7 @@ const separateSimpleAndComplexConditions = (
   const complexFilters = [];
 
   filters.forEach((block) => {
-    if (isBlockEntirelySimple(block, customVariables, customListVariables)) {
+    if (isBlockEntirelySimple(block, customVariables, customListVariables, customSwitchCases)) {
       // Convert simple block to MongoDB condition and merge into simpleConditions
       const mongoCondition = convertSimpleBlockToMongo(
         block,
