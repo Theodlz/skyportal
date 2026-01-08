@@ -2832,10 +2832,9 @@ const BlockComponent = ({
       sx={{
         display: "flex",
         flexDirection: "column",
-        gap: isStickyHeader ? 0 : 1, // Remove gap when sticky to prevent visual separation
-        p: 2,
-        pt: isStickyHeader ? 0 : 2, // Remove top padding when sticky
-        border: 1,
+        gap: isStickyHeader ? 0 : (blockState.isCollapsed ? 0 : 1),
+        p: blockState.isCollapsed ? 1 : 2,
+        pt: isStickyHeader ? 0 : (blockState.isCollapsed ? 1 : 2), 
         borderColor: "grey.300",
         borderRadius: 2,
       }}
