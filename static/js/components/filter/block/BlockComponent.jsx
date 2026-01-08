@@ -53,6 +53,14 @@ import {
   flattenFieldOptions,
 } from "../../../constants/filterConstants";
 
+// Helper function to escape LaTeX special characters for display
+const escapeLatexForDisplay = (text) => {
+  if (!text) return text;
+  // Escape underscores to prevent subscript rendering
+  // Replace _ with \_ to show it as literal underscore
+  return text.replace(/_/g, '\\_');
+};
+
 const useBlockState = (block, isRoot) => {
   const { collapsedBlocks, customBlocks } = useCurrentBuilder();
 
@@ -745,7 +753,8 @@ const EquationPopover = ({
   const eqObj = customVariables.find(
     (eq) => eq.variable === variableOption.label,
   );
-  const equation = eqObj ? eqObj.equation : variableOption.equation;
+  const equation = eqObj ? eqObj.variable : variableOption.equation;
+  const displayEquation = escapeLatexForDisplay(equation);
 
   return (
     <Popover
@@ -776,7 +785,7 @@ const EquationPopover = ({
           borderRadius: 2,
         }}
       >
-        <Latex>{`$$${equation}$$`}</Latex>
+        <Latex>{`$$${displayEquation}$$`}</Latex>
       </Paper>
     </Popover>
   );
@@ -2357,6 +2366,37 @@ const ConditionComponentInner = ({
     : [];
 
   const handleFieldChange = (newField) => {
+    // If field is being explicitly cleared (empty/null/undefined), just update the field without changing operator/value
+    if (newField === "" || newField === null || newField === undefined) {
+      setFilters((prevFilters) => {
+        const updateBlockTree = (currentBlock) => {
+          if (currentBlock.id !== block.id) {
+            return {
+              ...currentBlock,
+              children: currentBlock.children.map((child) =>
+                child.category === "block" ? updateBlockTree(child) : child,
+              ),
+            };
+          }
+          return {
+            ...currentBlock,
+            children: currentBlock.children.map((child) =>
+              child.id === conditionOrBlock.id
+                ? {
+                    ...child,
+                    field: "",
+                    variableName: undefined,
+                    // Keep operator and value intact
+                  }
+                : child,
+            ),
+          };
+        };
+        return prevFilters.map(updateBlockTree);
+      });
+      return;
+    }
+
     const ops = getOperatorsForField(
       newField,
       customVariables,

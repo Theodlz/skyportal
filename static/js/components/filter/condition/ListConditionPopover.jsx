@@ -1,6 +1,12 @@
-import React, { useRef, useEffect } from "react";
-import { Popover } from "@mui/material";
+import React, { useRef, useEffect, useState } from "react";
+import { Popover, Button, IconButton, Tooltip } from "@mui/material";
+import EditIcon from "@mui/icons-material/Edit";
+import SaveIcon from "@mui/icons-material/Save";
+import CancelIcon from "@mui/icons-material/Cancel";
 import BlockComponent from "../block/BlockComponent";
+import { useCurrentBuilder, useFilterBuilder } from "../../../hooks/useContexts";
+import { useDispatch } from "react-redux";
+import { putElement } from "../../../ducks/boom_filter_modules";
 
 const ListConditionPopover = ({
   listPopoverAnchor,
@@ -16,6 +22,20 @@ const ListConditionPopover = ({
 }) => {
   const popoverRef = useRef(null);
   const isOpen = Boolean(listPopoverAnchor);
+  const [editMode, setEditMode] = useState(false);
+  const [editedConditions, setEditedConditions] = useState(null);
+  const { setCustomListVariables } = useCurrentBuilder();
+  const dispatch = useDispatch();
+  
+  // Get the filter builder context to access dialog handlers
+  const filterBuilder = useFilterBuilder();
+
+  // Debug: log when editedConditions changes
+  useEffect(() => {
+    if (editMode) {
+      console.log("editedConditions updated:", editedConditions);
+    }
+  }, [editedConditions, editMode]);
 
   // Handle focus management when popover opens/closes
   useEffect(() => {
@@ -34,6 +54,8 @@ const ListConditionPopover = ({
     const anchorElement = listPopoverAnchor;
     setListPopoverAnchor(null);
     window.currentListVariable = null; // Clear temporary data
+    setEditMode(false); // Reset edit mode
+    setEditedConditions(null); // Clear edited conditions
 
     // Ensure focus is properly managed when closing
     if (anchorElement) {
@@ -51,11 +73,71 @@ const ListConditionPopover = ({
     }
   };
 
+  const handleSaveEdit = async (listVar) => {
+    if (editedConditions && setCustomListVariables) {
+      const updatedListCondition = {
+        ...listVar.listCondition,
+        value: editedConditions,
+      };
+
+      try {
+        // Update in the database using Redux action
+        await dispatch(
+          putElement({
+            name: listVar.name,
+            data: {
+              listCondition: updatedListCondition,
+              type: listVar.type || "array",
+            },
+            elements: "listVariables",
+          })
+        );
+
+        // Update in the context (local state) - this will trigger a re-render
+        setCustomListVariables((prev) => {
+          return prev.map((lv) => {
+            if (lv.name === listVar.name) {
+              return {
+                ...lv,
+                listCondition: updatedListCondition,
+              };
+            }
+            return lv;
+          });
+        });
+
+        // Exit edit mode
+        setEditMode(false);
+        setEditedConditions(null);
+      } catch (error) {
+        console.error("Failed to save list variable:", error);
+        alert("Failed to save changes to the database. Please try again.");
+      }
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditMode(false);
+    setEditedConditions(null);
+  };
+
+  const handleStartEdit = (listVar) => {
+    setEditMode(true);
+    // Deep clone to ensure we have an independent copy for editing
+    const clonedValue = JSON.parse(JSON.stringify(listVar.listCondition.value));
+    console.log("Starting edit with cloned value:", clonedValue);
+    setEditedConditions(clonedValue);
+  };
+
   const renderPopoverContent = () => {
     // Priority 1: Check if this is a list variable popover (from global callback)
-    const listVar = window.currentListVariable;
+    let listVar = window.currentListVariable;
     if (listVar) {
-      return renderListVariableContent(listVar);
+      // Always get the fresh data from customListVariables if available
+      const freshListVar = customListVariables.find(
+        (lv) => lv.name === listVar.name,
+      );
+      return renderListVariableContent(freshListVar || listVar);
     }
 
     // Priority 2: Check for aggregation operator popover (newly created with subField)
@@ -121,6 +203,11 @@ const ListConditionPopover = ({
       return operatorLabels[operator] || operator;
     };
 
+    // Determine if this list variable can be edited (has conditions to edit)
+    const canEdit = listVar.listCondition.value && 
+                    typeof listVar.listCondition.value === "object" &&
+                    !["$min", "$max", "$avg", "$sum"].includes(listVar.listCondition.operator);
+
     return (
       <div
         style={{
@@ -134,17 +221,74 @@ const ListConditionPopover = ({
       >
         <div
           style={{
-            fontWeight: 600,
-            color: "#166534",
-            fontSize: 17,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
             marginBottom: 8,
-            letterSpacing: 0.2,
           }}
         >
-          <span style={{ color: "#059669" }}>{listVar.name}</span>
-          <span style={{ fontSize: 14, color: "#6b7280", marginLeft: 8 }}>
-            ({listVar.listCondition.field})
-          </span>
+          <div
+            style={{
+              fontWeight: 600,
+              color: "#166534",
+              fontSize: 17,
+              letterSpacing: 0.2,
+            }}
+          >
+            <span style={{ color: "#059669" }}>{listVar.name}</span>
+            <span style={{ fontSize: 14, color: "#6b7280", marginLeft: 8 }}>
+              ({listVar.listCondition.field})
+            </span>
+          </div>
+          
+          {canEdit && (
+            <div style={{ display: "flex", gap: 8 }}>
+              {!editMode ? (
+                <Tooltip title="Edit list condition">
+                  <IconButton
+                    size="small"
+                    onClick={() => handleStartEdit(listVar)}
+                    style={{
+                      backgroundColor: "#e0f2fe",
+                      color: "#0369a1",
+                      padding: 6,
+                    }}
+                  >
+                    <EditIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              ) : (
+                <>
+                  <Tooltip title="Save changes">
+                    <IconButton
+                      size="small"
+                      onClick={() => handleSaveEdit(listVar)}
+                      style={{
+                        backgroundColor: "#dcfce7",
+                        color: "#166534",
+                        padding: 6,
+                      }}
+                    >
+                      <SaveIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Cancel editing">
+                    <IconButton
+                      size="small"
+                      onClick={handleCancelEdit}
+                      style={{
+                        backgroundColor: "#fee2e2",
+                        color: "#991b1b",
+                        padding: 6,
+                      }}
+                    >
+                      <CancelIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Display the list operator */}
@@ -169,22 +313,9 @@ const ListConditionPopover = ({
         <div style={{ width: "100%" }}>
           {listVar.listCondition.value ? (
             <BlockComponent
-              block={listVar.listCondition.value}
+              block={editMode ? (editedConditions || listVar.listCondition.value) : listVar.listCondition.value}
               parentBlockId={null}
               isRoot={true}
-              customBlocks={[]}
-              collapsedBlocks={{}}
-              filters={[listVar.listCondition.value]}
-              setFilters={() => {}}
-              setCollapsedBlocks={() => {}}
-              setSaveDialog={() => {}}
-              setSaveName={() => {}}
-              setSaveError={() => {}}
-              defaultCondition={createDefaultCondition}
-              defaultBlock={() => ({})}
-              setSpecialConditionDialog={() => {}}
-              customVariables={customVariables}
-              setListConditionDialog={() => {}}
               fieldOptionsList={(() => {
                 // Combine subFieldOptions with full field options for comprehensive coverage
                 const subFieldOpts =
@@ -195,7 +326,39 @@ const ListConditionPopover = ({
                   ? [...fullFieldOpts, ...subFieldOpts]
                   : fullFieldOpts;
               })()}
-              customListVariables={customListVariables}
+              isListDialogOpen={false}
+              localFilters={editMode ? [(editedConditions || listVar.listCondition.value)] : null}
+              setLocalFilters={editMode ? (newFiltersOrUpdater) => {
+                // Handle both direct values and updater functions
+                console.log("setLocalFilters called with:", typeof newFiltersOrUpdater);
+                
+                let newFilters;
+                if (typeof newFiltersOrUpdater === 'function') {
+                  // If it's an updater function, call it with current localFilters
+                  const currentFilters = [(editedConditions || listVar.listCondition.value)];
+                  newFilters = newFiltersOrUpdater(currentFilters);
+                  console.log("Updater function returned:", newFilters);
+                } else {
+                  // If it's a direct value, use it as-is
+                  newFilters = newFiltersOrUpdater;
+                  console.log("Direct value:", newFilters);
+                }
+                
+                // Update via setLocalFilters for full editing support
+                // Use JSON deep clone to ensure nested structures are preserved
+                if (newFilters && newFilters.length > 0 && newFilters[0]?.id) {
+                  try {
+                    const clonedBlock = JSON.parse(JSON.stringify(newFilters[0]));
+                    console.log("Setting editedConditions to:", clonedBlock);
+                    setEditedConditions(clonedBlock);
+                  } catch (error) {
+                    console.error("Failed to clone block:", error);
+                    setEditedConditions(newFilters[0]);
+                  }
+                } else {
+                  console.warn("Invalid newFilters:", newFilters);
+                }
+              } : null}
             />
           ) : listVar.listCondition.subField ||
             (listVar.listCondition.operator &&
@@ -349,10 +512,18 @@ const ListConditionPopover = ({
               block={conditionOrBlock.value.value}
               parentBlockId={null}
               isRoot={true}
-              customBlocks={[]}
-              collapsedBlocks={{}}
-              filters={[conditionOrBlock.value.value]}
-              setFilters={(newFilters) => {
+              fieldOptionsList={(() => {
+                // Combine subFieldOptions with full field options for comprehensive coverage
+                const subFieldOpts =
+                  conditionOrBlock.value.subFieldOptions || [];
+                const fullFieldOpts = fieldOptionsList || fieldOptions || [];
+                // If we have subFieldOptions, combine them with full options, otherwise just use full options
+                return subFieldOpts.length > 0
+                  ? [...fullFieldOpts, ...subFieldOpts]
+                  : fullFieldOpts;
+              })()}
+              localFilters={[conditionOrBlock.value.value]}
+              setLocalFilters={(newFilters) => {
                 // Update the list condition value in the main filters
                 const updatedListValue = {
                   ...conditionOrBlock.value,
@@ -365,26 +536,6 @@ const ListConditionPopover = ({
                   updatedListValue,
                 );
               }}
-              setCollapsedBlocks={() => {}}
-              setSaveDialog={() => {}}
-              setSaveName={() => {}}
-              setSaveError={() => {}}
-              defaultCondition={createDefaultCondition} // Fixed: use createDefaultCondition
-              defaultBlock={() => ({})}
-              setSpecialConditionDialog={() => {}}
-              customVariables={customVariables}
-              setListConditionDialog={() => {}}
-              fieldOptionsList={(() => {
-                // Combine subFieldOptions with full field options for comprehensive coverage
-                const subFieldOpts =
-                  conditionOrBlock.value.subFieldOptions || [];
-                const fullFieldOpts = fieldOptionsList || fieldOptions || [];
-                // If we have subFieldOptions, combine them with full options, otherwise just use full options
-                return subFieldOpts.length > 0
-                  ? [...fullFieldOpts, ...subFieldOpts]
-                  : fullFieldOpts;
-              })()}
-              customListVariables={customListVariables}
             />
           ) : (
             <div

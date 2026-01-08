@@ -116,3 +116,45 @@ class BoomFilterModulesHandler(BaseHandler):
                 client.close()
 
         return self.success()
+
+    @auth_or_token
+    def put(self, name):
+        # Handle PUT requests for updating boom filter modules
+        data = self.get_json()
+
+        with self.Session() as session:
+            client = MongoClient(uri)
+
+            try:
+                db = client[queryDbName]
+                collection = db[data["elements"]]
+                
+                update_data = {"updated_at": datetime.datetime.utcnow()}
+                
+                if data["elements"] == "blocks":
+                    update_data["block"] = data["data"]["block"]
+                elif data["elements"] == "variables":
+                    update_data["variable"] = data["data"]["variable"]
+                    update_data["type"] = data["data"]["type"]
+                elif data["elements"] == "listVariables":
+                    update_data["listCondition"] = data["data"]["listCondition"]
+                    update_data["type"] = data["data"]["type"]
+                elif data["elements"] == "switchCases":
+                    update_data["switchCondition"] = data["data"]["switchCondition"]
+                    update_data["type"] = data["data"]["type"]
+                
+                result = collection.update_one(
+                    {"name": name},
+                    {"$set": update_data}
+                )
+                
+                if result.matched_count == 0:
+                    return self.error(f"No document found with name: {name}")
+                    
+            except Exception as e:
+                traceback.print_exc()
+                return self.error(f"Error updating data in MongoDB: {e}")
+            finally:
+                client.close()
+
+        return self.success()

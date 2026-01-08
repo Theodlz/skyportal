@@ -153,6 +153,7 @@ class BoomRunFilterHandler(BaseHandler):
             response = requests.post(data_url, json=data_payload, headers=headers)
 
             if response.status_code != 200:
+                log(f"Error querying Boom: {response.status_code} {response.text}")
                 return self.error(f"Error querying Boom: {response.status_code}")
             res = response.json()
             if "sort_by" in data:

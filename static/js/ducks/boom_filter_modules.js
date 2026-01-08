@@ -15,6 +15,9 @@ export const FETCH_SCHEMA_OK = "skyportal/FETCH_SCHEMA_OK";
 export const POST_ELEMENT = "skyportal/POST_ELEMENT";
 export const POST_ELEMENT_OK = "skyportal/POST_ELEMENT_OK";
 
+export const PUT_ELEMENT = "skyportal/PUT_ELEMENT";
+export const PUT_ELEMENT_OK = "skyportal/PUT_ELEMENT_OK";
+
 export function fetchAllElements({ elements }) {
   return API.GET(`/api/filter_modules`, FETCH_ALL_ELEMENTS, { elements });
 }
@@ -29,6 +32,13 @@ export function fetchSchema({ name, elements }) {
 
 export function postElement({ name, data, elements }) {
   return API.POST(`/api/filter_modules/${name}`, POST_ELEMENT, {
+    data,
+    elements,
+  });
+}
+
+export function putElement({ name, data, elements }) {
+  return API.PUT(`/api/filter_modules/${name}`, PUT_ELEMENT, {
     data,
     elements,
   });

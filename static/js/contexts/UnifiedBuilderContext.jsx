@@ -174,7 +174,17 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
   };
 
   const hasValidQuery = () => {
-    const pipeline = generateMongoQuery();
+    // Use localFilterData if it exists and has been modified, otherwise use filters
+    const dataToCheck = (hasBeenModified && localFilterData) ? localFilterData : filters;
+    const pipeline = convertToMongoAggregation(
+      dataToCheck,
+      schema,
+      fieldOptions,
+      customVariables,
+      customListVariables,
+      customSwitchCases,
+      [] // No annotation fields for validation
+    );
     return isValidPipeline(pipeline);
   };
 

@@ -255,6 +255,17 @@ const findNestedFieldType = (values, fieldPath, isArrayObject = false) => {
   return undefined;
 };
 
+// Helper function to transform 'this.' in equations to actual array field names for user display
+export const transformEquationForDisplay = (equation, arrayCollection) => {
+  if (!equation || !arrayCollection) {
+    return equation;
+  }
+  
+  // Replace 'this.' with 'arrayCollection.' for better user understanding
+  // Use regex to match 'this.' followed by a field name (letters, numbers, underscores)
+  return equation.replace(/\bthis\.([a-zA-Z_][a-zA-Z0-9_]*)/g, `${arrayCollection}.$1`);
+};
+
 export const isFieldType = (
   field,
   type,
