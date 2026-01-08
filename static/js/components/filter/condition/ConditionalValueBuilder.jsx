@@ -22,6 +22,14 @@ import { flattenFieldOptions } from "../../../constants/filterConstants";
 import { getFieldOptionsWithVariable } from "../../../utils/conditionHelpers";
 import Latex from "react-latex-next";
 
+// Helper function to escape LaTeX special characters for display
+const escapeLatexForDisplay = (text) => {
+  if (!text) return text;
+  // Escape underscores to prevent subscript rendering
+  // Replace _ with \_ to show it as literal underscore
+  return text.replace(/_/g, '\\_');
+};
+
 /**
  * ConditionalValueBuilder - Builds a $switch expression using CASE/WHEN/THEN/DEFAULT logic
  * Each case contains a full block that can have conditions and nested blocks
@@ -454,7 +462,8 @@ const ConditionalValueBuilder = ({
                 );
                 const equation = eqObj ? eqObj.variable : variableOption.equation;
                 if (equation) {
-                  return <Latex>{`$$${equation}$$`}</Latex>;
+                  const displayEquation = escapeLatexForDisplay(equation);
+                  return <Latex>{`$$${displayEquation}$$`}</Latex>;
                 }
               }
               return <Typography>No equation found</Typography>;
