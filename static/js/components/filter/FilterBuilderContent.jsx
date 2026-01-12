@@ -197,7 +197,8 @@ const FilterBuilderContent = ({
   }, [localFilterData, setFilters]);
 
   useEffect(() => {
-    dispatch(fetchSchema({ name: filter_stream, elements: "schema" }));
+    if (filter_stream)
+      dispatch(fetchSchema({ name: filter_stream, elements: "schema" }));
   }, [filter_stream]);
 
   useEffect(() => {

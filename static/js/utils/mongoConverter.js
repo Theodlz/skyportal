@@ -1,41 +1,35 @@
 import { latexToMongoConverter } from "./robustLatexConverter.js";
 import { getFieldType } from "./conditionHelpers.js";
 
-// Helper function to remove path collisions in MongoDB projections
-// If both "list" and "list.subfield" are in the fields, keep only "list"
 const removePathCollisions = (fields) => {
   const fieldArray = Array.isArray(fields) ? fields : Object.keys(fields);
-  const sortedFields = [...fieldArray].sort(); // Sort to process parent paths first
+  const sortedFields = [...fieldArray].sort();
   const filteredFields = [];
-  
+
   for (const field of sortedFields) {
-    // Check if any already added field is a parent of this field
-    const hasParent = filteredFields.some(existingField => 
-      field.startsWith(existingField + ".")
+    const hasParent = filteredFields.some((existingField) =>
+      field.startsWith(`${existingField}.`),
     );
-    
+
     if (!hasParent) {
-      // Check if this field is a parent of any already added fields
-      const childFields = filteredFields.filter(existingField =>
-        existingField.startsWith(field + ".")
+      const childFields = filteredFields.filter((existingField) =>
+        existingField.startsWith(`${field}.`),
       );
-      
-      // Remove child fields and add parent
-      childFields.forEach(child => {
+
+      childFields.forEach((child) => {
         const index = filteredFields.indexOf(child);
         if (index > -1) {
           filteredFields.splice(index, 1);
         }
       });
-      
+
       filteredFields.push(field);
     }
   }
-  
+
   return filteredFields;
 };
 
-// Helper function for numeric comparison operators
 const getNumericComparison = (operator) => {
   switch (operator) {
     case "$gt":
@@ -68,13 +62,15 @@ export const convertToMongoAggregation = (
   customSwitchCases = [],
   additionalFieldsToProject = [],
 ) => {
-  if (!filters || filters.length === 0 && additionalFieldsToProject.length === 0) {
+  if (
+    !filters ||
+    (filters.length === 0 && additionalFieldsToProject.length === 0)
+  ) {
     return [];
   }
 
   const pipeline = [];
 
-  // Separate simple conditions for early $match stage optimization
   const { simpleConditions, complexFilters } =
     separateSimpleAndComplexConditions(
       filters,
@@ -85,19 +81,16 @@ export const convertToMongoAggregation = (
       fieldOptions,
     );
 
-  // Add early $match stage for simple conditions if any exist
   if (Object.keys(simpleConditions).length > 0) {
     pipeline.push({ $match: simpleConditions });
   }
 
-  // Build dependency graph for arithmetic variables
   const dependencyGraph = buildVariableDependencyGraph(
     customVariables,
     customListVariables,
     customSwitchCases,
   );
 
-  // Count variable usage in filters to determine optimization strategy
   const variableUsageCounts = countVariableUsage(
     complexFilters,
     customVariables,
@@ -108,8 +101,6 @@ export const convertToMongoAggregation = (
     customListVariables,
   );
 
-  // Check if we have any list operation variables that should be projected
-  // Only project filter variables if they're actually used in the conditions
   const hasListOperationVariables = customListVariables.some(
     (listVar) =>
       listVar.listCondition &&
@@ -119,24 +110,19 @@ export const convertToMongoAggregation = (
       usedFields.listVariables.includes(listVar.name),
   );
 
-  // Collect custom blocks with isTrue: false for special handling
   const customBlocksWithFalseValue = [];
 
-  // Recursive function to find all custom blocks with isTrue: false
   const findCustomBlocksWithFalse = (block) => {
     if (!block) return;
 
-    // Check if this block is a custom block with isTrue: false
     if (block.customBlockName && block.isTrue === false) {
       customBlocksWithFalseValue.push({
         name: block.customBlockName,
         id: block.id,
         block: block,
       });
-      // Continue to recurse into children to find nested custom blocks
     }
 
-    // Recursively check children
     if (block.children && Array.isArray(block.children)) {
       block.children.forEach((child) => {
         if (child.category === "block" || child.type === "block") {
@@ -146,42 +132,33 @@ export const convertToMongoAggregation = (
     }
   };
 
-  // Find all custom blocks with isTrue: false at any nesting level
   complexFilters.forEach((block) => {
     findCustomBlocksWithFalse(block);
   });
 
-  // Check if we need a project stage for field optimization or custom blocks
   const needsProjectStage =
     hasListOperationVariables ||
     usedFields.baseFields.length > 0 ||
     customBlocksWithFalseValue.length > 0;
 
-  // Track which arithmetic variables have already been projected
   const projectedVariables = new Set();
 
-  // Create initial project stage if needed (for list variables, custom blocks, and base fields)
   let initialProjectStage = null;
   if (needsProjectStage) {
     initialProjectStage = { $project: {} };
 
-    // Remove path collisions from base fields before projecting
     const filteredBaseFields = removePathCollisions(usedFields.baseFields);
-    
-    // Include all used base fields
+
     filteredBaseFields.forEach((field) => {
       initialProjectStage.$project[field] = 1;
     });
 
-    // Always include objectId unless explicitly excluded
     if (!filteredBaseFields.includes("objectId")) {
       initialProjectStage.$project.objectId = 1;
     }
 
-    // Add custom blocks with isTrue: false as computed variables
     customBlocksWithFalseValue.forEach((customBlock) => {
       const variableName = `${customBlock.name.replace(/[^a-zA-Z0-9]/g, "_")}`;
-      // Convert the custom block conditions to a MongoDB expression
       const blockCondition = convertBlockToMongoExpr(
         customBlock.block,
         schema,
@@ -195,7 +172,6 @@ export const convertToMongoAggregation = (
       }
     });
 
-    // Add list operation variables (only project those that are actually used)
     customListVariables.forEach((listVar) => {
       if (
         listVar.listCondition &&
@@ -211,7 +187,6 @@ export const convertToMongoAggregation = (
           listCondition.value &&
           listCondition.value.children
         ) {
-          // Convert nested conditions for the filter
           const filterCondition = convertBlockToMongo(
             listCondition.value,
             schema,
@@ -233,7 +208,6 @@ export const convertToMongoAggregation = (
           ["$min", "$max", "$avg", "$sum"].includes(operator) &&
           subField
         ) {
-          // Handle aggregation operators
           switch (operator) {
             case "$min":
               initialProjectStage.$project[listVar.name] = {
@@ -260,11 +234,9 @@ export const convertToMongoAggregation = (
       }
     });
 
-    // Add the initial project stage since we have variables to compute
     pipeline.push(initialProjectStage);
   }
 
-  // Identify switch cases in additionalFieldsToProject that need to be projected
   const additionalSwitchCases = new Set();
   additionalFieldsToProject.forEach((fieldName) => {
     const isSwitchCase = customSwitchCases.some((sc) => sc.name === fieldName);
@@ -273,7 +245,6 @@ export const convertToMongoAggregation = (
     }
   });
 
-  // Group blocks by the arithmetic variables they use to minimize project/match pairs
   const blockGroups = [];
   let currentGroup = {
     blocks: [],
@@ -281,7 +252,6 @@ export const convertToMongoAggregation = (
   };
 
   complexFilters.forEach((block) => {
-    // Get all arithmetic variables used in this block
     const variablesInBlock = getVariablesUsedInBlock(
       block,
       customVariables,
@@ -289,18 +259,15 @@ export const convertToMongoAggregation = (
       customSwitchCases,
     );
 
-    // Filter to only arithmetic variables (not list variables)
     const arithmeticVarsInBlock = variablesInBlock.filter(
       (varName) => !customListVariables.some((lv) => lv.name === varName),
     );
 
-    // Determine which new variables this block requires
     const newVariablesNeeded = arithmeticVarsInBlock.filter(
       (varName) => !projectedVariables.has(varName),
     );
 
     if (newVariablesNeeded.length > 0) {
-      // Need to start a new group if current group has blocks
       if (currentGroup.blocks.length > 0) {
         blockGroups.push(currentGroup);
         currentGroup = {
@@ -309,7 +276,6 @@ export const convertToMongoAggregation = (
         };
       }
 
-      // Add all required variables (including dependencies)
       newVariablesNeeded.forEach((varName) => {
         currentGroup.requiredVariables.add(varName);
         const deps = getAllVariableDependencies(varName, dependencyGraph);
@@ -318,7 +284,6 @@ export const convertToMongoAggregation = (
             currentGroup.requiredVariables.add(depVar);
           }
         });
-        // Also ensure list variable dependencies are marked as used
         if (deps.listVariables) {
           deps.listVariables.forEach((listVarName) => {
             console.log("usedFields.listVariables.add", usedFields);
@@ -331,47 +296,37 @@ export const convertToMongoAggregation = (
     currentGroup.blocks.push(block);
   });
 
-  // Add the last group if it has blocks
   if (currentGroup.blocks.length > 0) {
     blockGroups.push(currentGroup);
   }
 
-  // If we have additional switch cases to project and no block groups yet, create one
   if (additionalSwitchCases.size > 0 && blockGroups.length === 0) {
     blockGroups.push({
       blocks: [],
       requiredVariables: additionalSwitchCases,
     });
   } else if (additionalSwitchCases.size > 0 && blockGroups.length > 0) {
-    // Add additional switch cases to the first group's required variables
     additionalSwitchCases.forEach((switchCase) => {
       blockGroups[0].requiredVariables.add(switchCase);
     });
   }
 
-  // Process each group: project variables (if needed), then add match stage for all blocks in the group
   blockGroups.forEach((group, groupIndex) => {
-    // If we have variables to project, create or update a project stage
     if (group.requiredVariables.size > 0) {
-      // Sort variables by dependency order
       const sortedVars = topologicalSortVariables(
         Array.from(group.requiredVariables),
         dependencyGraph,
       );
 
-      // Group variables into layers based on dependencies
-      // Variables in the same layer don't depend on each other
       const variableLayers = [];
       const processedVars = new Set();
 
       sortedVars.forEach((varName) => {
         const deps = getAllVariableDependencies(varName, dependencyGraph);
 
-        // Find the highest layer index among this variable's dependencies
         let requiredLayer = 0;
         deps.variables.forEach((depVar) => {
           if (processedVars.has(depVar)) {
-            // Find which layer this dependency is in
             for (let i = 0; i < variableLayers.length; i++) {
               if (variableLayers[i].has(depVar)) {
                 requiredLayer = Math.max(requiredLayer, i + 1);
@@ -381,7 +336,6 @@ export const convertToMongoAggregation = (
           }
         });
 
-        // Add this variable to the appropriate layer
         while (variableLayers.length <= requiredLayer) {
           variableLayers.push(new Set());
         }
@@ -389,7 +343,6 @@ export const convertToMongoAggregation = (
         processedVars.add(varName);
       });
 
-      // Check if any of the variables in the first layer depend on list variables
       let firstLayerDependsOnListVariables = false;
       if (variableLayers.length > 0) {
         Array.from(variableLayers[0]).forEach((varName) => {
@@ -400,12 +353,7 @@ export const convertToMongoAggregation = (
         });
       }
 
-      // Process each layer as a separate $project stage
       variableLayers.forEach((layerVars, layerIndex) => {
-        // For the first layer of the first group, only merge with initial project stage if:
-        // 1. It exists AND
-        // 2. The variables don't depend on list variables (which are in the initial stage)
-        // For all other layers/groups, create a new project stage
         let projectStage;
         if (
           groupIndex === 0 &&
@@ -414,35 +362,29 @@ export const convertToMongoAggregation = (
           !firstLayerDependsOnListVariables
         ) {
           projectStage = initialProjectStage;
-          // Remove the initial project stage from pipeline since we'll add it back
           pipeline.pop();
         } else {
           projectStage = { $project: {} };
 
-          // Include objectId
           projectStage.$project.objectId = 1;
 
-          // Collect all fields to project
           const fieldsToProject = [
             ...usedFields.baseFields,
             ...usedFields.listVariables,
-            ...Array.from(projectedVariables)
+            ...Array.from(projectedVariables),
           ];
-          
-          // Remove path collisions
+
           const filteredFields = removePathCollisions(fieldsToProject);
-          
-          // Include all filtered fields
+
           filteredFields.forEach((field) => {
             projectStage.$project[field] = 1;
           });
         }
 
-        // Add the new arithmetic variables and switch cases in this layer
         Array.from(layerVars).forEach((varName) => {
           const customVar = customVariables.find((v) => v.name === varName);
           const switchCase = customSwitchCases.find((v) => v.name === varName);
-          
+
           if (customVar && customVar.variable) {
             const eqParts = customVar.variable.split("=");
             if (eqParts.length === 2) {
@@ -460,7 +402,6 @@ export const convertToMongoAggregation = (
               }
             }
           } else if (switchCase && switchCase.switchCondition) {
-            // Convert switch case to MongoDB $switch expression
             const switchExpr = convertSwitchCaseToMongo(
               switchCase.switchCondition,
               schema,
@@ -476,15 +417,12 @@ export const convertToMongoAggregation = (
           }
         });
 
-        // Add this layer's project stage to the pipeline
         pipeline.push(projectStage);
       });
     }
 
-    // Add match stage for all blocks in this group
     const matchStage = { $match: {} };
 
-    // Convert each block in the group
     group.blocks.forEach((block) => {
       const blockCondition = convertBlockToMongo(
         block,
@@ -502,7 +440,6 @@ export const convertToMongoAggregation = (
       }
     });
 
-    // Add conditions for custom blocks with isTrue: false (only in first match stage)
     if (blockGroups.indexOf(group) === 0) {
       customBlocksWithFalseValue.forEach((customBlock) => {
         const variableName = `${customBlock.name.replace(
@@ -513,31 +450,25 @@ export const convertToMongoAggregation = (
       });
     }
 
-    // Only add $match stage if there are actual conditions
     if (Object.keys(matchStage.$match).length > 0) {
       pipeline.push(matchStage);
     }
   });
 
-  // Always add final $project stage with objectId and all used fields
   const finalProjectStage = { $project: { objectId: 1 } };
 
-  // Collect all fields to project
   const allFieldsToProject = [
     ...usedFields.baseFields,
     ...usedFields.customVariables,
-    ...usedFields.listVariables
+    ...usedFields.listVariables,
   ];
-  
-  // Remove path collisions
+
   const filteredFields = removePathCollisions(allFieldsToProject);
-  
-  // Add all filtered fields to the final project stage
+
   filteredFields.forEach((field) => {
     finalProjectStage.$project[field] = 1;
   });
 
-  // Always add the project stage
   pipeline.push(finalProjectStage);
 
   return pipeline;
@@ -552,32 +483,28 @@ const convertBlockToMongo = (
   isInArrayFilter = false,
   variableUsageCounts = {},
   customBlocksWithFalseValue = [],
-  arrayFieldName = null, // New parameter to track the array field being filtered
+  arrayFieldName = null,
 ) => {
   if (!block) {
     return {};
   }
 
-  // Skip custom blocks with isTrue: false - they're handled in the project stage
   if (block.customBlockName && block.isTrue === false) {
     return {};
   }
 
-  // Handle direct conditions (not wrapped in blocks)
   if (block.type === "condition" || block.category === "condition") {
     let condition;
     if (isInArrayFilter) {
-      // For array filters, convert to $expr format
       condition = convertConditionToMongoExpr(
         block,
         customVariables,
         customListVariables,
         schema,
         fieldOptions,
-        arrayFieldName, // Pass the array field name
+        arrayFieldName,
       );
     } else {
-      // For regular conditions, use standard format
       condition = convertConditionToMongo(
         block,
         schema,
@@ -586,23 +513,20 @@ const convertBlockToMongo = (
         customListVariables,
         isInArrayFilter,
         variableUsageCounts,
-        arrayFieldName, // Pass the array field name down
+        arrayFieldName,
       );
     }
     return condition || {};
   }
 
-  // Handle blocks with children
   if (!block.children || block.children.length === 0) {
     return {};
   }
 
   const conditions = [];
 
-  // Process each child (condition or nested block)
   block.children.forEach((child) => {
     if (child.category === "block" || child.type === "block") {
-      // Recursively handle nested blocks
       const nestedCondition = convertBlockToMongo(
         child,
         schema,
@@ -617,20 +541,17 @@ const convertBlockToMongo = (
         conditions.push(nestedCondition);
       }
     } else {
-      // Handle individual conditions
       let condition;
       if (isInArrayFilter) {
-        // For array filters, convert to $expr format
         condition = convertConditionToMongoExpr(
           child,
           customVariables,
           customListVariables,
           schema,
           fieldOptions,
-          arrayFieldName, // Pass the array field name
+          arrayFieldName,
         );
       } else {
-        // For regular conditions, use standard format
         condition = convertConditionToMongo(
           child,
           schema,
@@ -639,7 +560,7 @@ const convertBlockToMongo = (
           customListVariables,
           isInArrayFilter,
           variableUsageCounts,
-          arrayFieldName, // Pass the array field name down
+          arrayFieldName,
         );
       }
       if (condition && Object.keys(condition).length > 0) {
@@ -656,7 +577,6 @@ const convertBlockToMongo = (
     return conditions[0];
   }
 
-  // Combine conditions based on block logic
   const logic = (block.logic || "and").toLowerCase();
   if (logic === "or") {
     return { $or: conditions };
@@ -673,11 +593,10 @@ const convertConditionToMongo = (
   customListVariables = [],
   isInArrayFilter = false,
   variableUsageCounts = {},
-  arrayFieldName = null, // New parameter to track the array field being filtered
+  arrayFieldName = null,
 ) => {
   const operator = condition.operator;
-  
-  // $switch doesn't require a field, but other operators do
+
   if (operator !== "$switch" && (!condition.field || !condition.operator)) {
     return {};
   }
@@ -687,28 +606,21 @@ const convertConditionToMongo = (
   }
   const value = condition.value;
 
-  // Check if this field name references a saved list condition variable
   const listVariable = customListVariables.find(
     (lv) => lv.name === condition.field,
   );
   if (listVariable && listVariable.listCondition) {
-    // This field references a saved list condition variable
     const listCondition = listVariable.listCondition;
 
-    // For aggregation operators that are now projected, treat them as regular fields
     if (["$min", "$max", "$avg", "$sum"].includes(listCondition.operator)) {
-      // The variable is now projected, so we can treat it as a regular field
-      // and apply optimized operators like $lengthGt/$lengthLt if applicable
-      const field = condition.field; // Use the variable name directly
+      const field = condition.field;
 
-      // Apply the same operator logic as regular fields
       switch (operator) {
         case "$lengthGt": {
           const gtLength = parseNumberIfNeeded(value);
           if (gtLength < 0) {
             return { [field]: { $exists: true } };
           }
-          // For projected array results, we still use $exists optimization
           return { [`${field}.${gtLength}`]: { $exists: true } };
         }
         case "$lengthLt": {
@@ -724,7 +636,6 @@ const convertConditionToMongo = (
         case "not exists":
           return { [field]: { $exists: false } };
         default: {
-          // For comparison operators, compare against the projected value
           const compareValue = parseNumberIfNeeded(value);
           switch (operator) {
             case "$gt":
@@ -757,9 +668,8 @@ const convertConditionToMongo = (
       }
     }
 
-    // For $filter operations, the result is an array so we can also apply length optimizations
     if (listCondition.operator === "$filter") {
-      const field = condition.field; // Use the variable name directly
+      const field = condition.field;
 
       switch (operator) {
         case "$lengthGt": {
@@ -782,7 +692,6 @@ const convertConditionToMongo = (
         case "not exists":
           return { [field]: { $exists: false } };
         default: {
-          // For other operators on $filter results, check if any elements match
           return {
             $expr: {
               $gt: [{ $size: { $ifNull: [`$${field}`, []] } }, 0],
@@ -792,10 +701,8 @@ const convertConditionToMongo = (
       }
     }
 
-    // For other list operations, use the original logic but pass the boolean switch from the condition
     const listConditionWithBooleanSwitch = {
       ...listVariable.listCondition,
-      // Override the booleanSwitch with the one from the condition (if present)
       booleanSwitch:
         condition.booleanSwitch !== undefined
           ? condition.booleanSwitch
@@ -813,7 +720,6 @@ const convertConditionToMongo = (
     );
   }
 
-  // Handle list condition structures
   if (
     condition.isListVariable ||
     (value && typeof value === "object" && value.type === "array") ||
@@ -837,21 +743,16 @@ const convertConditionToMongo = (
     );
   }
 
-  // Get field path - handle array context intelligently
   let fieldPath;
   if (isInArrayFilter && arrayFieldName) {
-    // For array filters, use intelligent field path resolution similar to convertConditionToMongoExpr
     if (condition.field.startsWith(`${arrayFieldName}.`)) {
-      // Field is from the array - strip the array prefix and use $$this
       const fieldForArray = condition.field.substring(
         arrayFieldName.length + 1,
       );
       fieldPath = `$$this.${fieldForArray}`;
     } else if (!condition.field.includes(".")) {
-      // Field is just the subfield name (e.g., 'z' instead of 'cross_matches.NED_BetaV3.z')
       fieldPath = `$$this.${condition.field}`;
     } else {
-      // Field is not from the array - use as absolute field reference
       fieldPath = `$${condition.field}`;
     }
   } else if (
@@ -859,7 +760,6 @@ const convertConditionToMongo = (
     !arrayFieldName &&
     condition.field.includes(".")
   ) {
-    // Fallback detection for array patterns when arrayFieldName is missing
     const commonArrayPatterns = ["prv_candidates", "candidates", "detections"];
     let patternMatched = false;
     for (const pattern of commonArrayPatterns) {
@@ -874,31 +774,23 @@ const convertConditionToMongo = (
       }
     }
     if (!patternMatched) {
-      // Not an array pattern, use regular getFieldPath
       fieldPath = getFieldPath(condition.field, customVariables, false);
     }
   } else {
-    // Regular field path handling - don't pass isInArrayFilter to avoid the old blind logic
     fieldPath = getFieldPath(condition.field, customVariables, false);
   }
 
-  // If fieldPath is a MongoDB expression (object), wrap it in $expr
   if (typeof fieldPath === "object" && fieldPath !== null) {
-    // This is a single-use variable that was inlined as a MongoDB expression
     return handleInlinedVariableCondition(fieldPath, operator, value);
   }
 
-  // Regular field path handling
   const field = fieldPath;
 
-  // Handle different operator types
   switch (operator) {
     case "$eq":
     case "equals":
     case "=": {
-      // Convert null-like strings to null
       const processedValue = convertNullLikeStringsToNull(value);
-      // Check if this is a boolean field or boolean value
       const fieldType = getFieldType(
         condition.field,
         customVariables,
@@ -908,7 +800,6 @@ const convertConditionToMongo = (
         customListVariables,
       );
       if (fieldType === "boolean" || typeof processedValue === "boolean") {
-        // Use $in operator for boolean fields/values
         return { [field]: { $in: [parseNumberIfNeeded(processedValue)] } };
       }
       return { [field]: { $eq: parseNumberIfNeeded(processedValue) } };
@@ -917,9 +808,7 @@ const convertConditionToMongo = (
     case "$ne":
     case "not equals":
     case "!=": {
-      // Convert null-like strings to null
       const processedValue = convertNullLikeStringsToNull(value);
-      // Check if this is a boolean field or boolean value
       const fieldType = getFieldType(
         condition.field,
         customVariables,
@@ -929,7 +818,6 @@ const convertConditionToMongo = (
         customListVariables,
       );
       if (fieldType === "boolean" || typeof processedValue === "boolean") {
-        // Use $nin operator for boolean fields/values
         return { [field]: { $nin: [parseNumberIfNeeded(processedValue)] } };
       }
       return { [field]: { $ne: parseNumberIfNeeded(processedValue) } };
@@ -978,7 +866,6 @@ const convertConditionToMongo = (
       return { [field]: { $exists: false } };
 
     case "$isNumber":
-      // Use the literal MongoDB $isNumber operator
       return { $isNumber: `${field}` };
 
     case "between":
@@ -1007,26 +894,18 @@ const convertConditionToMongo = (
       return { [field]: { $elemMatch: { $eq: value } } };
 
     case "$lengthGt": {
-      // Optimize for performance: use $exists to check if array has elements at specific indices
       const gtLength = parseNumberIfNeeded(value);
       if (gtLength < 0) {
-        // length > negative number is always true (arrays can't have negative length)
-        // Return a condition that always matches
         return { [field]: { $exists: true } };
       }
-      // Check if element exists at index gtLength (array has more than gtLength elements)
       return { [`${field}.${gtLength}`]: { $exists: true } };
     }
 
     case "$lengthLt": {
-      // Optimize for performance: use $exists to check array length
       const ltLength = parseNumberIfNeeded(value);
       if (ltLength <= 0) {
-        // length < 0 is always false (arrays can't have negative length)
-        // length < 0 or length < 1 both mean array should be empty
         return { [`${field}.0`]: { $exists: false } };
       }
-      // Check that element does NOT exist at index (ltLength - 1)
       return { [`${field}.${ltLength - 1}`]: { $exists: false } };
     }
 
@@ -1039,7 +918,6 @@ const convertConditionToMongo = (
     case "array not empty":
       return { [field]: { $not: { $size: 0 } } };
 
-    // Array operators that are now handled by convertListConditionToMongo
     case "$anyElementTrue":
     case "$allElementsTrue":
     case "$filter":
@@ -1050,22 +928,17 @@ const convertConditionToMongo = (
       return convertArrayOperatorToMongo(field, operator, value);
 
     case "$switch": {
-      // Handle switch/case conditional logic
-      // Note: $switch is typically used in $expr context or $project stages
-      // Here we wrap it in $expr for use in $match
       if (!value || !value.cases || !Array.isArray(value.cases)) {
         return {};
       }
 
       const branches = [];
-      
-      // Process each case
+
       for (const caseItem of value.cases) {
         if (!caseItem.block || !caseItem.then) {
-          continue; // Skip invalid cases
+          continue;
         }
 
-        // Convert the block to a MongoDB expression
         const caseCondition = convertBlockToMongoExpr(
           caseItem.block,
           schema,
@@ -1076,50 +949,54 @@ const convertConditionToMongo = (
         );
 
         if (caseCondition && Object.keys(caseCondition).length > 0) {
-          // Determine the "then" value - could be a field reference, variable, or literal
           let thenValue;
-          
+
           if (caseItem.then && typeof caseItem.then === "string") {
-            // Check if it's a custom variable
-            const customVar = customVariables.find((v) => v.name === caseItem.then);
+            const customVar = customVariables.find(
+              (v) => v.name === caseItem.then,
+            );
             if (customVar && customVar.variable) {
-              // Parse the LaTeX expression
               const eqParts = customVar.variable.split("=");
               if (eqParts.length === 2) {
                 const latexExpression = eqParts[1].trim();
                 try {
-                  const mongoExpression = latexToMongoConverter.convertToMongo(latexExpression);
+                  const mongoExpression =
+                    latexToMongoConverter.convertToMongo(latexExpression);
                   if (mongoExpression) {
                     thenValue = mongoExpression;
                   } else {
                     thenValue = `$${caseItem.then}`;
                   }
                 } catch (error) {
-                  console.warn(`Failed to convert LaTeX expression for then value ${caseItem.then}:`, error);
+                  console.warn(
+                    `Failed to convert LaTeX expression for then value ${caseItem.then}:`,
+                    error,
+                  );
                   thenValue = `$${caseItem.then}`;
                 }
               } else {
                 thenValue = `$${caseItem.then}`;
               }
             } else {
-              // Check if it's a list variable
-              const listVar = customListVariables.find((v) => v.name === caseItem.then);
-              // Check if it's a field from fieldOptions
-              const isField = fieldOptions.some(f => 
-                (typeof f === 'string' && f === caseItem.then) ||
-                (f && (f.value === caseItem.then || f.name === caseItem.then || f.field === caseItem.then))
+              const listVar = customListVariables.find(
+                (v) => v.name === caseItem.then,
               );
-              
+              const isField = fieldOptions.some(
+                (f) =>
+                  (typeof f === "string" && f === caseItem.then) ||
+                  (f &&
+                    (f.value === caseItem.then ||
+                      f.name === caseItem.then ||
+                      f.field === caseItem.then)),
+              );
+
               if (listVar || isField) {
-                // It's a field or list variable reference - prefix with $
                 thenValue = `$${caseItem.then}`;
               } else {
-                // It's a literal string value
                 thenValue = caseItem.then;
               }
             }
           } else {
-            // It's a literal value (number, boolean, etc.)
             thenValue = parseNumberIfNeeded(caseItem.then);
           }
 
@@ -1130,51 +1007,59 @@ const convertConditionToMongo = (
         }
       }
 
-      // Build the $switch expression
       const switchExpr = {
         $switch: {
           branches,
         },
       };
 
-      // Add default value if provided
-      if (value.default !== undefined && value.default !== null && value.default !== "") {
+      if (
+        value.default !== undefined &&
+        value.default !== null &&
+        value.default !== ""
+      ) {
         if (typeof value.default === "string") {
-          // Check if it's a custom variable
-          const customVar = customVariables.find((v) => v.name === value.default);
+          const customVar = customVariables.find(
+            (v) => v.name === value.default,
+          );
           if (customVar && customVar.variable) {
-            // Parse the LaTeX expression
             const eqParts = customVar.variable.split("=");
             if (eqParts.length === 2) {
               const latexExpression = eqParts[1].trim();
               try {
-                const mongoExpression = latexToMongoConverter.convertToMongo(latexExpression);
+                const mongoExpression =
+                  latexToMongoConverter.convertToMongo(latexExpression);
                 if (mongoExpression) {
                   switchExpr.$switch.default = mongoExpression;
                 } else {
                   switchExpr.$switch.default = `$${value.default}`;
                 }
               } catch (error) {
-                console.warn(`Failed to convert LaTeX expression for default value ${value.default}:`, error);
+                console.warn(
+                  `Failed to convert LaTeX expression for default value ${value.default}:`,
+                  error,
+                );
                 switchExpr.$switch.default = `$${value.default}`;
               }
             } else {
               switchExpr.$switch.default = `$${value.default}`;
             }
           } else {
-            // Check if it's a list variable
-            const listVar = customListVariables.find((v) => v.name === value.default);
-            // Check if it's a field from fieldOptions
-            const isField = fieldOptions.some(f => 
-              (typeof f === 'string' && f === value.default) ||
-              (f && (f.value === value.default || f.name === value.default || f.field === value.default))
+            const listVar = customListVariables.find(
+              (v) => v.name === value.default,
             );
-            
+            const isField = fieldOptions.some(
+              (f) =>
+                (typeof f === "string" && f === value.default) ||
+                (f &&
+                  (f.value === value.default ||
+                    f.name === value.default ||
+                    f.field === value.default)),
+            );
+
             if (listVar || isField) {
-              // It's a field or list variable reference - prefix with $
               switchExpr.$switch.default = `$${value.default}`;
             } else {
-              // It's a literal string value
               switchExpr.$switch.default = value.default;
             }
           }
@@ -1183,19 +1068,14 @@ const convertConditionToMongo = (
         }
       }
 
-      // Since $switch requires $expr context in $match, wrap it
-      // But actually, since we return this, let the caller decide if it needs $expr wrapping
-      // For now, just return the $switch object - it can be used in $project or wrapped in $expr
       return { $expr: switchExpr };
     }
 
     default:
-      // Fallback for unknown operators - but now parse numbers correctly
       return { [field]: parseNumberIfNeeded(value) };
   }
 };
 
-// Helper function to convert blocks to MongoDB $expr format (for use in project stage)
 const convertBlockToMongoExpr = (
   block,
   schema = {},
@@ -1208,7 +1088,6 @@ const convertBlockToMongoExpr = (
     return {};
   }
 
-  // Handle direct conditions (not wrapped in blocks)
   if (block.type === "condition" || block.category === "condition") {
     return convertConditionToProjectExpr(
       block,
@@ -1219,27 +1098,23 @@ const convertBlockToMongoExpr = (
     );
   }
 
-  // Handle blocks with children
   if (!block.children || block.children.length === 0) {
     return {};
   }
 
   const conditions = [];
 
-  // Process each child (condition or nested blocks)
   block.children.forEach((child) => {
     if (child.category === "block" || child.type === "block") {
-      // Skip custom blocks that have isTrue: false (they are handled separately)
       if (
         child.customBlockName &&
         customBlocksWithFalseValue.some(
           (custom_block) => custom_block.id === child.id,
         )
       ) {
-        return; // Skip this custom block
+        return;
       }
 
-      // Recursively handle nested blocks
       const nestedCondition = convertBlockToMongoExpr(
         child,
         schema,
@@ -1252,7 +1127,6 @@ const convertBlockToMongoExpr = (
         conditions.push(nestedCondition);
       }
     } else {
-      // Handle individual conditions
       const condition = convertConditionToProjectExpr(
         child,
         schema,
@@ -1274,7 +1148,6 @@ const convertBlockToMongoExpr = (
     return conditions[0];
   }
 
-  // Combine conditions based on block logic using $expr operators
   const logic = (block.logic || "and").toLowerCase();
   if (logic === "or") {
     return { $or: conditions };
@@ -1283,14 +1156,11 @@ const convertBlockToMongoExpr = (
   }
 };
 
-// Get the boolean switch from various possible properties
 const getBooleanSwitch = (condition, value) => {
-  // For simple boolean values, use the value itself
   if (typeof value === "boolean") {
     return value;
   }
 
-  // For complex conditions with nested children, check for boolean switch properties
   if (value && typeof value === "object" && value.children) {
     return condition.booleanSwitch !== undefined
       ? condition.booleanSwitch
@@ -1304,13 +1174,12 @@ const getBooleanSwitch = (condition, value) => {
               ? !condition.not
               : condition.negate !== undefined
                 ? !condition.negate
-                : true; // Default to true (no negation)
+                : true;
   }
 
-  return true; // Default to true for other cases
+  return true;
 };
 
-// Helper function to convert conditions to MongoDB $expr format for project stage
 const convertConditionToProjectExpr = (
   condition,
   schema = {},
@@ -1319,8 +1188,7 @@ const convertConditionToProjectExpr = (
   customListVariables = [],
 ) => {
   const operator = condition.operator;
-  
-  // $switch doesn't require a field, but other operators do
+
   if (operator !== "$switch" && (!condition.field || !condition.operator)) {
     return {};
   }
@@ -1331,10 +1199,8 @@ const convertConditionToProjectExpr = (
   const value = condition.value;
   const field = condition.field;
 
-  // Get field path for project stage (using $fieldName)
   const fieldPath = `$${field}`;
 
-  // Convert to $expr format for project stage
   switch (operator) {
     case "$eq":
     case "equals":
@@ -1386,9 +1252,7 @@ const convertConditionToProjectExpr = (
       return { $eq: [fieldPath, null] };
 
     case "$anyElementTrue":
-      // Check if we have nested conditions (value is a block object)
       if (value && typeof value === "object" && value.children) {
-        // Convert the nested conditions to a proper condition for $anyElementTrue using array context
         const conditionsForMap = convertBlockToMongo(
           value,
           schema,
@@ -1398,7 +1262,7 @@ const convertConditionToProjectExpr = (
           true,
           {},
           [],
-          field, // Pass the array field name
+          field,
         );
         if (conditionsForMap && Object.keys(conditionsForMap).length > 0) {
           const anyElementExpr = {
@@ -1410,19 +1274,15 @@ const convertConditionToProjectExpr = (
             },
           };
 
-          // Apply $not if boolean switch is false
           return getBooleanSwitch(condition, value)
             ? anyElementExpr
             : { $not: anyElementExpr };
         }
       }
-      // For simple boolean values, apply $not when false
       if (typeof value === "boolean") {
         if (value) {
-          // Normal $anyElementTrue behavior
           return { $anyElementTrue: { $ifNull: [fieldPath, []] } };
         } else {
-          // Apply $not to $anyElementTrue when boolean switch is false
           return {
             $not: {
               $anyElementTrue: { $ifNull: [fieldPath, []] },
@@ -1430,9 +1290,7 @@ const convertConditionToProjectExpr = (
           };
         }
       }
-      // For non-boolean values or undefined, use $anyElementTrue properly
       if (value !== undefined && value !== null && value !== "") {
-        // Use proper $anyElementTrue for specific value matching
         const anyElementExpr = {
           $anyElementTrue: {
             $map: {
@@ -1442,7 +1300,6 @@ const convertConditionToProjectExpr = (
           },
         };
 
-        // Apply $not based on boolean switch
         return getBooleanSwitch(condition, value)
           ? anyElementExpr
           : { $not: anyElementExpr };
@@ -1453,9 +1310,7 @@ const convertConditionToProjectExpr = (
         : { $not: { $anyElementTrue: { $ifNull: [fieldPath, []] } } };
 
     case "$allElementsTrue":
-      // Check if we have nested conditions (value is a block object)
       if (value && typeof value === "object" && value.children) {
-        // Convert the nested conditions to a proper condition for $allElementsTrue using array context
         const conditionsForMap = convertBlockToMongo(
           value,
           schema,
@@ -1465,7 +1320,7 @@ const convertConditionToProjectExpr = (
           true,
           {},
           [],
-          field, // Pass the array field name
+          field,
         );
         if (conditionsForMap && Object.keys(conditionsForMap).length > 0) {
           const allElementExpr = {
@@ -1477,19 +1332,15 @@ const convertConditionToProjectExpr = (
             },
           };
 
-          // Apply $not if boolean switch is false
           return getBooleanSwitch(condition, value)
             ? allElementExpr
             : { $not: allElementExpr };
         }
       }
-      // For simple boolean values, apply $not when false
       if (typeof value === "boolean") {
         if (value) {
-          // Normal $allElementsTrue behavior
           return { $allElementsTrue: { $ifNull: [fieldPath, []] } };
         } else {
-          // Apply $not to $allElementsTrue when boolean switch is false
           return {
             $not: {
               $allElementsTrue: { $ifNull: [fieldPath, []] },
@@ -1497,7 +1348,6 @@ const convertConditionToProjectExpr = (
           };
         }
       }
-      // For non-boolean values, use proper $allElementsTrue
       if (value !== undefined && value !== null && value !== "") {
         const allElementExpr = {
           $allElementsTrue: {
@@ -1508,7 +1358,6 @@ const convertConditionToProjectExpr = (
           },
         };
 
-        // Apply $not based on boolean switch
         return getBooleanSwitch(condition, value)
           ? allElementExpr
           : { $not: allElementExpr };
@@ -1519,9 +1368,7 @@ const convertConditionToProjectExpr = (
         : { $not: { $allElementsTrue: { $ifNull: [fieldPath, []] } } };
 
     case "$filter":
-      // Check if we have nested conditions (value is a block object)
       if (value && typeof value === "object" && value.children) {
-        // Convert the nested conditions to a proper condition for $filter using array context
         const filterCondition = convertBlockToMongo(
           value,
           schema,
@@ -1531,7 +1378,7 @@ const convertConditionToProjectExpr = (
           true,
           {},
           [],
-          field, // Pass the array field name
+          field,
         );
         if (filterCondition && Object.keys(filterCondition).length > 0) {
           return {
@@ -1549,7 +1396,6 @@ const convertConditionToProjectExpr = (
           };
         }
       }
-      // Filter requires a condition - if we just have a simple value, check if any element equals it
       if (
         typeof value === "string" ||
         typeof value === "number" ||
@@ -1569,24 +1415,20 @@ const convertConditionToProjectExpr = (
           ],
         };
       }
-      // For complex filter conditions, we need more structure - fallback to existence check
       return { $ne: [fieldPath, null] };
 
     case "$switch": {
-      // Handle switch/case conditional logic
       if (!value || !value.cases || !Array.isArray(value.cases)) {
         return {};
       }
 
       const branches = [];
-      
-      // Process each case
+
       for (const caseItem of value.cases) {
         if (!caseItem.block || !caseItem.then) {
-          continue; // Skip invalid cases
+          continue;
         }
 
-        // Convert the block to a MongoDB expression
         const caseCondition = convertBlockToMongoExpr(
           caseItem.block,
           schema,
@@ -1597,51 +1439,54 @@ const convertConditionToProjectExpr = (
         );
 
         if (caseCondition && Object.keys(caseCondition).length > 0) {
-          // Determine the "then" value - could be a field reference or literal
           let thenValue;
-          
-          // Check if the "then" value is a field reference (from fieldOptions or variables)
+
           if (caseItem.then && typeof caseItem.then === "string") {
-            // Check if it's a custom variable
-            const customVar = customVariables.find((v) => v.name === caseItem.then);
+            const customVar = customVariables.find(
+              (v) => v.name === caseItem.then,
+            );
             if (customVar && customVar.variable) {
-              // Parse the LaTeX expression
               const eqParts = customVar.variable.split("=");
               if (eqParts.length === 2) {
                 const latexExpression = eqParts[1].trim();
                 try {
-                  const mongoExpression = latexToMongoConverter.convertToMongo(latexExpression);
+                  const mongoExpression =
+                    latexToMongoConverter.convertToMongo(latexExpression);
                   if (mongoExpression) {
                     thenValue = mongoExpression;
                   } else {
                     thenValue = `$${caseItem.then}`;
                   }
                 } catch (error) {
-                  console.warn(`Failed to convert LaTeX expression for then value ${caseItem.then}:`, error);
+                  console.warn(
+                    `Failed to convert LaTeX expression for then value ${caseItem.then}:`,
+                    error,
+                  );
                   thenValue = `$${caseItem.then}`;
                 }
               } else {
                 thenValue = `$${caseItem.then}`;
               }
             } else {
-              // Check if it's a list variable
-              const listVar = customListVariables.find((v) => v.name === caseItem.then);
-              // Check if it's a field from fieldOptions
-              const isField = fieldOptions.some(f => 
-                (typeof f === 'string' && f === caseItem.then) ||
-                (f && (f.value === caseItem.then || f.name === caseItem.then || f.field === caseItem.then))
+              const listVar = customListVariables.find(
+                (v) => v.name === caseItem.then,
               );
-              
+              const isField = fieldOptions.some(
+                (f) =>
+                  (typeof f === "string" && f === caseItem.then) ||
+                  (f &&
+                    (f.value === caseItem.then ||
+                      f.name === caseItem.then ||
+                      f.field === caseItem.then)),
+              );
+
               if (listVar || isField) {
-                // It's a field or list variable reference - prefix with $
                 thenValue = `$${caseItem.then}`;
               } else {
-                // It's a literal string value
                 thenValue = caseItem.then;
               }
             }
           } else {
-            // It's a literal value (number, boolean, etc.)
             thenValue = parseNumberIfNeeded(caseItem.then);
           }
 
@@ -1652,51 +1497,59 @@ const convertConditionToProjectExpr = (
         }
       }
 
-      // Build the $switch expression
       const switchExpr = {
         $switch: {
           branches,
         },
       };
 
-      // Add default value if provided
-      if (value.default !== undefined && value.default !== null && value.default !== "") {
+      if (
+        value.default !== undefined &&
+        value.default !== null &&
+        value.default !== ""
+      ) {
         if (typeof value.default === "string") {
-          // Check if it's a custom variable
-          const customVar = customVariables.find((v) => v.name === value.default);
+          const customVar = customVariables.find(
+            (v) => v.name === value.default,
+          );
           if (customVar && customVar.variable) {
-            // Parse the LaTeX expression
             const eqParts = customVar.variable.split("=");
             if (eqParts.length === 2) {
               const latexExpression = eqParts[1].trim();
               try {
-                const mongoExpression = latexToMongoConverter.convertToMongo(latexExpression);
+                const mongoExpression =
+                  latexToMongoConverter.convertToMongo(latexExpression);
                 if (mongoExpression) {
                   switchExpr.$switch.default = mongoExpression;
                 } else {
                   switchExpr.$switch.default = `$${value.default}`;
                 }
               } catch (error) {
-                console.warn(`Failed to convert LaTeX expression for default value ${value.default}:`, error);
+                console.warn(
+                  `Failed to convert LaTeX expression for default value ${value.default}:`,
+                  error,
+                );
                 switchExpr.$switch.default = `$${value.default}`;
               }
             } else {
               switchExpr.$switch.default = `$${value.default}`;
             }
           } else {
-            // Check if it's a list variable
-            const listVar = customListVariables.find((v) => v.name === value.default);
-            // Check if it's a field from fieldOptions
-            const isField = fieldOptions.some(f => 
-              (typeof f === 'string' && f === value.default) ||
-              (f && (f.value === value.default || f.name === value.default || f.field === value.default))
+            const listVar = customListVariables.find(
+              (v) => v.name === value.default,
             );
-            
+            const isField = fieldOptions.some(
+              (f) =>
+                (typeof f === "string" && f === value.default) ||
+                (f &&
+                  (f.value === value.default ||
+                    f.name === value.default ||
+                    f.field === value.default)),
+            );
+
             if (listVar || isField) {
-              // It's a field or list variable reference - prefix with $
               switchExpr.$switch.default = `$${value.default}`;
             } else {
-              // It's a literal string value
               switchExpr.$switch.default = value.default;
             }
           }
@@ -1709,23 +1562,20 @@ const convertConditionToProjectExpr = (
     }
 
     default:
-      // Fallback to equality
       return { $eq: [fieldPath, parseNumberIfNeeded(value)] };
   }
 };
 
-// Helper function to convert conditions to MongoDB $expr format (for use in $map operations)
 const convertConditionToMongoExpr = (
   condition,
   customVariables = [],
   customListVariables = [],
   schema = {},
   fieldOptions = [],
-  arrayFieldName = null, // New parameter to track the array field being filtered
+  arrayFieldName = null,
 ) => {
   const operator = condition.operator;
-  
-  // $switch doesn't require a field, but other operators do
+
   if (operator !== "$switch" && (!condition.field || !condition.operator)) {
     return {};
   }
@@ -1736,12 +1586,10 @@ const convertConditionToMongoExpr = (
   const value = condition.value;
   const field = condition.field;
 
-  // Ensure customVariables is an array
   const safeCustomVariables = Array.isArray(customVariables)
     ? customVariables
     : [];
 
-  // Check if this field is a custom variable with a LaTeX expression
   const customVar = safeCustomVariables.find((v) => v.name === field);
   let fieldPath;
 
@@ -1750,19 +1598,15 @@ const convertConditionToMongoExpr = (
     if (eqParts.length === 2) {
       const latexExpression = eqParts[1].trim();
       try {
-        // Get the MongoDB expression and convert it to array context
         const mongoExpression =
           latexToMongoConverter.convertToMongo(latexExpression);
         if (mongoExpression) {
           fieldPath = convertToArrayContext(mongoExpression, arrayFieldName);
         } else {
-          // Fallback if conversion fails
           if (arrayFieldName && field.startsWith(`${arrayFieldName}.`)) {
-            // Field is from the array - strip prefix and use $$this
             const fieldForArray = field.substring(arrayFieldName.length + 1);
             fieldPath = `$$this.${fieldForArray}`;
           } else {
-            // Field is not from the array - use as absolute field reference
             fieldPath = `$${field}`;
           }
         }
@@ -1772,42 +1616,30 @@ const convertConditionToMongoExpr = (
           error,
         );
         if (arrayFieldName && field.startsWith(`${arrayFieldName}.`)) {
-          // Field is from the array - strip prefix and use $$this
           const fieldForArray = field.substring(arrayFieldName.length + 1);
           fieldPath = `$$this.${fieldForArray}`;
         } else {
-          // Field is not from the array - use as absolute field reference
           fieldPath = `$${field}`;
         }
       }
     } else {
       if (arrayFieldName && field.startsWith(`${arrayFieldName}.`)) {
-        // Field is from the array - strip prefix and use $$this
         const fieldForArray = field.substring(arrayFieldName.length + 1);
         fieldPath = `$$this.${fieldForArray}`;
       } else {
-        // Field is not from the array - use as absolute field reference
         fieldPath = `$${field}`;
       }
     }
   } else {
-    // Regular field path for array element context
     let fieldForArray = field;
 
-    // Check if this field is from the array being filtered
     if (arrayFieldName && field.startsWith(`${arrayFieldName}.`)) {
-      // Field is from the array - strip the array prefix and use $$this
       fieldForArray = field.substring(arrayFieldName.length + 1);
       fieldPath = `$$this.${fieldForArray}`;
     } else if (arrayFieldName && !field.includes(".")) {
-      // Field is just the subfield name (e.g., 'z' instead of 'cross_matches.NED_BetaV3.z')
-      // This happens when subfields are stored as just their name
       fieldPath = `$$this.${field}`;
     } else {
-      // If arrayFieldName is null but the field looks like a subfield (contains a dot),
-      // try to detect if this should be treated as an array element field
       if (!arrayFieldName && field.includes(".")) {
-        // Check if the field matches common ZTF array patterns
         const commonArrayPatterns = [
           "prv_candidates",
           "candidates",
@@ -1815,7 +1647,6 @@ const convertConditionToMongoExpr = (
         ];
         for (const pattern of commonArrayPatterns) {
           if (field.startsWith(`${pattern}.`)) {
-            // This looks like it should be an array element field
             fieldForArray = field.substring(pattern.length + 1);
             fieldPath = `$$this.${fieldForArray}`;
             break;
@@ -1823,14 +1654,12 @@ const convertConditionToMongoExpr = (
         }
       }
 
-      // If no pattern matched, use as absolute field reference
       if (!fieldPath) {
         fieldPath = `$${field}`;
       }
     }
   }
 
-  // Check if the field is a boolean field
   const fieldType = getFieldType(
     field,
     customVariables,
@@ -1842,9 +1671,7 @@ const convertConditionToMongoExpr = (
   const isBooleanField = fieldType === "boolean";
   const isBooleanValue = typeof value === "boolean";
 
-  // If fieldPath is a MongoDB expression (object), we need to wrap the comparison in $expr
   if (typeof fieldPath === "object" && fieldPath !== null) {
-    // This is an inlined variable expression, wrap the comparison in $expr
     switch (operator) {
       case "$eq":
       case "equals":
@@ -1935,7 +1762,6 @@ const convertConditionToMongoExpr = (
     }
   }
 
-  // Regular field path (string), convert to $expr format for array context
   switch (operator) {
     case "$eq":
     case "equals":
@@ -2001,7 +1827,6 @@ const convertConditionToMongoExpr = (
 
     case "$exists":
     case "$isNumber":
-      // Use the literal MongoDB $isNumber operator
       return { $isNumber: `${fieldPath}` };
     case "exists":
       if (value !== false) {
@@ -2059,20 +1884,17 @@ const convertConditionToMongoExpr = (
       return {};
 
     case "$switch": {
-      // Handle switch/case conditional logic
       if (!value || !value.cases || !Array.isArray(value.cases)) {
         return {};
       }
 
       const branches = [];
-      
-      // Process each case
+
       for (const caseItem of value.cases) {
         if (!caseItem.block || !caseItem.then) {
-          continue; // Skip invalid cases
+          continue;
         }
 
-        // Convert the block to a MongoDB expression
         const caseCondition = convertBlockToMongoExpr(
           caseItem.block,
           schema,
@@ -2083,57 +1905,70 @@ const convertConditionToMongoExpr = (
         );
 
         if (caseCondition && Object.keys(caseCondition).length > 0) {
-          // Determine the "then" value - could be a field reference, variable, or literal
           let thenValue;
-          
+
           if (caseItem.then && typeof caseItem.then === "string") {
-            // Check if it's a custom variable
-            const customVar = customVariables.find((v) => v.name === caseItem.then);
+            const customVar = customVariables.find(
+              (v) => v.name === caseItem.then,
+            );
             if (customVar && customVar.variable) {
-              // Parse the LaTeX expression
               const eqParts = customVar.variable.split("=");
               if (eqParts.length === 2) {
                 const latexExpression = eqParts[1].trim();
                 try {
-                  const mongoExpression = latexToMongoConverter.convertToMongo(latexExpression);
+                  const mongoExpression =
+                    latexToMongoConverter.convertToMongo(latexExpression);
                   if (mongoExpression) {
                     thenValue = mongoExpression;
                   } else {
-                    thenValue = arrayFieldName ? `$$this.${caseItem.then}` : `$${caseItem.then}`;
+                    thenValue = arrayFieldName
+                      ? `$$this.${caseItem.then}`
+                      : `$${caseItem.then}`;
                   }
                 } catch (error) {
-                  console.warn(`Failed to convert LaTeX expression for then value ${caseItem.then}:`, error);
-                  thenValue = arrayFieldName ? `$$this.${caseItem.then}` : `$${caseItem.then}`;
+                  console.warn(
+                    `Failed to convert LaTeX expression for then value ${caseItem.then}:`,
+                    error,
+                  );
+                  thenValue = arrayFieldName
+                    ? `$$this.${caseItem.then}`
+                    : `$${caseItem.then}`;
                 }
               } else {
-                thenValue = arrayFieldName ? `$$this.${caseItem.then}` : `$${caseItem.then}`;
+                thenValue = arrayFieldName
+                  ? `$$this.${caseItem.then}`
+                  : `$${caseItem.then}`;
               }
             } else {
-              // Check if it's a list variable
-              const listVar = customListVariables.find((v) => v.name === caseItem.then);
-              // Check if it's a field from fieldOptions
-              const isField = fieldOptions.some(f => 
-                (typeof f === 'string' && f === caseItem.then) ||
-                (f && (f.value === caseItem.then || f.name === caseItem.then || f.field === caseItem.then))
+              const listVar = customListVariables.find(
+                (v) => v.name === caseItem.then,
               );
-              
+              const isField = fieldOptions.some(
+                (f) =>
+                  (typeof f === "string" && f === caseItem.then) ||
+                  (f &&
+                    (f.value === caseItem.then ||
+                      f.name === caseItem.then ||
+                      f.field === caseItem.then)),
+              );
+
               if (listVar || isField) {
-                // It's a field or list variable reference
-                if (arrayFieldName && caseItem.then.startsWith(`${arrayFieldName}.`)) {
-                  // Field is from the array - strip prefix and use $$this
-                  const fieldForArray = caseItem.then.substring(arrayFieldName.length + 1);
+                if (
+                  arrayFieldName &&
+                  caseItem.then.startsWith(`${arrayFieldName}.`)
+                ) {
+                  const fieldForArray = caseItem.then.substring(
+                    arrayFieldName.length + 1,
+                  );
                   thenValue = `$$this.${fieldForArray}`;
                 } else {
-                  // Field is not from the array - use as reference
                   thenValue = `$${caseItem.then}`;
                 }
               } else {
-                // It's a literal string value
                 thenValue = caseItem.then;
               }
             }
           } else {
-            // It's a literal value (number, boolean, etc.)
             thenValue = parseNumberIfNeeded(caseItem.then);
           }
 
@@ -2144,58 +1979,75 @@ const convertConditionToMongoExpr = (
         }
       }
 
-      // Build the $switch expression
       const switchExpr = {
         $switch: {
           branches,
         },
       };
 
-      // Add default value if provided
-      if (value.default !== undefined && value.default !== null && value.default !== "") {
+      if (
+        value.default !== undefined &&
+        value.default !== null &&
+        value.default !== ""
+      ) {
         if (typeof value.default === "string") {
-          // Check if it's a custom variable
-          const customVar = customVariables.find((v) => v.name === value.default);
+          const customVar = customVariables.find(
+            (v) => v.name === value.default,
+          );
           if (customVar && customVar.variable) {
-            // Parse the LaTeX expression
             const eqParts = customVar.variable.split("=");
             if (eqParts.length === 2) {
               const latexExpression = eqParts[1].trim();
               try {
-                const mongoExpression = latexToMongoConverter.convertToMongo(latexExpression);
+                const mongoExpression =
+                  latexToMongoConverter.convertToMongo(latexExpression);
                 if (mongoExpression) {
                   switchExpr.$switch.default = mongoExpression;
                 } else {
-                  switchExpr.$switch.default = arrayFieldName ? `$$this.${value.default}` : `$${value.default}`;
+                  switchExpr.$switch.default = arrayFieldName
+                    ? `$$this.${value.default}`
+                    : `$${value.default}`;
                 }
               } catch (error) {
-                console.warn(`Failed to convert LaTeX expression for default value ${value.default}:`, error);
-                switchExpr.$switch.default = arrayFieldName ? `$$this.${value.default}` : `$${value.default}`;
+                console.warn(
+                  `Failed to convert LaTeX expression for default value ${value.default}:`,
+                  error,
+                );
+                switchExpr.$switch.default = arrayFieldName
+                  ? `$$this.${value.default}`
+                  : `$${value.default}`;
               }
             } else {
-              switchExpr.$switch.default = arrayFieldName ? `$$this.${value.default}` : `$${value.default}`;
+              switchExpr.$switch.default = arrayFieldName
+                ? `$$this.${value.default}`
+                : `$${value.default}`;
             }
           } else {
-            // Check if it's a list variable
-            const listVar = customListVariables.find((v) => v.name === value.default);
-            // Check if it's a field from fieldOptions
-            const isField = fieldOptions.some(f => 
-              (typeof f === 'string' && f === value.default) ||
-              (f && (f.value === value.default || f.name === value.default || f.field === value.default))
+            const listVar = customListVariables.find(
+              (v) => v.name === value.default,
             );
-            
+            const isField = fieldOptions.some(
+              (f) =>
+                (typeof f === "string" && f === value.default) ||
+                (f &&
+                  (f.value === value.default ||
+                    f.name === value.default ||
+                    f.field === value.default)),
+            );
+
             if (listVar || isField) {
-              // It's a field or list variable reference
-              if (arrayFieldName && value.default.startsWith(`${arrayFieldName}.`)) {
-                // Field is from the array - strip prefix and use $$this
-                const fieldForArray = value.default.substring(arrayFieldName.length + 1);
+              if (
+                arrayFieldName &&
+                value.default.startsWith(`${arrayFieldName}.`)
+              ) {
+                const fieldForArray = value.default.substring(
+                  arrayFieldName.length + 1,
+                );
                 switchExpr.$switch.default = `$$this.${fieldForArray}`;
               } else {
-                // Field is not from the array - use as reference
                 switchExpr.$switch.default = `$${value.default}`;
               }
             } else {
-              // It's a literal string value
               switchExpr.$switch.default = value.default;
             }
           }
@@ -2208,12 +2060,10 @@ const convertConditionToMongoExpr = (
     }
 
     default:
-      // Fallback to equality
       return { $eq: [fieldPath, parseNumberIfNeeded(value)] };
   }
 };
 
-// Helper function for boolean-aware comparison operations
 const createComparison = (
   operator,
   fieldPath,
@@ -2224,7 +2074,6 @@ const createComparison = (
   const isBoolean = isBooleanField || isBooleanValue;
   const mongoOp = getNumericComparison(operator);
 
-  // Handle numeric comparisons
   if (mongoOp) {
     return { [mongoOp]: [fieldPath, parseNumberIfNeeded(value)] };
   }
@@ -2264,16 +2113,13 @@ const createComparison = (
 };
 
 const getFieldPath = (field, customVariables = [], isInArrayFilter = false) => {
-  // Ensure customVariables is an array
   const safeCustomVariables = Array.isArray(customVariables)
     ? customVariables
     : [];
 
-  // Helper function to format field path for array context
   const formatFieldPath = (fieldName) =>
     isInArrayFilter ? `$$this.${fieldName}` : fieldName;
 
-  // Helper function to safely convert LaTeX expressions
   const safeConvertLatex = (latexExpression, fieldName) => {
     try {
       const mongoExpression =
@@ -2288,7 +2134,6 @@ const getFieldPath = (field, customVariables = [], isInArrayFilter = false) => {
     }
   };
 
-  // Helper function to handle custom variable conversion
   const convertCustomVariable = (fieldName, customVar) => {
     const eqParts = customVar.variable.split("=");
     if (eqParts.length === 2) {
@@ -2298,7 +2143,6 @@ const getFieldPath = (field, customVariables = [], isInArrayFilter = false) => {
     return formatFieldPath(fieldName);
   };
 
-  // Normalize field to string
   let fieldName;
   if (typeof field === "string") {
     fieldName = field;
@@ -2308,16 +2152,11 @@ const getFieldPath = (field, customVariables = [], isInArrayFilter = false) => {
     fieldName = String(field);
   }
 
-  // Check if this is a custom variable
   const customVar = safeCustomVariables.find((v) => v.name === fieldName);
   if (customVar && customVar.variable) {
-    // In array filter contexts, we need to inline the expression
-    // because we can't reference projected variables from within $filter
     if (isInArrayFilter) {
       return convertCustomVariable(fieldName, customVar);
     }
-    // In regular contexts, reference the projected variable by name
-    // (it will have been projected before the match stage that uses it)
     return formatFieldPath(fieldName);
   }
 
@@ -2325,7 +2164,6 @@ const getFieldPath = (field, customVariables = [], isInArrayFilter = false) => {
 };
 
 const parseNumberIfNeeded = (value) => {
-  // Try to parse as number if it looks like one
   if (typeof value === "string" && !isNaN(value) && !isNaN(parseFloat(value))) {
     return parseFloat(value);
   }
@@ -2333,10 +2171,13 @@ const parseNumberIfNeeded = (value) => {
 };
 
 const convertNullLikeStringsToNull = (value) => {
-  // Convert string values "null", "none", or "nan" (case-insensitive) to actual null
   if (typeof value === "string") {
     const lowerValue = value.toLowerCase();
-    if (lowerValue === "null" || lowerValue === "none" || lowerValue === "nan") {
+    if (
+      lowerValue === "null" ||
+      lowerValue === "none" ||
+      lowerValue === "nan"
+    ) {
       return null;
     }
   }
@@ -2347,50 +2188,37 @@ const escapeRegex = (string) => {
   return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 };
 
-// Export formatted JSON for display
 export const formatMongoAggregation = (pipeline) => {
   return JSON.stringify(pipeline, null, 2);
 };
 
-// Validate if pipeline has meaningful content
-// Helper function to validate MongoDB query expressions
 const isValidMongoExpression = (expression, allowNull = true) => {
-  console.log("Validating expression:", expression);
-  
-  // Allow null/undefined as values when explicitly permitted (e.g., in comparisons)
   if (expression === null || expression === undefined) {
     return allowNull;
   }
 
-  // // Primitive values are valid
   if (typeof expression !== "object") {
     return true;
   }
 
-  // Arrays are valid if all elements are valid
   if (Array.isArray(expression)) {
     return expression.every((item) => isValidMongoExpression(item, allowNull));
   }
 
-  // Objects should not be empty unless they're specific operators
   const keys = Object.keys(expression);
   if (keys.length === 0) {
     return false;
   }
 
-  // Check for common invalid patterns
   for (const [key, value] of Object.entries(expression)) {
-    // Field names should not be empty strings
     if (key === "") {
       return false;
     }
 
-    // Recursively validate nested expressions (allow null in values)
     if (!isValidMongoExpression(value, true)) {
       return false;
     }
 
-    // Check for operators that require specific value types
     if (key.startsWith("$")) {
       switch (key) {
         case "$in":
@@ -2412,7 +2240,6 @@ const isValidMongoExpression = (expression, allowNull = true) => {
         case "$gte":
         case "$lt":
         case "$lte":
-          // if none of the elements are numbers, it's invalid
           if (Array.isArray(value)) {
             if (
               !value.some(
@@ -2434,24 +2261,19 @@ const isValidMongoExpression = (expression, allowNull = true) => {
 };
 
 export const isValidPipeline = (pipeline) => {
-  // Basic array validation
   if (!Array.isArray(pipeline)) {
     return false;
   }
 
-  // Empty pipeline is invalid (no filters to process)
   if (pipeline.length === 0) {
     return false;
   }
 
-  // Validate each stage in the pipeline
   for (const stage of pipeline) {
-    // Each stage must be an object
     if (!stage || typeof stage !== "object") {
       return false;
     }
 
-    // Each stage must have exactly one top-level key (the stage operator)
     const stageKeys = Object.keys(stage);
     if (stageKeys.length !== 1) {
       return false;
@@ -2460,33 +2282,26 @@ export const isValidPipeline = (pipeline) => {
     const stageType = stageKeys[0];
     const stageContent = stage[stageType];
 
-    // Validate common stage types
     switch (stageType) {
       case "$match":
-        // $match stage content must be an object
         if (!stageContent || typeof stageContent !== "object") {
           return false;
         }
-        // $match cannot be empty object (would match everything)
         if (Object.keys(stageContent).length === 0) {
           return false;
         }
-        // Validate each condition in the $match stage
         if (!isValidMongoExpression(stageContent)) {
           return false;
         }
         break;
 
       case "$project":
-        // $project stage content must be an object
         if (!stageContent || typeof stageContent !== "object") {
           return false;
         }
-        // $project cannot be empty object
         if (Object.keys(stageContent).length === 0) {
           return false;
         }
-        // Validate projection expressions
         if (!isValidMongoExpression(stageContent)) {
           return false;
         }
@@ -2499,7 +2314,6 @@ export const isValidPipeline = (pipeline) => {
       case "$lookup":
       case "$unwind":
       case "$addFields":
-        // These stages must have content
         if (
           !stageContent ||
           (typeof stageContent === "object" &&
@@ -2509,7 +2323,6 @@ export const isValidPipeline = (pipeline) => {
         }
         break;
 
-      // Allow other stages but ensure they have content
       default:
         if (stageContent === undefined || stageContent === null) {
           return false;
@@ -2521,7 +2334,6 @@ export const isValidPipeline = (pipeline) => {
   return true;
 };
 
-// Helper function to convert list conditions to MongoDB
 const convertListConditionToMongo = (
   condition,
   schema = {},
@@ -2530,8 +2342,6 @@ const convertListConditionToMongo = (
   customListVariables = [],
   variableUsageCounts = {},
 ) => {
-  // If this is actually a listCondition object (passed from convertConditionToMongo)
-  // then process it directly
   if (condition.type === "array" && condition.field && condition.operator) {
     return convertListConditionDefinitionToMongo(
       condition,
@@ -2547,14 +2357,10 @@ const convertListConditionToMongo = (
   const operator = condition.operator;
   const value = condition.value;
 
-  // Handle different types of list conditions
   if (condition.isListVariable) {
-    // This shouldn't happen if convertConditionToMongo handles it correctly
-    // But keep this as fallback
     return {};
   }
 
-  // Handle array value objects (complex list conditions)
   if (value && typeof value === "object" && value.type === "array") {
     return convertArrayValueToMongo(
       value,
@@ -2565,7 +2371,6 @@ const convertListConditionToMongo = (
     );
   }
 
-  // Handle direct array operators with nested conditions
   if (
     ["$anyElementTrue", "$allElementsTrue", "$filter"].includes(operator) &&
     value &&
@@ -2578,7 +2383,6 @@ const convertListConditionToMongo = (
         operator: operator,
         value: value,
         subField: null,
-        // Pass the boolean switch information from the original condition
         booleanSwitch:
           condition.booleanSwitch !== undefined
             ? condition.booleanSwitch
@@ -2592,7 +2396,7 @@ const convertListConditionToMongo = (
                     ? !condition.not
                     : condition.negate !== undefined
                       ? !condition.negate
-                      : true, // Default to true (no negation)
+                      : true,
       },
       schema,
       fieldOptions,
@@ -2602,11 +2406,9 @@ const convertListConditionToMongo = (
     );
   }
 
-  // Handle direct array operators
   return convertArrayOperatorToMongo(field, operator, value, customVariables);
 };
 
-// Helper function to convert a list condition definition to MongoDB
 const convertListConditionDefinitionToMongo = (
   listCondition,
   schema = {},
@@ -2627,7 +2429,6 @@ const convertListConditionDefinitionToMongo = (
   switch (operator) {
     case "$anyElementTrue":
       if (nestedConditions && nestedConditions.children) {
-        // Convert the nested conditions to a proper condition for $anyElementTrue
         const conditionsForMap = convertBlockToMongo(
           nestedConditions,
           schema,
@@ -2637,7 +2438,7 @@ const convertListConditionDefinitionToMongo = (
           true,
           variableUsageCounts,
           [],
-          arrayField, // Pass the array field name
+          arrayField,
         );
         const anyElementTrueExpr = {
           $anyElementTrue: {
@@ -2648,7 +2449,6 @@ const convertListConditionDefinitionToMongo = (
           },
         };
 
-        // Apply $not if boolean switch is false
         return {
           $expr: booleanSwitch
             ? anyElementTrueExpr
@@ -2664,7 +2464,6 @@ const convertListConditionDefinitionToMongo = (
 
     case "$allElementsTrue":
       if (nestedConditions && nestedConditions.children) {
-        // Convert the nested conditions to a proper condition for $allElementsTrue
         const conditionsForMap = convertBlockToMongo(
           nestedConditions,
           schema,
@@ -2674,7 +2473,7 @@ const convertListConditionDefinitionToMongo = (
           true,
           variableUsageCounts,
           [],
-          arrayField, // Pass the array field name
+          arrayField,
         );
         const allElementsTrueExpr = {
           $allElementsTrue: {
@@ -2685,7 +2484,6 @@ const convertListConditionDefinitionToMongo = (
           },
         };
 
-        // Apply $not if boolean switch is false
         return {
           $expr: booleanSwitch
             ? allElementsTrueExpr
@@ -2710,7 +2508,7 @@ const convertListConditionDefinitionToMongo = (
           true,
           variableUsageCounts,
           [],
-          arrayField, // Pass the array field name
+          arrayField,
         );
         return {
           $expr: {
@@ -2733,7 +2531,6 @@ const convertListConditionDefinitionToMongo = (
     case "$min":
       if (subField) {
         const aggregatedValue = { $min: `$${arrayField}.${subField}` };
-        // Use comparison operator and value if provided
         if (
           listCondition.comparisonOperator &&
           listCondition.comparisonValue !== undefined
@@ -2769,7 +2566,6 @@ const convertListConditionDefinitionToMongo = (
               return { $expr: { $eq: [aggregatedValue, compareValue] } };
           }
         }
-        // Default to existence check if no comparison specified
         return { $expr: { $gt: [aggregatedValue, 0] } };
       }
       return { [arrayField]: { $exists: true, $type: "array" } };
@@ -2905,7 +2701,6 @@ const convertListConditionDefinitionToMongo = (
   }
 };
 
-// Helper function to convert array value objects to MongoDB
 const convertArrayValueToMongo = (
   arrayValue,
   operator,
@@ -2922,7 +2717,6 @@ const convertArrayValueToMongo = (
   switch (operator) {
     case "$anyElementTrue":
       if (nestedConditions && nestedConditions.children) {
-        // Use proper MongoDB $anyElementTrue with $map
         const conditionsForMap = convertBlockToMongo(
           nestedConditions,
           {},
@@ -2932,7 +2726,7 @@ const convertArrayValueToMongo = (
           true,
           variableUsageCounts,
           [],
-          arrayField, // Pass the array field name
+          arrayField,
         );
         return {
           $expr: {
@@ -2949,7 +2743,6 @@ const convertArrayValueToMongo = (
 
     case "$allElementsTrue":
       if (nestedConditions && nestedConditions.children) {
-        // Use proper MongoDB $allElementsTrue with $map
         const conditionsForMap = convertBlockToMongo(
           nestedConditions,
           {},
@@ -2959,7 +2752,7 @@ const convertArrayValueToMongo = (
           true,
           variableUsageCounts,
           [],
-          arrayField, // Pass the array field name
+          arrayField,
         );
         return {
           $expr: {
@@ -2985,7 +2778,7 @@ const convertArrayValueToMongo = (
           true,
           variableUsageCounts,
           [],
-          arrayField, // Pass the array field name
+          arrayField,
         );
         return {
           $expr: {
@@ -3007,7 +2800,6 @@ const convertArrayValueToMongo = (
 
     case "$min":
       if (subField) {
-        // Support different comparison operators for aggregated values
         const aggregatedValue = { $min: `$${arrayField}.${subField}` };
         const targetValue =
           typeof comparisonValue === "number"
@@ -3115,35 +2907,29 @@ const convertArrayValueToMongo = (
   }
 };
 
-// Helper function to convert MongoDB expressions to array context ($$this)
 const convertToArrayContext = (mongoExpression, arrayFieldName = null) => {
   if (!mongoExpression || typeof mongoExpression !== "object") {
     return mongoExpression;
   }
 
   try {
-    // Clone the expression to avoid modifying the original
     const clonedExpression = JSON.parse(JSON.stringify(mongoExpression));
-    
-    // Recursively convert field references intelligently based on arrayFieldName
+
     const convertFields = (obj) => {
       if (typeof obj === "string" && !obj.startsWith("$$")) {
         if (obj.startsWith("$")) {
           const fieldName = obj.substring(1);
-          
-          // Check if this is a nested field reference like "prv_candidates.magpsf"
+
           if (arrayFieldName && fieldName.includes(".")) {
             const parts = fieldName.split(".");
             const firstPart = parts[0];
-            
-            // If the field starts with the array name, convert to $$this syntax
+
             if (firstPart === arrayFieldName) {
               const subPath = parts.slice(1).join(".");
               return `$$this.${subPath}`;
             }
           }
-          
-          // For fields that don't match the array, keep as absolute reference
+
           return obj;
         }
       }
@@ -3166,13 +2952,11 @@ const convertToArrayContext = (mongoExpression, arrayFieldName = null) => {
     return convertFields(clonedExpression);
   } catch (error) {
     console.warn("Failed to convert expression to array context:", error);
-    return mongoExpression; // Return original if conversion fails
+    return mongoExpression;
   }
 };
 
-// Helper function to handle conditions where variables are inlined as MongoDB expressions
 const handleInlinedVariableCondition = (mongoExpression, operator, value) => {
-  // For inlined variables, we need to use $expr to compare the expression result
   switch (operator) {
     case "$eq":
     case "equals":
@@ -3249,12 +3033,10 @@ const handleInlinedVariableCondition = (mongoExpression, operator, value) => {
       return {};
 
     default:
-      // For other operators, default to equality comparison
       return { $expr: { $eq: [mongoExpression, parseNumberIfNeeded(value)] } };
   }
 };
 
-// Helper function to convert a switch case definition to a MongoDB $switch expression
 const convertSwitchCaseToMongo = (
   switchCondition,
   schema = {},
@@ -3263,19 +3045,21 @@ const convertSwitchCaseToMongo = (
   customListVariables = [],
   customSwitchCases = [],
 ) => {
-  if (!switchCondition || !switchCondition.value || !switchCondition.value.cases) {
+  if (
+    !switchCondition ||
+    !switchCondition.value ||
+    !switchCondition.value.cases
+  ) {
     return null;
   }
 
   const branches = [];
 
-  // Process each case
   for (const caseItem of switchCondition.value.cases) {
     if (!caseItem.block || !caseItem.then) {
-      continue; // Skip invalid cases
+      continue;
     }
 
-    // Convert the block to a MongoDB expression
     const caseCondition = convertBlockToMongoExpr(
       caseItem.block,
       schema,
@@ -3286,50 +3070,52 @@ const convertSwitchCaseToMongo = (
     );
 
     if (caseCondition && Object.keys(caseCondition).length > 0) {
-      // Determine the "then" value - could be a field reference, variable, or literal
       let thenValue;
-      
+
       if (caseItem.then && typeof caseItem.then === "string") {
-        // Check if it's a custom variable
         const customVar = customVariables.find((v) => v.name === caseItem.then);
         if (customVar && customVar.variable) {
-          // Parse the LaTeX expression
           const eqParts = customVar.variable.split("=");
           if (eqParts.length === 2) {
             const latexExpression = eqParts[1].trim();
             try {
-              const mongoExpression = latexToMongoConverter.convertToMongo(latexExpression);
+              const mongoExpression =
+                latexToMongoConverter.convertToMongo(latexExpression);
               if (mongoExpression) {
                 thenValue = mongoExpression;
               } else {
                 thenValue = `$${caseItem.then}`;
               }
             } catch (error) {
-              console.warn(`Failed to convert LaTeX expression for then value ${caseItem.then}:`, error);
+              console.warn(
+                `Failed to convert LaTeX expression for then value ${caseItem.then}:`,
+                error,
+              );
               thenValue = `$${caseItem.then}`;
             }
           } else {
             thenValue = `$${caseItem.then}`;
           }
         } else {
-          // Check if it's a list variable
-          const listVar = customListVariables.find((v) => v.name === caseItem.then);
-          // Check if it's a field from fieldOptions
-          const isField = fieldOptions.some(f => 
-            (typeof f === 'string' && f === caseItem.then) ||
-            (f && (f.value === caseItem.then || f.name === caseItem.then || f.field === caseItem.then))
+          const listVar = customListVariables.find(
+            (v) => v.name === caseItem.then,
           );
-          
+          const isField = fieldOptions.some(
+            (f) =>
+              (typeof f === "string" && f === caseItem.then) ||
+              (f &&
+                (f.value === caseItem.then ||
+                  f.name === caseItem.then ||
+                  f.field === caseItem.then)),
+          );
+
           if (listVar || isField) {
-            // It's a field or list variable reference - prefix with $
             thenValue = `$${caseItem.then}`;
           } else {
-            // It's a literal string value
             thenValue = caseItem.then;
           }
         }
       } else {
-        // It's a literal value (number, boolean, etc.)
         thenValue = parseNumberIfNeeded(caseItem.then);
       }
 
@@ -3340,63 +3126,72 @@ const convertSwitchCaseToMongo = (
     }
   }
 
-  // Build the $switch expression
   const switchExpr = {
     $switch: {
       branches,
     },
   };
 
-  // Add default value if provided
-  if (switchCondition.value.default !== undefined && switchCondition.value.default !== null && switchCondition.value.default !== "") {
+  if (
+    switchCondition.value.default !== undefined &&
+    switchCondition.value.default !== null &&
+    switchCondition.value.default !== ""
+  ) {
     if (typeof switchCondition.value.default === "string") {
-      // Check if it's a custom variable
-      const customVar = customVariables.find((v) => v.name === switchCondition.value.default);
+      const customVar = customVariables.find(
+        (v) => v.name === switchCondition.value.default,
+      );
       if (customVar && customVar.variable) {
-        // Parse the LaTeX expression
         const eqParts = customVar.variable.split("=");
         if (eqParts.length === 2) {
           const latexExpression = eqParts[1].trim();
           try {
-            const mongoExpression = latexToMongoConverter.convertToMongo(latexExpression);
+            const mongoExpression =
+              latexToMongoConverter.convertToMongo(latexExpression);
             if (mongoExpression) {
               switchExpr.$switch.default = mongoExpression;
             } else {
               switchExpr.$switch.default = `$${switchCondition.value.default}`;
             }
           } catch (error) {
-            console.warn(`Failed to convert LaTeX expression for default value ${switchCondition.value.default}:`, error);
+            console.warn(
+              `Failed to convert LaTeX expression for default value ${switchCondition.value.default}:`,
+              error,
+            );
             switchExpr.$switch.default = `$${switchCondition.value.default}`;
           }
         } else {
           switchExpr.$switch.default = `$${switchCondition.value.default}`;
         }
       } else {
-        // Check if it's a list variable
-        const listVar = customListVariables.find((v) => v.name === switchCondition.value.default);
-        // Check if it's a field from fieldOptions
-        const isField = fieldOptions.some(f => 
-          (typeof f === 'string' && f === switchCondition.value.default) ||
-          (f && (f.value === switchCondition.value.default || f.name === switchCondition.value.default || f.field === switchCondition.value.default))
+        const listVar = customListVariables.find(
+          (v) => v.name === switchCondition.value.default,
         );
-        
+        const isField = fieldOptions.some(
+          (f) =>
+            (typeof f === "string" && f === switchCondition.value.default) ||
+            (f &&
+              (f.value === switchCondition.value.default ||
+                f.name === switchCondition.value.default ||
+                f.field === switchCondition.value.default)),
+        );
+
         if (listVar || isField) {
-          // It's a field or list variable reference - prefix with $
           switchExpr.$switch.default = `$${switchCondition.value.default}`;
         } else {
-          // It's a literal string value
           switchExpr.$switch.default = switchCondition.value.default;
         }
       }
     } else {
-      switchExpr.$switch.default = parseNumberIfNeeded(switchCondition.value.default);
+      switchExpr.$switch.default = parseNumberIfNeeded(
+        switchCondition.value.default,
+      );
     }
   }
 
   return switchExpr;
 };
 
-// Helper function to build dependency graph for arithmetic variables
 const buildVariableDependencyGraph = (
   customVariables = [],
   customListVariables = [],
@@ -3418,7 +3213,6 @@ const buildVariableDependencyGraph = (
     const fieldDependencies =
       latexToMongoConverter.extractFieldDependencies(latexExpression);
 
-    // Separate base fields from variable dependencies (including list variables)
     const baseDeps = [];
     const varDeps = [];
     const listVarDeps = [];
@@ -3443,7 +3237,6 @@ const buildVariableDependencyGraph = (
     });
   });
 
-  // Add switch cases to the dependency graph
   customSwitchCases.forEach((switchCase) => {
     if (!switchCase.name || !switchCase.switchCondition) {
       return;
@@ -3453,15 +3246,16 @@ const buildVariableDependencyGraph = (
     const varDeps = new Set();
     const listVarDeps = new Set();
 
-    // Extract dependencies from switch case blocks
     const extractDepsFromBlock = (block) => {
       if (!block) return;
 
       if (block.field) {
         const fieldName = getFieldName(block.field);
         const isVariable = customVariables.some((v) => v.name === fieldName);
-        const isListVariable = customListVariables.some((lv) => lv.name === fieldName);
-        
+        const isListVariable = customListVariables.some(
+          (lv) => lv.name === fieldName,
+        );
+
         if (isVariable) {
           varDeps.add(fieldName);
         } else if (isListVariable) {
@@ -3476,16 +3270,21 @@ const buildVariableDependencyGraph = (
       }
     };
 
-    // Process each case in the switch condition
-    if (switchCase.switchCondition.value && switchCase.switchCondition.value.cases) {
+    if (
+      switchCase.switchCondition.value &&
+      switchCase.switchCondition.value.cases
+    ) {
       switchCase.switchCondition.value.cases.forEach((caseItem) => {
         if (caseItem.block) {
           extractDepsFromBlock(caseItem.block);
         }
-        // Check if 'then' value is a field reference
-        if (caseItem.then && typeof caseItem.then === 'string') {
-          const isVariable = customVariables.some((v) => v.name === caseItem.then);
-          const isListVariable = customListVariables.some((lv) => lv.name === caseItem.then);
+        if (caseItem.then && typeof caseItem.then === "string") {
+          const isVariable = customVariables.some(
+            (v) => v.name === caseItem.then,
+          );
+          const isListVariable = customListVariables.some(
+            (lv) => lv.name === caseItem.then,
+          );
           if (isVariable) {
             varDeps.add(caseItem.then);
           } else if (isListVariable) {
@@ -3495,12 +3294,16 @@ const buildVariableDependencyGraph = (
       });
     }
 
-    // Check default value
-    if (switchCase.switchCondition.value && switchCase.switchCondition.value.default) {
+    if (
+      switchCase.switchCondition.value &&
+      switchCase.switchCondition.value.default
+    ) {
       const defaultVal = switchCase.switchCondition.value.default;
-      if (typeof defaultVal === 'string') {
+      if (typeof defaultVal === "string") {
         const isVariable = customVariables.some((v) => v.name === defaultVal);
-        const isListVariable = customListVariables.some((lv) => lv.name === defaultVal);
+        const isListVariable = customListVariables.some(
+          (lv) => lv.name === defaultVal,
+        );
         if (isVariable) {
           varDeps.add(defaultVal);
         } else if (isListVariable) {
@@ -3520,7 +3323,6 @@ const buildVariableDependencyGraph = (
   return dependencyGraph;
 };
 
-// Helper function to perform topological sort on variables based on dependencies
 const topologicalSortVariables = (variables, dependencyGraph) => {
   const sorted = [];
   const visited = new Set();
@@ -3532,7 +3334,6 @@ const topologicalSortVariables = (variables, dependencyGraph) => {
     }
 
     if (visiting.has(varName)) {
-      // Circular dependency detected
       console.warn(`Circular dependency detected for variable: ${varName}`);
       return false;
     }
@@ -3555,7 +3356,6 @@ const topologicalSortVariables = (variables, dependencyGraph) => {
     return true;
   };
 
-  // Visit all variables
   for (const varName of variables) {
     if (!visited.has(varName)) {
       visit(varName);
@@ -3565,7 +3365,6 @@ const topologicalSortVariables = (variables, dependencyGraph) => {
   return sorted;
 };
 
-// Helper function to get all variables used in a block and its children
 const getVariablesUsedInBlock = (
   block,
   customVariables = [],
@@ -3577,22 +3376,18 @@ const getVariablesUsedInBlock = (
   const processBlock = (b) => {
     if (!b) return;
 
-    // Check if this is a condition with a field
     if ((b.type === "condition" || b.category === "condition") && b.field) {
       const fieldName = getFieldName(b.field);
       const isCustomVariable = customVariables.some(
         (v) => v.name === fieldName,
       );
-      const isSwitchCase = customSwitchCases.some(
-        (v) => v.name === fieldName,
-      );
+      const isSwitchCase = customSwitchCases.some((v) => v.name === fieldName);
 
       if (isCustomVariable || isSwitchCase) {
         usedVariables.add(fieldName);
       }
     }
 
-    // Recursively process children
     if (b.children && Array.isArray(b.children)) {
       b.children.forEach((child) => {
         processBlock(child);
@@ -3604,7 +3399,6 @@ const getVariablesUsedInBlock = (
   return Array.from(usedVariables);
 };
 
-// Helper function to get all dependencies of a variable (including transitive dependencies)
 const getAllVariableDependencies = (
   varName,
   dependencyGraph,
@@ -3625,7 +3419,6 @@ const getAllVariableDependencies = (
   const allVariables = new Set(deps.variables);
   const allListVariables = new Set(deps.listVariables || []);
 
-  // Get transitive dependencies
   deps.variables.forEach((depVar) => {
     const transitiveDeps = getAllVariableDependencies(
       depVar,
@@ -3644,17 +3437,14 @@ const getAllVariableDependencies = (
   };
 };
 
-// Helper function to count how many times each variable is used in the filter conditions
 const countVariableUsage = (filters, customVariables = []) => {
   const usageCounts = {};
 
-  // Initialize counts for all custom variables
   customVariables.forEach((variable) => {
     if (variable.name) {
       usageCounts[variable.name] = 0;
     }
   });
-  // Count usage in each filter block
   filters.forEach((block) => {
     countVariableUsageInBlock(block, usageCounts, customVariables);
   });
@@ -3662,7 +3452,6 @@ const countVariableUsage = (filters, customVariables = []) => {
   return usageCounts;
 };
 
-// Helper function to collect all fields used in the filter conditions
 const getUsedFields = (
   filters,
   customVariables = [],
@@ -3674,7 +3463,6 @@ const getUsedFields = (
     listVariables: new Set(),
   };
 
-  // Collect fields from each filter block
   filters.forEach((block) => {
     collectUsedFieldsInBlock(
       block,
@@ -3691,7 +3479,6 @@ const getUsedFields = (
   };
 };
 
-// Helper function to recursively collect used fields in a block
 const collectUsedFieldsInBlock = (
   block,
   usedFields,
@@ -3702,7 +3489,6 @@ const collectUsedFieldsInBlock = (
     return;
   }
 
-  // Handle direct conditions (not wrapped in blocks)
   if (block.type === "condition" || block.category === "condition") {
     collectUsedFieldsInCondition(
       block,
@@ -3713,14 +3499,12 @@ const collectUsedFieldsInBlock = (
     return;
   }
 
-  // Handle blocks with children
   if (!block.children || block.children.length === 0) {
     return;
   }
 
   block.children.forEach((child) => {
     if (child.category === "block" || child.type === "block") {
-      // Recursively collect in nested blocks
       collectUsedFieldsInBlock(
         child,
         usedFields,
@@ -3728,7 +3512,6 @@ const collectUsedFieldsInBlock = (
         customListVariables,
       );
     } else if (child.category === "condition" || child.type === "condition") {
-      // Collect fields used in this condition
       collectUsedFieldsInCondition(
         child,
         usedFields,
@@ -3739,7 +3522,6 @@ const collectUsedFieldsInBlock = (
   });
 };
 
-// Helper function to collect fields used in a single condition
 const collectUsedFieldsInCondition = (
   condition,
   usedFields,
@@ -3750,13 +3532,11 @@ const collectUsedFieldsInCondition = (
     return;
   }
   const fieldName = getFieldName(condition.field);
-  // Check if it's a custom variable
   const isCustomVariable = customVariables.some((v) => v.name === fieldName);
   const isListVariable = customListVariables.some((v) => v.name === fieldName);
 
   if (isCustomVariable) {
     usedFields.customVariables.add(fieldName);
-    // Extract field dependencies from the custom variable's LaTeX expression
     const customVar = customVariables.find((v) => v.name === fieldName);
     if (customVar && customVar.variable) {
       const eqParts = customVar.variable.split("=");
@@ -3765,7 +3545,6 @@ const collectUsedFieldsInCondition = (
         const fieldDependencies =
           latexToMongoConverter.extractFieldDependencies(latexExpression);
         fieldDependencies.forEach((depField) => {
-          // Check if dependency is a list variable or another custom variable
           const isDepListVariable = customListVariables.some(
             (lv) => lv.name === depField,
           );
@@ -3785,7 +3564,6 @@ const collectUsedFieldsInCondition = (
   } else if (isListVariable) {
     usedFields.listVariables.add(fieldName);
 
-    // Check if the list variable contains custom arithmetic variables that need field dependencies extracted
     const listVariable = customListVariables.find(
       (lv) => lv.name === fieldName,
     );
@@ -3794,10 +3572,8 @@ const collectUsedFieldsInCondition = (
       listVariable.listCondition &&
       listVariable.listCondition.value
     ) {
-      // Get the array field that this list variable operates on
       const arrayField = listVariable.listCondition.field;
 
-      // Convert the nested conditions to MongoDB to extract only absolute field references
       try {
         const mongoCondition = convertBlockToMongo(
           listVariable.listCondition.value,
@@ -3811,9 +3587,7 @@ const collectUsedFieldsInCondition = (
         );
         const absoluteFields = extractAbsoluteFieldReferences(mongoCondition);
 
-        // Add only the absolute field references (these are fields that need projection)
         absoluteFields.forEach((field) => {
-          // Check if it's a custom variable or list variable
           const isVariableCustom = customVariables.some(
             (v) => v.name === field,
           );
@@ -3823,7 +3597,6 @@ const collectUsedFieldsInCondition = (
 
           if (isVariableCustom) {
             usedFields.customVariables.add(field);
-            // Also extract dependencies from custom variables
             const customVar = customVariables.find((v) => v.name === field);
             if (customVar && customVar.variable) {
               const eqParts = customVar.variable.split("=");
@@ -3851,7 +3624,6 @@ const collectUsedFieldsInCondition = (
         );
       }
 
-      // Add the array field itself to ensure it's projected
       if (arrayField) {
         usedFields.baseFields.add(arrayField);
       }
@@ -3860,7 +3632,6 @@ const collectUsedFieldsInCondition = (
     usedFields.baseFields.add(fieldName);
   }
 
-  // For list conditions, collect nested fields as well
   if (
     condition.value &&
     typeof condition.value === "object" &&
@@ -3868,10 +3639,8 @@ const collectUsedFieldsInCondition = (
   ) {
     const arrayValue = condition.value;
 
-    // Collect nested fields in list conditions
     if (arrayValue.value) {
       if (arrayValue.value.children) {
-        // It's a block with children
         collectUsedFieldsInBlock(
           arrayValue.value,
           usedFields,
@@ -3882,7 +3651,6 @@ const collectUsedFieldsInCondition = (
         arrayValue.value.type === "condition" ||
         arrayValue.value.category === "condition"
       ) {
-        // It's a direct condition, not wrapped in a block
         collectUsedFieldsInCondition(
           arrayValue.value,
           usedFields,
@@ -3892,7 +3660,6 @@ const collectUsedFieldsInCondition = (
       }
     }
 
-    // Collect the array field itself
     if (arrayValue.field) {
       const arrayFieldName = getFieldName(arrayValue.field);
       const isArrayCustomVariable = customVariables.some(
@@ -3912,20 +3679,16 @@ const collectUsedFieldsInCondition = (
     }
   }
 
-  // Handle nested conditions in array operations (like $anyElementTrue, $allElementsTrue)
   if (
     condition.value &&
     typeof condition.value === "object" &&
     condition.value.children
   ) {
-    // For array operations, we need to collect both array-relative fields ($$this.field)
-    // and absolute fields ($field) that might be referenced
     if (
       ["$anyElementTrue", "$allElementsTrue", "$filter"].includes(
         condition.operator,
       )
     ) {
-      // Convert the nested conditions to MongoDB to extract absolute field references
       try {
         const mongoCondition = convertBlockToMongo(
           condition.value,
@@ -3939,7 +3702,6 @@ const collectUsedFieldsInCondition = (
         );
         const absoluteFields = extractAbsoluteFieldReferences(mongoCondition);
         absoluteFields.forEach((field) => {
-          // Check if it's a custom variable or list variable
           const isVariableCustom = customVariables.some(
             (v) => v.name === field,
           );
@@ -3949,7 +3711,6 @@ const collectUsedFieldsInCondition = (
 
           if (isVariableCustom) {
             usedFields.customVariables.add(field);
-            // Also extract dependencies from custom variables
             const customVar = customVariables.find((v) => v.name === field);
             if (customVar && customVar.variable) {
               const eqParts = customVar.variable.split("=");
@@ -3971,12 +3732,10 @@ const collectUsedFieldsInCondition = (
           }
         });
       } catch (error) {
-        // If conversion fails, fallback to regular collection
         console.warn("Failed to extract absolute field references:", error);
       }
     }
 
-    // Also collect array-relative fields normally
     collectUsedFieldsInBlock(
       condition.value,
       usedFields,
@@ -3986,7 +3745,6 @@ const collectUsedFieldsInCondition = (
   }
 };
 
-// Helper function to recursively count variable usage in a block
 const countVariableUsageInBlock = (
   block,
   usageCounts,
@@ -3998,16 +3756,13 @@ const countVariableUsageInBlock = (
 
   block.children.forEach((child) => {
     if (child.category === "block") {
-      // Recursively count in nested blocks
       countVariableUsageInBlock(child, usageCounts, customVariables);
     } else if (child.category === "condition") {
-      // Count variable usage in this condition
       countVariableUsageInCondition(child, usageCounts, customVariables);
     }
   });
 };
 
-// Helper function to count variable usage in a single condition
 const countVariableUsageInCondition = (
   condition,
   usageCounts,
@@ -4017,13 +3772,11 @@ const countVariableUsageInCondition = (
     return;
   }
 
-  // Check if the field is a custom variable
   const fieldName = getFieldName(condition.field);
   if (Object.prototype.hasOwnProperty.call(usageCounts, fieldName)) {
     usageCounts[fieldName]++;
   }
 
-  // For list conditions, check nested conditions as well
   if (
     condition.value &&
     typeof condition.value === "object" &&
@@ -4031,12 +3784,10 @@ const countVariableUsageInCondition = (
   ) {
     const arrayValue = condition.value;
 
-    // Check nested conditions in list conditions
     if (arrayValue.value && arrayValue.value.children) {
       countVariableUsageInBlock(arrayValue.value, usageCounts, customVariables);
     }
 
-    // Check if the array field itself is a custom variable
     if (arrayValue.field) {
       const arrayFieldName = getFieldName(arrayValue.field);
       if (Object.prototype.hasOwnProperty.call(usageCounts, arrayFieldName)) {
@@ -4045,7 +3796,6 @@ const countVariableUsageInCondition = (
     }
   }
 
-  // Handle nested conditions in array operations (like $anyElementTrue, $allElementsTrue)
   if (
     condition.value &&
     typeof condition.value === "object" &&
@@ -4055,7 +3805,6 @@ const countVariableUsageInCondition = (
   }
 };
 
-// Helper function to extract field name from various field formats
 const getFieldName = (field) => {
   if (typeof field === "string") {
     return field;
@@ -4068,21 +3817,17 @@ const getFieldName = (field) => {
   return String(field);
 };
 
-// Helper function to convert array operators to MongoDB
 const convertArrayOperatorToMongo = (field, operator, value) => {
   switch (operator) {
     case "$anyElementTrue":
-      // For simple boolean values, apply $not when false
       if (typeof value === "boolean") {
         if (value) {
-          // Normal $anyElementTrue behavior
           return {
             $expr: {
               $anyElementTrue: { $ifNull: [`$${field}`, []] },
             },
           };
         } else {
-          // Apply $not to $anyElementTrue when boolean switch is false
           return {
             $expr: {
               $not: {
@@ -4092,9 +3837,7 @@ const convertArrayOperatorToMongo = (field, operator, value) => {
           };
         }
       }
-      // For non-boolean values or undefined, use $anyElementTrue properly
       if (value !== undefined && value !== null && value !== "") {
-        // Use proper $anyElementTrue for specific value matching
         return {
           $expr: {
             $anyElementTrue: {
@@ -4106,7 +3849,6 @@ const convertArrayOperatorToMongo = (field, operator, value) => {
           },
         };
       }
-      // For undefined/null/empty values, check if array has any truthy elements
       return {
         $expr: {
           $anyElementTrue: { $ifNull: [`$${field}`, []] },
@@ -4114,17 +3856,14 @@ const convertArrayOperatorToMongo = (field, operator, value) => {
       };
 
     case "$allElementsTrue":
-      // For simple boolean values, apply $not when false
       if (typeof value === "boolean") {
         if (value) {
-          // Normal $allElementsTrue behavior
           return {
             $expr: {
               $allElementsTrue: { $ifNull: [`$${field}`, []] },
             },
           };
         } else {
-          // Apply $not to $allElementsTrue when boolean switch is false
           return {
             $expr: {
               $not: {
@@ -4134,7 +3873,6 @@ const convertArrayOperatorToMongo = (field, operator, value) => {
           };
         }
       }
-      // For non-boolean values, use proper $allElementsTrue
       if (value !== undefined && value !== null && value !== "") {
         return {
           $expr: {
@@ -4147,7 +3885,6 @@ const convertArrayOperatorToMongo = (field, operator, value) => {
           },
         };
       }
-      // For undefined/null/empty values, check if all elements are truthy
       return {
         $expr: {
           $allElementsTrue: { $ifNull: [`$${field}`, []] },
@@ -4155,7 +3892,6 @@ const convertArrayOperatorToMongo = (field, operator, value) => {
       };
 
     case "$filter":
-      // Filter requires a condition - if we just have a simple value, check if any element equals it
       if (
         typeof value === "string" ||
         typeof value === "number" ||
@@ -4177,11 +3913,9 @@ const convertArrayOperatorToMongo = (field, operator, value) => {
           },
         };
       }
-      // For complex filter conditions, we need more structure - fallback to existence check
       return { [field]: { $exists: true, $type: "array" } };
 
     case "$min":
-      // Find documents where the minimum value in the array matches the condition
       if (typeof value === "number") {
         return {
           $expr: {
@@ -4189,7 +3923,6 @@ const convertArrayOperatorToMongo = (field, operator, value) => {
           },
         };
       }
-      // For objects with comparison operators
       if (
         typeof value === "object" &&
         value.comparison &&
@@ -4218,7 +3951,6 @@ const convertArrayOperatorToMongo = (field, operator, value) => {
       return { [field]: { $exists: true, $type: "array" } };
 
     case "$max":
-      // Find documents where the maximum value in the array matches the condition
       if (typeof value === "number") {
         return {
           $expr: {
@@ -4226,7 +3958,6 @@ const convertArrayOperatorToMongo = (field, operator, value) => {
           },
         };
       }
-      // For objects with comparison operators
       if (
         typeof value === "object" &&
         value.comparison &&
@@ -4255,7 +3986,6 @@ const convertArrayOperatorToMongo = (field, operator, value) => {
       return { [field]: { $exists: true, $type: "array" } };
 
     case "$avg":
-      // Find documents where the average value in the array matches the condition
       if (typeof value === "number") {
         return {
           $expr: {
@@ -4263,7 +3993,6 @@ const convertArrayOperatorToMongo = (field, operator, value) => {
           },
         };
       }
-      // For objects with comparison operators
       if (
         typeof value === "object" &&
         value.comparison &&
@@ -4292,7 +4021,6 @@ const convertArrayOperatorToMongo = (field, operator, value) => {
       return { [field]: { $exists: true, $type: "array" } };
 
     case "$sum":
-      // Find documents where the sum of values in the array matches the condition
       if (typeof value === "number") {
         return {
           $expr: {
@@ -4300,7 +4028,6 @@ const convertArrayOperatorToMongo = (field, operator, value) => {
           },
         };
       }
-      // For objects with comparison operators
       if (
         typeof value === "object" &&
         value.comparison &&
@@ -4333,16 +4060,12 @@ const convertArrayOperatorToMongo = (field, operator, value) => {
   }
 };
 
-// Helper function to extract absolute field references from MongoDB expressions
-// This finds fields like "$candidate.jd" that are not array-relative ($$this.field)
 const extractAbsoluteFieldReferences = (mongoExpression) => {
   const fields = new Set();
 
   const extractFromValue = (value) => {
     if (typeof value === "string") {
-      // Look for absolute field references that start with $ but not $$
       if (value.startsWith("$") && !value.startsWith("$$")) {
-        // Remove the $ prefix to get the field name
         fields.add(value.substring(1));
       }
     } else if (Array.isArray(value)) {
@@ -4356,7 +4079,6 @@ const extractAbsoluteFieldReferences = (mongoExpression) => {
   return Array.from(fields);
 };
 
-// Helper function to determine if a condition is simple (can be moved to early $match stage)
 const isSimpleCondition = (
   condition,
   customVariables = [],
@@ -4367,8 +4089,6 @@ const isSimpleCondition = (
     return false;
   }
 
-  // Check if condition's field references a custom variable (arithmetic variable)
-  // Arithmetic variables MUST be projected before use, so they cannot be in simple conditions
   if (condition.field) {
     const fieldName = getFieldName(condition.field);
     if (customVariables.some((v) => v.name === fieldName)) {
@@ -4382,7 +4102,6 @@ const isSimpleCondition = (
     }
   }
 
-  // Check if condition is applied to prv_candidates or fp_hists fields
   if (condition.field) {
     if (
       condition.field.startsWith("prv_candidates") ||
@@ -4392,7 +4111,6 @@ const isSimpleCondition = (
     }
   }
 
-  // Check for array operations or complex expressions
   if (
     condition.operator &&
     ["$filter", "$map", "$anyElementTrue", "$allElementsTrue"].includes(
@@ -4402,12 +4120,10 @@ const isSimpleCondition = (
     return false;
   }
 
-  // Check if it's a basic field comparison that doesn't require projection
   if (condition.field && condition.field.startsWith("candidate.")) {
     return true;
   }
 
-  // Check for other simple field comparisons (not array or complex operations)
   if (
     condition.field &&
     !condition.field.includes(".") &&
@@ -4430,7 +4146,6 @@ const isSimpleCondition = (
   return false;
 };
 
-// Helper function to determine if an entire block is simple
 const isBlockEntirelySimple = (
   block,
   customVariables = [],
@@ -4441,17 +4156,19 @@ const isBlockEntirelySimple = (
     return false;
   }
 
-  // Skip custom blocks with isTrue: false - they require projection
   if (block.customBlockName && block.isTrue === false) {
     return false;
   }
 
-  // Check direct conditions
   if (block.type === "condition" || block.category === "condition") {
-    return isSimpleCondition(block, customVariables, customListVariables, customSwitchCases);
+    return isSimpleCondition(
+      block,
+      customVariables,
+      customListVariables,
+      customSwitchCases,
+    );
   }
 
-  // For blocks with children, all children must be simple
   if (block.children && Array.isArray(block.children)) {
     return block.children.every((child) => {
       if (child.category === "block" || child.type === "block") {
@@ -4462,7 +4179,12 @@ const isBlockEntirelySimple = (
           customSwitchCases,
         );
       } else if (child.type === "condition" || child.category === "condition") {
-        return isSimpleCondition(child, customVariables, customListVariables, customSwitchCases);
+        return isSimpleCondition(
+          child,
+          customVariables,
+          customListVariables,
+          customSwitchCases,
+        );
       }
       return false;
     });
@@ -4471,29 +4193,26 @@ const isBlockEntirelySimple = (
   return false;
 };
 
-// Helper function to convert a simple block to MongoDB condition for early $match
 const convertSimpleBlockToMongo = (block, schema = {}, fieldOptions = []) => {
   if (!block) {
     return {};
   }
 
-  // Handle direct conditions
   if (block.type === "condition" || block.category === "condition") {
     return (
       convertConditionToMongo(
         block,
         schema,
         fieldOptions,
-        [], // No custom variables in simple conditions
-        [], // No custom list variables in simple conditions
+        [],
+        [],
         false,
         {},
-        null, // No array field name for simple conditions
+        null,
       ) || {}
     );
   }
 
-  // Handle blocks with children
   if (!block.children || block.children.length === 0) {
     return {};
   }
@@ -4515,11 +4234,10 @@ const convertSimpleBlockToMongo = (block, schema = {}, fieldOptions = []) => {
         child,
         schema,
         fieldOptions,
-        [], // No custom variables in simple conditions
-        [], // No custom list variables in simple conditions
-        false,
+        [],
+        [],
         {},
-        null, // No array field name for simple conditions
+        null,
       );
       if (condition && Object.keys(condition).length > 0) {
         conditions.push(condition);
@@ -4535,7 +4253,6 @@ const convertSimpleBlockToMongo = (block, schema = {}, fieldOptions = []) => {
     return conditions[0];
   }
 
-  // Combine conditions based on block logic
   const logic = (block.logic || "and").toLowerCase();
   if (logic === "or") {
     return { $or: conditions };
@@ -4544,7 +4261,6 @@ const convertSimpleBlockToMongo = (block, schema = {}, fieldOptions = []) => {
   }
 };
 
-// Main function to separate simple and complex conditions
 const separateSimpleAndComplexConditions = (
   filters,
   customVariables = [],
@@ -4557,8 +4273,14 @@ const separateSimpleAndComplexConditions = (
   const complexFilters = [];
 
   filters.forEach((block) => {
-    if (isBlockEntirelySimple(block, customVariables, customListVariables, customSwitchCases)) {
-      // Convert simple block to MongoDB condition and merge into simpleConditions
+    if (
+      isBlockEntirelySimple(
+        block,
+        customVariables,
+        customListVariables,
+        customSwitchCases,
+      )
+    ) {
       const mongoCondition = convertSimpleBlockToMongo(
         block,
         schema,
@@ -4568,7 +4290,6 @@ const separateSimpleAndComplexConditions = (
         Object.assign(simpleConditions, mongoCondition);
       }
     } else {
-      // Keep complex blocks for later processing
       complexFilters.push(block);
     }
   });

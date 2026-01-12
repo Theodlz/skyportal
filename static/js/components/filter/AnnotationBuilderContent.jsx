@@ -399,13 +399,12 @@ MapAnnotationsDialog.propTypes = {
 const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
   const { filters, projectionFields, setProjectionFields } =
     useAnnotationBuilder();
-  const { hasValidQuery: hasValidFilterQuery } = useFilterBuilder(); // Get filter page validation
+  const { hasValidQuery: hasValidFilterQuery } = useFilterBuilder();
   const annotationContext = useAnnotationBuilder();
-  const filterContext = useFilterBuilder(); // Get full filter context
+  const filterContext = useFilterBuilder();
   const navigate = useNavigate();
   const dispatch = useDispatch();
 
-  // Use the same schema fetching approach as FilterBuilder
   const filter_stream = useSelector(
     (state) => state.filter_v.stream?.name.split(" ")[0],
   );
@@ -414,17 +413,13 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
   const [schema, setSchema] = useState(null);
   const [fieldOptions, setFieldOptions] = useState([]);
 
-  // State for expandable groups
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
 
-  // State for map dialog
   const [mapDialogOpen, setMapDialogOpen] = useState(false);
   const [mapDialogFieldId, setMapDialogFieldId] = useState(null);
   const [mapProjectionFields, setMapProjectionFields] = useState([]);
 
-  // Initialize projection fields with objectId if not already present
-  React.useEffect(() => {
-    // Only add a modifiable empty annotation if none exist
+  useEffect(() => {
     if (!projectionFields || projectionFields.length === 0) {
       setProjectionFields([
         {
@@ -439,13 +434,12 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
     }
   }, [projectionFields, setProjectionFields]);
 
-  // Load initial data using annotation context
   useAnnotationBuilderData(annotationContext);
 
-  // Fetch schema using the same approach as FilterBuilder
   useEffect(() => {
-    dispatch(fetchSchema({ name: filter_stream, elements: "schema" }));
-  }, [filter_stream, dispatch]);
+    if (filter_stream)
+      dispatch(fetchSchema({ name: filter_stream, elements: "schema" }));
+  }, [filter_stream]);
 
   useEffect(() => {
     if (store_schema) {

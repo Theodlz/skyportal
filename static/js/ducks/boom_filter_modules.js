@@ -1,6 +1,11 @@
 import * as API from "../API";
 import store from "../store";
 
+import {
+  ztf_crossmatch_fields,
+  lsst_crossmatch_fields,
+} from "../constants/crossmatch";
+
 export const FETCH_ALL_ELEMENTS = "skyportal/FETCH_ALL_ELEMENTS";
 export const FETCH_ALL_ELEMENTS_OK = "skyportal/FETCH_ALL_ELEMENTS_OK";
 export const FETCH_ALL_ELEMENTS_ERROR = "skyportal/FETCH_ALL_ELEMENTS_ERROR";
@@ -44,31 +49,33 @@ export function putElement({ name, data, elements }) {
   });
 }
 
+const patchSchema = (schema) => {
+  if (!schema) return schema;
+
+  const patchedSchema = JSON.parse(JSON.stringify(schema));
+
+  if (patchedSchema.fields) {
+    if (patchedSchema.name.includes("Ztf")) {
+      patchedSchema.fields.push(ztf_crossmatch_fields);
+    }
+    if (patchedSchema.name.includes("Lsst")) {
+      patchedSchema.fields.push(lsst_crossmatch_fields);
+    }
+  }
+
+  return patchedSchema;
+};
+
 const reducer = (state = {}, action) => {
   switch (action.type) {
     case FETCH_SCHEMA_OK: {
-      const schemaVersion = action.data.schema?.versions?.find(
-        (e) => e.vid === action.data.schema?.active_id,
-      );
-
-      if (!schemaVersion?.schema) {
-        console.warn(
-          "No schema found for active version:",
-          action.data.schema?.active_id,
-        );
-        return { schema: null };
-      }
-
       try {
-        const schema_from_db = JSON.parse(schemaVersion.schema);
-        const res = { schema: schema_from_db };
+        const schema_from_db = action.data.schema;
+        const patchedSchema = patchSchema(schema_from_db);
+        const res = { schema: patchedSchema };
         return res;
       } catch (error) {
-        console.error(
-          "Error parsing schema JSON:",
-          error,
-          schemaVersion.schema,
-        );
+        console.error("Error parsing schema JSON:", error);
         return { schema: null };
       }
     }

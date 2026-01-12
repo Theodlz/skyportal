@@ -51,6 +51,34 @@ export const flattenFieldOptions = (avroSchema) => {
         ) {
           return fieldType.items;
         }
+
+        // Search recursively within nested record fields
+        if (
+          typeof fieldType === "object" &&
+          fieldType.type === "record" &&
+          fieldType.fields
+        ) {
+          const found = findNamedTypeOptimized(fieldType.fields);
+          if (found) return found;
+        }
+
+        // Search within union types (e.g., ["null", {...}])
+        if (Array.isArray(field.type)) {
+          for (const unionType of field.type) {
+            if (typeof unionType === "object" && unionType.name === typeName) {
+              return unionType;
+            }
+            // Recursively search within union type records
+            if (
+              typeof unionType === "object" &&
+              unionType.type === "record" &&
+              unionType.fields
+            ) {
+              const found = findNamedTypeOptimized(unionType.fields);
+              if (found) return found;
+            }
+          }
+        }
       }
 
       return null;
@@ -100,6 +128,14 @@ export const flattenFieldOptions = (avroSchema) => {
     let actualType = fieldType;
     if (Array.isArray(fieldType)) {
       actualType = fieldType.find((t) => t !== "null") || fieldType[0];
+    }
+
+    // If actualType is a string, it's a named type reference - resolve it
+    if (typeof actualType === "string") {
+      const resolvedType = resolveNamedType(actualType, avroSchema);
+      if (resolvedType) {
+        actualType = resolvedType;
+      }
     }
 
     if (typeof actualType === "object") {
@@ -281,6 +317,24 @@ const getExpandableArrayFields = (avroSchema, arrayFieldName) => {
           const found = findNamedType(fieldTypeName.items.fields);
           if (found) return found;
         }
+
+        // Search within union types (e.g., ["null", {...}])
+        if (Array.isArray(field.type)) {
+          for (const unionType of field.type) {
+            if (typeof unionType === "object" && unionType.name === typeName) {
+              return unionType;
+            }
+            // Recursively search within union type records
+            if (
+              typeof unionType === "object" &&
+              unionType.type === "record" &&
+              unionType.fields
+            ) {
+              const found = findNamedType(unionType.fields);
+              if (found) return found;
+            }
+          }
+        }
       }
       return null;
     };
@@ -348,18 +402,33 @@ const getExpandableArrayFields = (avroSchema, arrayFieldName) => {
         fieldItemsType.find((t) => t !== "null") || fieldItemsType[0];
     }
 
+    if (typeof actualType === "string") {
+      const resolvedType = resolveNamedType(actualType, avroSchema);
+      if (resolvedType) {
+        actualType = resolvedType;
+      }
+    }
+
     if (typeof actualType === "object") {
       if (actualType.type === "record" && actualType.fields) {
-        // For nested records, recursively process fields
         actualType.fields.forEach((nestedField) => {
           processNestedField(nestedField, currentPath);
         });
       } else if (actualType.type === "array") {
-        // Handle nested arrays
+        let arrayItemsType = actualType.items;
+        if (typeof arrayItemsType === "string") {
+          const resolvedItemsType = resolveNamedType(
+            arrayItemsType,
+            avroSchema,
+          );
+          if (resolvedItemsType) {
+            arrayItemsType = resolvedItemsType;
+          }
+        }
         nestedFields.push({
           label: currentPath,
           type: "array",
-          itemType: getSimpleType(actualType.items),
+          itemType: getSimpleType(arrayItemsType),
         });
       } else {
         nestedFields.push({
@@ -379,10 +448,6 @@ const getExpandableArrayFields = (avroSchema, arrayFieldName) => {
 
   return nestedFields.sort((a, b) => a.label.localeCompare(b.label));
 };
-
-// export const nestedFieldOptions = defaultFieldOptions;
-
-// export const fieldOptions = flattenFieldOptions(defaultFieldOptions);
 
 export const mongoOperatorLabels = {
   $eq: "=",

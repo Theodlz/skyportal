@@ -1,5 +1,5 @@
-import datetime
 import traceback
+from datetime import datetime, timedelta
 
 import requests
 from marshmallow.exceptions import ValidationError
@@ -39,6 +39,83 @@ uri = get_db_uri()
 queryDbName = get_db_name()
 
 
+def get_boom_url():
+    try:
+        ports_to_ignore = [443, 80]
+        return f"{cfg['boom.protocol']}://{cfg['boom.host']}" + (
+            f":{int(cfg['boom.port'])}"
+            if (
+                isinstance(cfg["boom.port"], int)
+                and int(cfg["boom.port"]) not in ports_to_ignore
+            )
+            else ""
+        )
+    except Exception as e:
+        log(f"Error getting Boom URL: {e}")
+        return None
+
+
+def get_boom_credentials():
+    username = cfg["boom.username"]
+    password = cfg["boom.password"]
+    return {"username": username, "password": password}
+
+
+boom_url = get_boom_url()
+boom_credentials = get_boom_credentials()
+
+
+def get_boom_token():
+    try:
+        if boom_url is None:
+            return None, None
+        auth_url = f"{boom_url}/auth"
+        current_time = datetime.utcnow()
+        auth_response = requests.post(
+            auth_url,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            data=boom_credentials,
+        )
+        auth_response.raise_for_status()
+        data = auth_response.json()
+        token = data["access_token"]
+        expires_at = None
+        if data.get("expires_in"):
+            expires_in = int(data["expires_in"])
+            expires_at = current_time + timedelta(seconds=expires_in)
+        return token, expires_at
+    except Exception as e:
+        log(f"Error getting Boom token: {e}")
+        return None, None
+
+
+boom_token, boom_token_expires_at = get_boom_token()
+
+
+def boom_available(func):
+    def wrapper(*args, **kwargs):
+        global boom_url
+        global boom_credentials
+        # we should have a boom_url
+        if boom_url is None or boom_credentials is None:
+            raise ValueError("Boom is not available")
+        # if we don't have a token or it's about to expire (<30min), get another one
+        global boom_token
+        global boom_token_expires_at
+        if boom_token is None or (
+            boom_token_expires_at is not None
+            and boom_token_expires_at < datetime.utcnow() + timedelta(seconds=1800)
+        ):
+            boom_token, boom_token_expires_at = get_boom_token()
+        if boom_token is None:
+            raise ValueError("Boom is not available")
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
 class BoomFilterModulesHandler(BaseHandler):
     @auth_or_token
     def get(self, name=None):
@@ -52,7 +129,12 @@ class BoomFilterModulesHandler(BaseHandler):
                 if name is None:
                     result = list(collection.find())
                 elif elements == "schema":
-                    result = collection.find_one({"instrument_name": name})
+                    result = requests.get(
+                        f"{boom_url}/filters/schemas/{name}",
+                        headers={"Authorization": f"Bearer {boom_token}"},
+                    )
+                    print("Boom schema response:", result)
+                    result = result.json()["data"]
                 else:
                     result = collection.find_one({"name": name})
             except Exception as e:
@@ -60,7 +142,7 @@ class BoomFilterModulesHandler(BaseHandler):
                 return self.error(f"Error fetching data from MongoDB: {e}")
             finally:
                 client.close()
-                
+
         return self.success(data={str(elements): result})
 
     @auth_or_token
@@ -79,7 +161,7 @@ class BoomFilterModulesHandler(BaseHandler):
                         {
                             "name": name,
                             "block": data["data"]["block"],
-                            "created_at": datetime.datetime.utcnow(),
+                            "created_at": datetime.utcnow(),
                         }
                     )
                 elif data["elements"] == "variables":
@@ -88,7 +170,7 @@ class BoomFilterModulesHandler(BaseHandler):
                             "name": name,
                             "variable": data["data"]["variable"],
                             "type": data["data"]["type"],
-                            "created_at": datetime.datetime.utcnow(),
+                            "created_at": datetime.utcnow(),
                         }
                     )
                 elif data["elements"] == "listVariables":
@@ -97,7 +179,7 @@ class BoomFilterModulesHandler(BaseHandler):
                             "name": name,
                             "listCondition": data["data"]["listCondition"],
                             "type": data["data"]["type"],
-                            "created_at": datetime.datetime.utcnow(),
+                            "created_at": datetime.utcnow(),
                         }
                     )
                 elif data["elements"] == "switchCases":
@@ -106,7 +188,7 @@ class BoomFilterModulesHandler(BaseHandler):
                             "name": name,
                             "switchCondition": data["data"]["switchCondition"],
                             "type": data["data"]["type"],
-                            "created_at": datetime.datetime.utcnow(),
+                            "created_at": datetime.utcnow(),
                         }
                     )
             except Exception as e:
@@ -128,9 +210,9 @@ class BoomFilterModulesHandler(BaseHandler):
             try:
                 db = client[queryDbName]
                 collection = db[data["elements"]]
-                
-                update_data = {"updated_at": datetime.datetime.utcnow()}
-                
+
+                update_data = {"updated_at": datetime.utcnow()}
+
                 if data["elements"] == "blocks":
                     update_data["block"] = data["data"]["block"]
                 elif data["elements"] == "variables":
@@ -142,15 +224,12 @@ class BoomFilterModulesHandler(BaseHandler):
                 elif data["elements"] == "switchCases":
                     update_data["switchCondition"] = data["data"]["switchCondition"]
                     update_data["type"] = data["data"]["type"]
-                
-                result = collection.update_one(
-                    {"name": name},
-                    {"$set": update_data}
-                )
-                
+
+                result = collection.update_one({"name": name}, {"$set": update_data})
+
                 if result.matched_count == 0:
                     return self.error(f"No document found with name: {name}")
-                    
+
             except Exception as e:
                 traceback.print_exc()
                 return self.error(f"Error updating data in MongoDB: {e}")
