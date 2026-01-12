@@ -1,6 +1,40 @@
 import { latexToMongoConverter } from "./robustLatexConverter.js";
 import { getFieldType } from "./conditionHelpers.js";
 
+// Helper function to remove path collisions in MongoDB projections
+// If both "list" and "list.subfield" are in the fields, keep only "list"
+const removePathCollisions = (fields) => {
+  const fieldArray = Array.isArray(fields) ? fields : Object.keys(fields);
+  const sortedFields = [...fieldArray].sort(); // Sort to process parent paths first
+  const filteredFields = [];
+  
+  for (const field of sortedFields) {
+    // Check if any already added field is a parent of this field
+    const hasParent = filteredFields.some(existingField => 
+      field.startsWith(existingField + ".")
+    );
+    
+    if (!hasParent) {
+      // Check if this field is a parent of any already added fields
+      const childFields = filteredFields.filter(existingField =>
+        existingField.startsWith(field + ".")
+      );
+      
+      // Remove child fields and add parent
+      childFields.forEach(child => {
+        const index = filteredFields.indexOf(child);
+        if (index > -1) {
+          filteredFields.splice(index, 1);
+        }
+      });
+      
+      filteredFields.push(field);
+    }
+  }
+  
+  return filteredFields;
+};
+
 // Helper function for numeric comparison operators
 const getNumericComparison = (operator) => {
   switch (operator) {
@@ -32,7 +66,7 @@ export const convertToMongoAggregation = (
   customVariables = [],
   customListVariables = [],
   customSwitchCases = [],
-  additionalFieldsToProject = [], // Fields that will be used later (e.g., in annotations)
+  additionalFieldsToProject = [],
 ) => {
   if (!filters || filters.length === 0 && additionalFieldsToProject.length === 0) {
     return [];
@@ -131,13 +165,16 @@ export const convertToMongoAggregation = (
   if (needsProjectStage) {
     initialProjectStage = { $project: {} };
 
+    // Remove path collisions from base fields before projecting
+    const filteredBaseFields = removePathCollisions(usedFields.baseFields);
+    
     // Include all used base fields
-    usedFields.baseFields.forEach((field) => {
+    filteredBaseFields.forEach((field) => {
       initialProjectStage.$project[field] = 1;
     });
 
     // Always include objectId unless explicitly excluded
-    if (!usedFields.baseFields.includes("objectId")) {
+    if (!filteredBaseFields.includes("objectId")) {
       initialProjectStage.$project.objectId = 1;
     }
 
@@ -385,19 +422,19 @@ export const convertToMongoAggregation = (
           // Include objectId
           projectStage.$project.objectId = 1;
 
-          // Include all base fields that are already in the pipeline
-          usedFields.baseFields.forEach((field) => {
+          // Collect all fields to project
+          const fieldsToProject = [
+            ...usedFields.baseFields,
+            ...usedFields.listVariables,
+            ...Array.from(projectedVariables)
+          ];
+          
+          // Remove path collisions
+          const filteredFields = removePathCollisions(fieldsToProject);
+          
+          // Include all filtered fields
+          filteredFields.forEach((field) => {
             projectStage.$project[field] = 1;
-          });
-
-          // Include already projected list variables
-          usedFields.listVariables.forEach((varName) => {
-            projectStage.$project[varName] = 1;
-          });
-
-          // Include already projected arithmetic variables
-          projectedVariables.forEach((varName) => {
-            projectStage.$project[varName] = 1;
           });
         }
 
@@ -485,19 +522,19 @@ export const convertToMongoAggregation = (
   // Always add final $project stage with objectId and all used fields
   const finalProjectStage = { $project: { objectId: 1 } };
 
-  // Add all base fields used in the query
-  usedFields.baseFields.forEach((field) => {
+  // Collect all fields to project
+  const allFieldsToProject = [
+    ...usedFields.baseFields,
+    ...usedFields.customVariables,
+    ...usedFields.listVariables
+  ];
+  
+  // Remove path collisions
+  const filteredFields = removePathCollisions(allFieldsToProject);
+  
+  // Add all filtered fields to the final project stage
+  filteredFields.forEach((field) => {
     finalProjectStage.$project[field] = 1;
-  });
-
-  // Add all custom variables used in the query
-  usedFields.customVariables.forEach((varName) => {
-    finalProjectStage.$project[varName] = 1;
-  });
-
-  // Add all list variables used in the query
-  usedFields.listVariables.forEach((varName) => {
-    finalProjectStage.$project[varName] = 1;
   });
 
   // Always add the project stage
@@ -859,6 +896,8 @@ const convertConditionToMongo = (
     case "$eq":
     case "equals":
     case "=": {
+      // Convert null-like strings to null
+      const processedValue = convertNullLikeStringsToNull(value);
       // Check if this is a boolean field or boolean value
       const fieldType = getFieldType(
         condition.field,
@@ -868,16 +907,18 @@ const convertConditionToMongo = (
         [],
         customListVariables,
       );
-      if (fieldType === "boolean" || typeof value === "boolean") {
+      if (fieldType === "boolean" || typeof processedValue === "boolean") {
         // Use $in operator for boolean fields/values
-        return { [field]: { $in: [parseNumberIfNeeded(value)] } };
+        return { [field]: { $in: [parseNumberIfNeeded(processedValue)] } };
       }
-      return { [field]: { $eq: parseNumberIfNeeded(value) } };
+      return { [field]: { $eq: parseNumberIfNeeded(processedValue) } };
     }
 
     case "$ne":
     case "not equals":
     case "!=": {
+      // Convert null-like strings to null
+      const processedValue = convertNullLikeStringsToNull(value);
       // Check if this is a boolean field or boolean value
       const fieldType = getFieldType(
         condition.field,
@@ -887,11 +928,11 @@ const convertConditionToMongo = (
         [],
         customListVariables,
       );
-      if (fieldType === "boolean" || typeof value === "boolean") {
+      if (fieldType === "boolean" || typeof processedValue === "boolean") {
         // Use $nin operator for boolean fields/values
-        return { [field]: { $nin: [parseNumberIfNeeded(value)] } };
+        return { [field]: { $nin: [parseNumberIfNeeded(processedValue)] } };
       }
-      return { [field]: { $ne: parseNumberIfNeeded(value) } };
+      return { [field]: { $ne: parseNumberIfNeeded(processedValue) } };
     }
 
     case "$gt":
@@ -1713,7 +1754,7 @@ const convertConditionToMongoExpr = (
         const mongoExpression =
           latexToMongoConverter.convertToMongo(latexExpression);
         if (mongoExpression) {
-          fieldPath = convertToArrayContext(mongoExpression);
+          fieldPath = convertToArrayContext(mongoExpression, arrayFieldName);
         } else {
           // Fallback if conversion fails
           if (arrayFieldName && field.startsWith(`${arrayFieldName}.`)) {
@@ -2291,6 +2332,17 @@ const parseNumberIfNeeded = (value) => {
   return value;
 };
 
+const convertNullLikeStringsToNull = (value) => {
+  // Convert string values "null", "none", or "nan" (case-insensitive) to actual null
+  if (typeof value === "string") {
+    const lowerValue = value.toLowerCase();
+    if (lowerValue === "null" || lowerValue === "none" || lowerValue === "nan") {
+      return null;
+    }
+  }
+  return value;
+};
+
 const escapeRegex = (string) => {
   return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 };
@@ -2302,9 +2354,12 @@ export const formatMongoAggregation = (pipeline) => {
 
 // Validate if pipeline has meaningful content
 // Helper function to validate MongoDB query expressions
-const isValidMongoExpression = (expression) => {
+const isValidMongoExpression = (expression, allowNull = true) => {
+  console.log("Validating expression:", expression);
+  
+  // Allow null/undefined as values when explicitly permitted (e.g., in comparisons)
   if (expression === null || expression === undefined) {
-    return false;
+    return allowNull;
   }
 
   // // Primitive values are valid
@@ -2314,7 +2369,7 @@ const isValidMongoExpression = (expression) => {
 
   // Arrays are valid if all elements are valid
   if (Array.isArray(expression)) {
-    return expression.every((item) => isValidMongoExpression(item));
+    return expression.every((item) => isValidMongoExpression(item, allowNull));
   }
 
   // Objects should not be empty unless they're specific operators
@@ -2330,8 +2385,8 @@ const isValidMongoExpression = (expression) => {
       return false;
     }
 
-    // Recursively validate nested expressions
-    if (!isValidMongoExpression(value)) {
+    // Recursively validate nested expressions (allow null in values)
+    if (!isValidMongoExpression(value, true)) {
       return false;
     }
 
@@ -3061,7 +3116,7 @@ const convertArrayValueToMongo = (
 };
 
 // Helper function to convert MongoDB expressions to array context ($$this)
-const convertToArrayContext = (mongoExpression) => {
+const convertToArrayContext = (mongoExpression, arrayFieldName = null) => {
   if (!mongoExpression || typeof mongoExpression !== "object") {
     return mongoExpression;
   }
@@ -3069,18 +3124,28 @@ const convertToArrayContext = (mongoExpression) => {
   try {
     // Clone the expression to avoid modifying the original
     const clonedExpression = JSON.parse(JSON.stringify(mongoExpression));
-    // Recursively convert field references from $field to $$this.field
+    
+    // Recursively convert field references intelligently based on arrayFieldName
     const convertFields = (obj) => {
       if (typeof obj === "string" && !obj.startsWith("$$")) {
-        if (obj.startsWith("$this")) {
-          // If the field is $this, convert it to $$this
-          return `$$${obj.substring(1)}`;
-        } else if (obj.startsWith("$")) {
-          // If the field is $field, convert it to $$this.field
-          return `$${obj.substring(1)}`;
+        if (obj.startsWith("$")) {
+          const fieldName = obj.substring(1);
+          
+          // Check if this is a nested field reference like "prv_candidates.magpsf"
+          if (arrayFieldName && fieldName.includes(".")) {
+            const parts = fieldName.split(".");
+            const firstPart = parts[0];
+            
+            // If the field starts with the array name, convert to $$this syntax
+            if (firstPart === arrayFieldName) {
+              const subPath = parts.slice(1).join(".");
+              return `$$this.${subPath}`;
+            }
+          }
+          
+          // For fields that don't match the array, keep as absolute reference
+          return obj;
         }
-        // Convert $field to $$this.field
-        return `$$this.${obj.substring(1)}`;
       }
 
       if (Array.isArray(obj)) {

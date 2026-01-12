@@ -41,8 +41,6 @@ const AddVariableDialog = () => {
 
   const [variableName, setVariableName] = useState("");
   const [expression, setExpression] = useState("");
-  const [context, setContext] = useState("simple");
-  const [arrayCollection, setArrayCollection] = useState("");
   const [cursorPos, setCursorPos] = useState(0);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedSuggestion, setSelectedSuggestion] = useState(0);
@@ -191,15 +189,6 @@ const AddVariableDialog = () => {
     return collections;
   };
 
-  const availableArrayCollections = getAvailableArrayCollections();
-
-  // Set default arrayCollection to first available collection
-  useEffect(() => {
-    if (availableArrayCollections.length > 0 && !arrayCollection) {
-      setArrayCollection(availableArrayCollections[0].name);
-    }
-  }, [availableArrayCollections, arrayCollection]);
-
   const operators = [
     { symbol: "+", name: "Add", type: "arithmetic" },
     { symbol: "-", name: "Subtract", type: "arithmetic" },
@@ -224,8 +213,7 @@ const AddVariableDialog = () => {
     const lastWord = beforeCursor.match(/[a-zA-Z._]*$/)?.[0] || "";
 
     // Don't show suggestions if there's no partial word being typed
-    // EXCEPT when in arrayElement context where we want to show "this.*" suggestions
-    if ((!lastWord || lastWord.length === 0) && context !== "arrayElement") {
+    if (!lastWord || lastWord.length === 0) {
       return [];
     }
 
@@ -296,94 +284,10 @@ const AddVariableDialog = () => {
             return null;
           };
 
-          // Special handling for arrays in arrayElement context
-          if (fieldType === "array" && context === "arrayElement") {
-            // Check if arrayCollection is a nested path (like "cross_matches.NED_BetaV3")
-            const isNestedPath = arrayCollection.includes(".");
-
-            if (isNestedPath) {
-              const [parentArray, catalogName] = arrayCollection.split(".");
-
-              if (field.name === parentArray) {
-                const arrayType = getArrayType();
-                if (!arrayType) return;
-
-                let itemsType = arrayType.items;
-
-                // Resolve string references
-                if (typeof itemsType === "string") {
-                  const resolvedType = resolveNamedType(
-                    itemsType,
-                    activeSchema,
-                  );
-                  if (resolvedType) {
-                    itemsType = resolvedType;
-                  }
-                }
-
-                // Find the catalog field within the items
-                if (
-                  itemsType &&
-                  typeof itemsType === "object" &&
-                  itemsType.type === "record" &&
-                  itemsType.fields
-                ) {
-                  const catalogField = itemsType.fields.find(
-                    (f) => f.name === catalogName,
-                  );
-
-                  if (catalogField && Array.isArray(catalogField.type)) {
-                    const catalogRecordType = catalogField.type.find(
-                      (t) =>
-                        t !== "null" &&
-                        typeof t === "object" &&
-                        t.type === "record" &&
-                        t.fields,
-                    );
-
-                    if (catalogRecordType && catalogRecordType.fields) {
-                      catalogRecordType.fields.forEach((catalogSubField) => {
-                        const catalogSubFieldType =
-                          typeof catalogSubField.type === "string"
-                            ? catalogSubField.type
-                            : catalogSubField.type?.type;
-
-                        const isExcluded = ["boolean", "array"].includes(
-                          catalogSubFieldType,
-                        );
-
-                        if (!isExcluded) {
-                          const itemPath = `this.${catalogSubField.name}`;
-
-                          if (
-                            itemPath
-                              .toLowerCase()
-                              .includes(lastWord.toLowerCase()) &&
-                            (wouldChangeMeaningfully(itemPath) ||
-                              lastWord.length < 2)
-                          ) {
-                            thisFieldSuggestions.push({
-                              type: "field",
-                              display: catalogSubField.name,
-                              fullPath: itemPath,
-                              collection: arrayCollection,
-                              description: `${catalogName} → ${catalogSubField.name}`,
-                            });
-                          }
-                        }
-                      });
-                    }
-                  }
-                }
-                return; // Skip further processing
-              }
-            } else if (field.name === arrayCollection) {
-              // Standard array handling (non-nested path)
-              const arrayType = getArrayType();
-              if (!arrayType) {
-                return; // Skip if we couldn't find the array type
-              }
-
+          // Handle array fields - always show subfields with full paths
+          if (fieldType === "array") {
+            const arrayType = getArrayType();
+            if (arrayType) {
               let itemsType = arrayType.items;
 
               // If items is a string reference, resolve it
@@ -394,7 +298,7 @@ const AddVariableDialog = () => {
                 }
               }
 
-              // If the array contains records with fields, suggest them with "this." prefix
+              // If the array contains records with fields, suggest them with full path
               if (
                 itemsType &&
                 typeof itemsType === "object" &&
@@ -412,7 +316,7 @@ const AddVariableDialog = () => {
                   );
 
                   if (!isExcluded) {
-                    const itemPath = `this.${itemField.name}`;
+                    const itemPath = `${field.name}.${itemField.name}`;
 
                     // Show suggestions if it matches the search or if lastWord is empty/very short
                     if (
@@ -424,19 +328,14 @@ const AddVariableDialog = () => {
                         display: itemField.name,
                         fullPath: itemPath,
                         collection: field.name,
-                        description: `Array element → ${itemField.name}`,
+                        description: `${field.name} → ${itemField.name}`,
                       });
                     }
                   }
                 });
               }
-              return; // Skip further processing for this array field
             }
-          }
-
-          // Skip array types in normal context - they can't be used in arithmetic operations
-          if (fieldType === "array") {
-            return;
+            return; // Skip further processing for array fields
           }
 
           // Exclude booleans from suggestions
@@ -445,11 +344,7 @@ const AddVariableDialog = () => {
           // Include all fields except booleans for simple types
           if (typeof field.type === "string" || !field.type.type) {
             if (!isExcluded) {
-              const prefix =
-                context === "arrayElement" && field.name === arrayCollection
-                  ? "this"
-                  : field.name;
-              const fullPath = `${prefix}`;
+              const fullPath = field.name;
 
               if (
                 fullPath.toLowerCase().includes(lastWord.toLowerCase()) &&
@@ -523,40 +418,8 @@ const AddVariableDialog = () => {
             field.type.type === "record" &&
             field.type.fields
           ) {
-            const prefix =
-              context === "arrayElement" && field.name === arrayCollection
-                ? "this"
-                : field.name;
-            processNestedRecord(field, prefix);
+            processNestedRecord(field, field.name);
           }
-        }
-      });
-    }
-
-    // Add suggestions for array condition fields if arrayCollection is from a condition
-    const selectedCollection = availableArrayCollections.find(
-      (col) => col.name === arrayCollection,
-    );
-    if (
-      context === "arrayElement" &&
-      selectedCollection &&
-      selectedCollection.source === "condition"
-    ) {
-      // For array conditions, suggest common array element properties
-      const commonArrayFields = ["id", "value", "name", "type", "status"];
-      commonArrayFields.forEach((field) => {
-        const fullPath = `this.${field}`;
-        if (
-          fullPath.toLowerCase().includes(lastWord.toLowerCase()) &&
-          wouldChangeMeaningfully(fullPath)
-        ) {
-          thisFieldSuggestions.push({
-            type: "field",
-            display: field,
-            fullPath: fullPath,
-            collection: arrayCollection,
-            description: `Array element → ${field}`,
-          });
         }
       });
     }
@@ -621,18 +484,10 @@ const AddVariableDialog = () => {
       });
     }
 
-    // Combine suggestions with context-aware ordering
-    // In arrayElement context, prioritize this.* fields at the very top
-    if (context === "arrayElement") {
-      return [
-        ...thisFieldSuggestions,
-        ...fieldSuggestions,
-        ...operatorSuggestions,
-        ...variableSuggestions,
-      ].slice(0, 20);
-    }
-    // In simple context, show fields, operators, then variables
+    // Combine suggestions with intelligent ordering
+    // Prioritize array subfield suggestions, then regular fields, operators, then variables
     return [
+      ...thisFieldSuggestions,
       ...fieldSuggestions,
       ...operatorSuggestions,
       ...variableSuggestions,
@@ -749,8 +604,6 @@ const AddVariableDialog = () => {
     setSpecialConditionDialog({ open: false, blockId: null, equation: "" });
     setVariableName("");
     setExpression("");
-    setContext("simple");
-    setArrayCollection("");
   };
 
   const handleCopyPreview = () => {
@@ -793,14 +646,24 @@ const AddVariableDialog = () => {
     dispatch(
       postElement({
         name: variableName,
-        data: { variable: eq, type: "number" },
+        data: { 
+          variable: eq, 
+          type: "number",
+        },
         elements: "variables",
       }),
     );
 
     setCustomVariables((prev) => {
       if (prev.some((v) => v.name === variableName)) return prev;
-      return [...prev, { name: variableName, type: "number", variable: eq }];
+      return [
+        ...prev, 
+        { 
+          name: variableName, 
+          type: "number", 
+          variable: eq,
+        }
+      ];
     });
 
     // Add a new special condition to the block
@@ -975,80 +838,6 @@ const AddVariableDialog = () => {
 
       <DialogContent dividers>
         {/* Context Selector */}
-        <Box
-          sx={{
-            mb: 3,
-            p: 2,
-            bgcolor: "background.paper",
-            borderRadius: 1,
-            border: "1px solid",
-            borderColor: "divider",
-          }}
-        >
-          <Box
-            sx={{ display: "flex", alignItems: "flex-start", gap: 1, mb: 2 }}
-          >
-            <Info fontSize="small" color="primary" />
-            <Box>
-              <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                Where will this variable be used?
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                This affects how fields are referenced in your expression
-              </Typography>
-            </Box>
-          </Box>
-
-          <FormControl component="fieldset">
-            <RadioGroup
-              row
-              value={context}
-              onChange={(e) => setContext(e.target.value)}
-            >
-              <FormControlLabel
-                value="simple"
-                control={<Radio size="small" />}
-                label={
-                  <Typography variant="body2">
-                    Simple condition (e.g., variable &gt; 21)
-                  </Typography>
-                }
-              />
-              <FormControlLabel
-                value="arrayElement"
-                control={<Radio size="small" />}
-                label={
-                  <Typography variant="body2">
-                    Array operation (e.g., anyElementTrue)
-                  </Typography>
-                }
-              />
-            </RadioGroup>
-          </FormControl>
-
-          {context === "arrayElement" && (
-            <FormControl fullWidth size="small" sx={{ mt: 2 }}>
-              <InputLabel>Which collection is the array from?</InputLabel>
-              <Select
-                value={arrayCollection}
-                onChange={(e) => setArrayCollection(e.target.value)}
-                label="Which collection is the array from?"
-              >
-                {availableArrayCollections.map((collection) => (
-                  <MenuItem key={collection.name} value={collection.name}>
-                    <Box>
-                      <Typography variant="body2">{collection.name}</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {collection.description}
-                      </Typography>
-                    </Box>
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-        </Box>
-
         {/* Variable Name */}
         <Box sx={{ mb: 3 }}>
           <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
