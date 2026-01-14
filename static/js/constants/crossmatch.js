@@ -320,6 +320,75 @@ export const lsst_crossmatch_fields = {
       name: "CrossMatch",
       fields: [
         {
+          name: "AllWISE",
+          type: [
+            "null",
+            {
+              type: "record",
+              name: "AllWISEMatch",
+              fields: [
+                {
+                  name: "_id",
+                  type: "double",
+                },
+                {
+                  name: "w1mpro",
+                  type: "double",
+                },
+                {
+                  name: "w1sigmpro",
+                  type: "double",
+                },
+                {
+                  name: "w2mpro",
+                  type: "double",
+                },
+                {
+                  name: "w2sigmpro",
+                  type: "double",
+                },
+                {
+                  name: "w3mpro",
+                  type: "double",
+                },
+                {
+                  name: "w3sigmpro",
+                  type: "double",
+                },
+                {
+                  name: "w4mpro",
+                  type: "double",
+                },
+                {
+                  name: "w4sigmpro",
+                  type: "double",
+                },
+                {
+                  name: "ph_qual",
+                  type: "string",
+                },
+                {
+                  name: "coordinates",
+                  type: {
+                    type: "record",
+                    name: "WiseCoordinates",
+                    fields: [
+                      {
+                        name: "radec_str",
+                        type: {
+                          type: "array",
+                          items: "double",
+                        },
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+          default: null,
+        },
+        {
           name: "NED",
           type: [
             "null",
@@ -407,6 +476,59 @@ export const lsst_crossmatch_fields = {
                       {
                         name: "distance_kpc",
                         type: "double",
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
+          default: null,
+        },
+        {
+          name: "Gaia_DR3",
+          type: [
+            "null",
+            {
+              type: "record",
+              name: "Gaia_EDR3Match",
+              fields: [
+                {
+                  name: "_id",
+                  type: "double",
+                },
+                {
+                  name: "parallax",
+                  type: "double",
+                },
+                {
+                  name: "parallax_error",
+                  type: "double",
+                },
+                {
+                  name: "phot_g_mean_mag",
+                  type: "double",
+                },
+                {
+                  name: "phot_bp_mean_mag",
+                  type: "double",
+                },
+                {
+                  name: "phot_rp_mean_mag",
+                  type: "double",
+                },
+                {
+                  name: "coordinates",
+                  type: {
+                    type: "record",
+                    name: "Coordinates",
+                    fields: [
+                      {
+                        name: "radec_str",
+                        type: {
+                          type: "array",
+                          items: "string",
+                        },
                       },
                     ],
                   },
