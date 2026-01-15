@@ -264,9 +264,31 @@ const AddVariableDialog = () => {
     ) {
       activeSchema.fields.forEach((field) => {
         if (field.name && field.type) {
+          // Helper function to extract the actual type from various formats
+          const extractFieldType = (type) => {
+            // String type (e.g., "double", "float", "string")
+            if (typeof type === "string") {
+              return type;
+            }
+            // Array/union type (e.g., ["null", "float"])
+            if (Array.isArray(type)) {
+              const nonNullType = type.find((t) => t !== "null");
+              if (typeof nonNullType === "string") {
+                return nonNullType;
+              }
+              if (typeof nonNullType === "object" && nonNullType?.type) {
+                return nonNullType.type;
+              }
+            }
+            // Object type (e.g., {type: "record", ...})
+            if (typeof type === "object" && type?.type) {
+              return type.type;
+            }
+            return null;
+          };
+
           // Get the field type
-          const fieldType =
-            typeof field.type === "string" ? field.type : field.type?.type;
+          const fieldType = extractFieldType(field.type);
 
           // Helper function to extract array type from potential union types
           const getArrayType = () => {
@@ -306,14 +328,39 @@ const AddVariableDialog = () => {
                 itemsType.fields
               ) {
                 itemsType.fields.forEach((itemField) => {
-                  // Exclude booleans and arrays from suggestions
-                  const itemFieldType =
-                    typeof itemField.type === "string"
-                      ? itemField.type
-                      : itemField.type?.type;
-                  const isExcluded = ["boolean", "array"].includes(
-                    itemFieldType,
-                  );
+                  // Get the actual type, handling unions
+                  let itemFieldType;
+                  if (typeof itemField.type === "string") {
+                    itemFieldType = itemField.type;
+                  } else if (Array.isArray(itemField.type)) {
+                    // For union types, get the non-null type
+                    const nonNullType = itemField.type.find(
+                      (t) => t !== "null",
+                    );
+                    if (typeof nonNullType === "string") {
+                      itemFieldType = nonNullType;
+                    } else if (typeof nonNullType === "object") {
+                      itemFieldType = nonNullType.type;
+                    }
+                  } else if (typeof itemField.type === "object") {
+                    itemFieldType = itemField.type.type;
+                  }
+
+                  // Check if this is a catalog/union structure (record inside a union)
+                  const isCatalogStructure =
+                    Array.isArray(itemField.type) &&
+                    itemField.type.some(
+                      (t) =>
+                        t !== "null" &&
+                        typeof t === "object" &&
+                        t.type === "record" &&
+                        t.fields,
+                    );
+
+                  // Exclude booleans, arrays, and catalog structures from suggestions
+                  const isExcluded =
+                    ["boolean", "array"].includes(itemFieldType) ||
+                    isCatalogStructure;
 
                   if (!isExcluded) {
                     const itemPath = `${field.name}.${itemField.name}`;
@@ -338,27 +385,34 @@ const AddVariableDialog = () => {
             return; // Skip further processing for array fields
           }
 
-          // Exclude booleans from suggestions
-          const isExcluded = fieldType === "boolean";
+          // Exclude booleans and arrays from top-level field suggestions
+          const isExcluded = fieldType === "boolean" || fieldType === "array";
 
-          // Include all fields except booleans for simple types
-          if (typeof field.type === "string" || !field.type.type) {
-            if (!isExcluded) {
-              const fullPath = field.name;
+          // Numeric types we want to include
+          const numericTypes = ["double", "float", "int", "long"];
+          const isNumericField = numericTypes.includes(fieldType);
 
-              if (
-                fullPath.toLowerCase().includes(lastWord.toLowerCase()) &&
-                wouldChangeMeaningfully(fullPath)
-              ) {
-                fieldSuggestions.push({
-                  type: "field",
-                  display: field.name,
-                  fullPath: fullPath,
-                  collection: field.name,
-                  description: `Field: ${field.name}`,
-                });
-              }
+          // Include numeric fields and strings (but exclude booleans and arrays)
+          if (isNumericField || (fieldType === "string" && !isExcluded)) {
+            const fullPath = field.name;
+
+            if (
+              fullPath.toLowerCase().includes(lastWord.toLowerCase()) &&
+              wouldChangeMeaningfully(fullPath)
+            ) {
+              fieldSuggestions.push({
+                type: "field",
+                display: field.name,
+                fullPath: fullPath,
+                collection: field.name,
+                description: `Field: ${field.name} (${fieldType})`,
+              });
             }
+            return;
+          }
+
+          // Skip if it's excluded or not a record type
+          if (isExcluded || fieldType !== "record") {
             return;
           }
 
@@ -367,24 +421,34 @@ const AddVariableDialog = () => {
           const processNestedRecord = (recordField, parentPath, depth = 0) => {
             if (depth > 5) return; // Prevent infinite recursion
 
+            // Get the record type - handle both direct records and union types
+            let recordType = null;
             if (
               recordField.type &&
               typeof recordField.type === "object" &&
-              recordField.type.type === "record" &&
-              recordField.type.fields
+              recordField.type.type === "record"
             ) {
-              recordField.type.fields.forEach((nestedField) => {
-                const nestedFieldType =
-                  typeof nestedField.type === "string"
-                    ? nestedField.type
-                    : nestedField.type?.type;
+              recordType = recordField.type;
+            } else if (Array.isArray(recordField.type)) {
+              recordType = recordField.type.find(
+                (t) => typeof t === "object" && t.type === "record",
+              );
+            }
 
+            if (recordType && recordType.fields) {
+              recordType.fields.forEach((nestedField) => {
+                const nestedFieldType = extractFieldType(nestedField.type);
                 const nestedPath = `${parentPath}.${nestedField.name}`;
 
-                // If it's a simple numeric field, suggest it
+                // Numeric types we want to include
+                const numericTypes = ["double", "float", "int", "long"];
+                const isNumericField = numericTypes.includes(nestedFieldType);
+
+                // If it's a numeric or string field (not boolean, not array), suggest it
                 if (
-                  typeof nestedField.type === "string" &&
-                  !["boolean", "array"].includes(nestedField.type)
+                  isNumericField ||
+                  (nestedFieldType === "string" &&
+                    !["boolean", "array"].includes(nestedFieldType))
                 ) {
                   if (
                     nestedPath.toLowerCase().includes(lastWord.toLowerCase()) &&
@@ -395,29 +459,26 @@ const AddVariableDialog = () => {
                       display: nestedField.name,
                       fullPath: nestedPath,
                       collection: field.name,
-                      description: `${parentPath.replace(/^[^.]+\.?/, "")} → ${
-                        nestedField.name
-                      }`.replace(/^→ /, ""),
+                      description: `${`${parentPath.replace(
+                        /^[^.]+\.?/,
+                        "",
+                      )} → ${nestedField.name}`.replace(
+                        /^→ /,
+                        "",
+                      )} (${nestedFieldType})`,
                     });
                   }
                 }
                 // If it's a nested record, recurse
-                else if (
-                  typeof nestedField.type === "object" &&
-                  nestedField.type.type === "record"
-                ) {
+                else if (nestedFieldType === "record") {
                   processNestedRecord(nestedField, nestedPath, depth + 1);
                 }
               });
             }
           };
 
-          if (
-            field.type &&
-            typeof field.type === "object" &&
-            field.type.type === "record" &&
-            field.type.fields
-          ) {
+          // Process record fields
+          if (fieldType === "record") {
             processNestedRecord(field, field.name);
           }
         }
@@ -483,7 +544,7 @@ const AddVariableDialog = () => {
         }
       });
     }
-
+    console.log("fieldSuggestions", fieldSuggestions);
     // Combine suggestions with intelligent ordering
     // Prioritize array subfield suggestions, then regular fields, operators, then variables
     return [
@@ -491,7 +552,7 @@ const AddVariableDialog = () => {
       ...fieldSuggestions,
       ...operatorSuggestions,
       ...variableSuggestions,
-    ].slice(0, 20);
+    ];
   };
 
   const suggestions = getSuggestions();
@@ -646,8 +707,8 @@ const AddVariableDialog = () => {
     dispatch(
       postElement({
         name: variableName,
-        data: { 
-          variable: eq, 
+        data: {
+          variable: eq,
           type: "number",
         },
         elements: "variables",
@@ -657,12 +718,12 @@ const AddVariableDialog = () => {
     setCustomVariables((prev) => {
       if (prev.some((v) => v.name === variableName)) return prev;
       return [
-        ...prev, 
-        { 
-          name: variableName, 
-          type: "number", 
+        ...prev,
+        {
+          name: variableName,
+          type: "number",
           variable: eq,
-        }
+        },
       ];
     });
 
