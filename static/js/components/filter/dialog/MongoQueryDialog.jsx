@@ -37,6 +37,7 @@ import {
   LastPage as LastPageIcon,
   ChevronLeft as ChevronLeftIcon,
   ChevronRight as ChevronRightIcon,
+  Download as DownloadIcon,
 } from "@mui/icons-material";
 import { Controller, useForm } from "react-hook-form";
 import { useCurrentBuilder } from "../../../hooks/useContexts";
@@ -440,6 +441,25 @@ const MongoQueryDialog = () => {
       document.body.removeChild(textArea);
       setCopySuccess(true);
     }
+  };
+
+  const handleDownloadResults = () => {
+    if (!displayResults.data || displayResults.data.length === 0) {
+      return;
+    }
+
+    const jsonString = JSON.stringify(displayResults.data, null, 2);
+    const blob = new Blob([jsonString], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = url;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    link.download = `query-results-${timestamp}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const executeQuery = async (
@@ -922,6 +942,14 @@ const MongoQueryDialog = () => {
                           variant="outlined"
                         />
                       )}
+                    <IconButton
+                      size="small"
+                      onClick={handleDownloadResults}
+                      disabled={!displayResults.data?.length}
+                      title="Download results as JSON"
+                    >
+                      <DownloadIcon />
+                    </IconButton>
                     <IconButton
                       size="small"
                       onClick={() => setIsFullscreen(true)}
@@ -1528,12 +1556,22 @@ const MongoQueryDialog = () => {
               />
             )}
           </Box>
-          <IconButton
-            onClick={() => setIsFullscreen(false)}
-            sx={{ color: "text.secondary" }}
-          >
-            <CloseIcon />
-          </IconButton>
+          <Box sx={{ display: "flex", gap: 1 }}>
+            <IconButton
+              onClick={handleDownloadResults}
+              disabled={!displayResults.data?.length}
+              title="Download results as JSON"
+              sx={{ color: "text.secondary" }}
+            >
+              <DownloadIcon />
+            </IconButton>
+            <IconButton
+              onClick={() => setIsFullscreen(false)}
+              sx={{ color: "text.secondary" }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </Box>
         </DialogTitle>
 
         <DialogContent

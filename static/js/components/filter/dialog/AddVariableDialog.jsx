@@ -544,7 +544,7 @@ const AddVariableDialog = () => {
         }
       });
     }
-    console.log("fieldSuggestions", fieldSuggestions);
+
     // Combine suggestions with intelligent ordering
     // Prioritize array subfield suggestions, then regular fields, operators, then variables
     return [
