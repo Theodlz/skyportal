@@ -13,9 +13,16 @@ import {
   Paper,
   Collapse,
 } from "@mui/material";
-import { Add as AddIcon, Delete as DeleteIcon, ExpandMore as ExpandMoreIcon } from "@mui/icons-material";
+import {
+  Add as AddIcon,
+  Delete as DeleteIcon,
+  ExpandMore as ExpandMoreIcon,
+} from "@mui/icons-material";
 import { v4 as uuidv4 } from "uuid";
-import { useCurrentBuilder, useFilterBuilder } from "../../../hooks/useContexts";
+import {
+  useCurrentBuilder,
+  useFilterBuilder,
+} from "../../../hooks/useContexts";
 import BlockComponent from "../block/BlockComponent";
 import AutocompleteFields from "../condition/AutocompleteFields";
 import { getFieldOptionsWithVariable } from "../../../utils/conditionHelpers";
@@ -41,15 +48,17 @@ const defaultBlock = () => ({
 
 const AddSwitchDialog = () => {
   const dispatch = useDispatch();
-  const { 
-    switchDialog, 
-    closeSwitchDialog, 
-    setCustomSwitchCases, 
+  const {
+    switchDialog,
+    closeSwitchDialog,
+    setCustomSwitchCases,
     setFilters,
     fieldOptions: fieldOptionsList,
   } = useFilterBuilder();
-  const { customVariables, customListVariables, customSwitchCases } = useCurrentBuilder();
+  const { customVariables, customListVariables, customSwitchCases } =
+    useCurrentBuilder();
   const [switchName, setSwitchName] = useState("");
+  const [targetField, setTargetField] = useState("");
   const [nameError, setNameError] = useState("");
   const [switchCases, setSwitchCases] = useState([
     { id: uuidv4(), block: defaultBlock(), then: "" },
@@ -57,7 +66,7 @@ const AddSwitchDialog = () => {
   const [defaultValue, setDefaultValue] = useState("");
   const [collapsedCases, setCollapsedCases] = useState(new Set());
 
-  // Get all field options including variables
+  // Get all field options including variables for the target field selector
   const allFieldOptions = getFieldOptionsWithVariable(
     fieldOptionsList || [],
     customVariables || [],
@@ -71,6 +80,7 @@ const AddSwitchDialog = () => {
     if (switchDialog.open) {
       // Reset form when dialog opens
       setSwitchName("");
+      setTargetField("");
       setNameError("");
       setSwitchCases([{ id: uuidv4(), block: defaultBlock(), then: "" }]);
       setDefaultValue("");
@@ -111,17 +121,13 @@ const AddSwitchDialog = () => {
 
   const handleBlockChange = (caseId, newBlock) => {
     setSwitchCases(
-      switchCases.map((c) =>
-        c.id === caseId ? { ...c, block: newBlock } : c,
-      ),
+      switchCases.map((c) => (c.id === caseId ? { ...c, block: newBlock } : c)),
     );
   };
 
   const handleThenChange = (caseId, thenValue) => {
     setSwitchCases(
-      switchCases.map((c) =>
-        c.id === caseId ? { ...c, then: thenValue } : c,
-      ),
+      switchCases.map((c) => (c.id === caseId ? { ...c, then: thenValue } : c)),
     );
   };
 
@@ -163,6 +169,7 @@ const AddSwitchDialog = () => {
         })),
         default: defaultValue,
       },
+      targetField: targetField || null, // Store target field if specified
     };
 
     // Save to database
@@ -189,11 +196,12 @@ const AddSwitchDialog = () => {
     const newCondition = {
       id: uuidv4(),
       category: "condition",
-      field: switchName.trim(),
+      field: targetField || switchName.trim(), // Use target field if specified, otherwise use switch name
       operator: "$switch",
       value: switchCondition.value,
       createdAt: Date.now(),
       isSwitchVariable: true,
+      targetField: targetField || null,
     };
 
     // Helper function to add condition to block
@@ -219,19 +227,48 @@ const AddSwitchDialog = () => {
   };
 
   return (
-    <Dialog open={switchDialog.open} onClose={closeSwitchDialog} maxWidth="lg" fullWidth>
+    <Dialog
+      open={switchDialog.open}
+      onClose={closeSwitchDialog}
+      maxWidth="lg"
+      fullWidth
+    >
       <DialogTitle>Create Switch Condition</DialogTitle>
       <DialogContent>
         <Box sx={{ mb: 3, mt: 1 }}>
-          <TextField
-            fullWidth
-            label="Switch Name"
-            value={switchName}
-            onChange={handleNameChange}
-            error={!!nameError}
-            helperText={nameError || "Enter a unique name for this switch"}
-            required
-          />
+          <Box sx={{ mb: 2 }}>
+            <Typography
+              variant="caption"
+              sx={{ display: "block", mb: 0.5, fontWeight: 500 }}
+            >
+              SWITCH NAME
+            </Typography>
+            <AutocompleteFields
+              fieldOptions={allFieldOptions}
+              value={targetField || ""}
+              onChange={(newValue) => {
+                setTargetField(newValue);
+                setSwitchName(newValue);
+                setNameError(validateName(newValue));
+              }}
+              conditionOrBlock={{ id: "switch-dialog-target-field" }}
+              side="right"
+              customVariables={customVariables || []}
+              customListVariables={customListVariables || []}
+              setOpenEquationIds={() => {}}
+              setSelectedChip={() => {}}
+              setEquationAnchor={() => {}}
+            />
+            {nameError && (
+              <Typography
+                variant="caption"
+                color="error"
+                sx={{ display: "block", mt: 0.5 }}
+              >
+                {nameError}
+              </Typography>
+            )}
+          </Box>
         </Box>
 
         {switchCases.map((caseItem, index) => (
@@ -309,8 +346,12 @@ const AddSwitchDialog = () => {
                   <AutocompleteFields
                     fieldOptions={allFieldOptions}
                     value={caseItem.then || ""}
-                    onChange={(newValue) => handleThenChange(caseItem.id, newValue)}
-                    conditionOrBlock={{ id: `switch-dialog-case-${index}-then` }}
+                    onChange={(newValue) =>
+                      handleThenChange(caseItem.id, newValue)
+                    }
+                    conditionOrBlock={{
+                      id: `switch-dialog-case-${index}-then`,
+                    }}
                     side="right"
                     customVariables={customVariables || []}
                     customListVariables={customListVariables || []}
@@ -324,11 +365,7 @@ const AddSwitchDialog = () => {
           </Paper>
         ))}
 
-        <Button
-          startIcon={<AddIcon />}
-          onClick={handleAddCase}
-          sx={{ mb: 2 }}
-        >
+        <Button startIcon={<AddIcon />} onClick={handleAddCase} sx={{ mb: 2 }}>
           Add Case
         </Button>
 

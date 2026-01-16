@@ -6,7 +6,10 @@ import {
   mongoOperatorLabels,
   flattenFieldOptions,
 } from "../../../constants/filterConstants";
-import { getOperatorsForField } from "../../../utils/conditionHelpers";
+import {
+  getOperatorsForField,
+  getFieldType,
+} from "../../../utils/conditionHelpers";
 import { useConditionContext } from "../../../hooks/useContexts";
 import TextField from "@mui/material/TextField";
 import Autocomplete from "@mui/material/Autocomplete";
@@ -101,25 +104,23 @@ const isBooleanField = (
   conditionOrBlock,
   customVariables,
   fieldOptionsList,
+  customSwitchCases = [],
 ) => {
   const schema = useSelector((state) => state.filter_modules?.schema);
   const fieldOptions = flattenFieldOptions(schema);
 
-  const fieldVar = customVariables?.find(
-    (v) => v.name === conditionOrBlock.field,
-  );
-  const fieldObjList = fieldOptionsList
-    ? fieldOptionsList.find((f) => f.label === conditionOrBlock.field)
-    : null;
-  const baseFieldOption = fieldOptions.find(
-    (f) => f.label === conditionOrBlock.field,
+  // Use getFieldType to properly check the type, including for switch cases
+  const fieldType = getFieldType(
+    conditionOrBlock.field,
+    customVariables,
+    schema,
+    fieldOptions,
+    fieldOptionsList,
+    [], // customListVariables - not needed for boolean check
+    customSwitchCases,
   );
 
-  return (
-    fieldVar?.type === "boolean" ||
-    fieldObjList?.type === "boolean" ||
-    baseFieldOption?.type === "boolean"
-  );
+  return fieldType === "boolean";
 };
 
 const OperatorSelector = ({
@@ -128,8 +129,12 @@ const OperatorSelector = ({
   operatorOptions,
   updateCondition,
 }) => {
-  const { customListVariables, customVariables, fieldOptionsList } =
-    useConditionContext();
+  const {
+    customListVariables,
+    customVariables,
+    fieldOptionsList,
+    customSwitchCases,
+  } = useConditionContext();
 
   // Check if this is a list variable
   const listVariable = customListVariables.find(
@@ -147,7 +152,14 @@ const OperatorSelector = ({
   }
 
   // Check if this is a boolean field - using the same logic as ValueInput
-  if (isBooleanField(conditionOrBlock, customVariables, fieldOptionsList)) {
+  if (
+    isBooleanField(
+      conditionOrBlock,
+      customVariables,
+      fieldOptionsList,
+      customSwitchCases,
+    )
+  ) {
     return (
       <BooleanFieldSwitch
         conditionOrBlock={conditionOrBlock}
@@ -270,6 +282,7 @@ const ListVariableOperator = ({
       fieldOptions,
       fieldOptionsList,
       customListVariables,
+      [], // customSwitchCases - empty array since list variables can't be switch cases
     );
 
     // Always include length operators for list variables

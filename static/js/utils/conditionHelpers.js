@@ -125,6 +125,118 @@ export const convertSchemaToFieldOptions = (schema) => {
   return schemaFieldOptions;
 };
 
+// Helper function to infer type from switch case outcomes
+const inferSwitchCaseType = (
+  switchCondition,
+  customVariables = [],
+  fieldOptionsList = [],
+  schema = null,
+  fallbackFieldOptions = [],
+) => {
+  if (!switchCondition || !switchCondition.value) {
+    return undefined;
+  }
+
+  const outcomes = [];
+
+  // Collect all possible outcome values (then values and default)
+  if (
+    switchCondition.value.cases &&
+    Array.isArray(switchCondition.value.cases)
+  ) {
+    switchCondition.value.cases.forEach((caseItem) => {
+      if (
+        caseItem.then !== undefined &&
+        caseItem.then !== null &&
+        caseItem.then !== ""
+      ) {
+        outcomes.push(caseItem.then);
+      }
+    });
+  }
+
+  if (
+    switchCondition.value.default !== undefined &&
+    switchCondition.value.default !== null &&
+    switchCondition.value.default !== ""
+  ) {
+    outcomes.push(switchCondition.value.default);
+  }
+
+  if (outcomes.length === 0) {
+    return "string"; // Default to string if no outcomes
+  }
+
+  // Check if all outcomes are references to fields or variables
+  let inferredType = undefined;
+
+  for (const outcome of outcomes) {
+    if (typeof outcome !== "string") {
+      // Non-string values - shouldn't happen but handle it
+      continue;
+    }
+
+    // Check if outcome is a variable
+    const variable = customVariables?.find((v) => v.name === outcome);
+    if (variable) {
+      if (!inferredType) {
+        inferredType = variable.type || "number";
+      } else if (inferredType !== (variable.type || "number")) {
+        // Mixed types - default to string
+        return "string";
+      }
+      continue;
+    }
+
+    // Check if outcome is a field by using getFieldType (more comprehensive than just checking fieldOptionsList)
+    const fieldType = getFieldType(
+      outcome,
+      customVariables,
+      schema,
+      fallbackFieldOptions,
+      fieldOptionsList,
+      [],
+      [],
+    );
+    if (fieldType) {
+      if (!inferredType) {
+        inferredType = fieldType;
+      } else if (inferredType !== fieldType) {
+        // Mixed types - default to string
+        return "string";
+      }
+      continue;
+    }
+
+    // If it's not a variable or field, check if it's a literal value
+    // Try to infer from literal values
+    if (!isNaN(outcome) && !isNaN(parseFloat(outcome))) {
+      // It's a number
+      if (!inferredType) {
+        inferredType = "number";
+      } else if (inferredType !== "number") {
+        return "string";
+      }
+    } else if (outcome === "true" || outcome === "false") {
+      // It's a boolean
+      if (!inferredType) {
+        inferredType = "boolean";
+      } else if (inferredType !== "boolean") {
+        return "string";
+      }
+    } else {
+      // It's a string
+      if (!inferredType) {
+        inferredType = "string";
+      } else if (inferredType !== "string") {
+        return "string";
+      }
+    }
+  }
+
+  return inferredType || "string";
+};
+
 // Helper functions for field type checking
 export const getFieldType = (
   field,
@@ -133,6 +245,7 @@ export const getFieldType = (
   fallbackFieldOptions,
   fieldOptionsList,
   customListVariables = [],
+  customSwitchCases = [],
 ) => {
   // First check custom variables and list variables - ensure they are arrays
   const safeCustomVariables = Array.isArray(customVariables)
@@ -141,22 +254,52 @@ export const getFieldType = (
   const safeCustomListVariables = Array.isArray(customListVariables)
     ? customListVariables
     : [];
+  const safeSwitchCases = Array.isArray(customSwitchCases)
+    ? customSwitchCases
+    : [];
 
   const fieldVar = safeCustomVariables.find((v) => v.name === field);
   const listVar = safeCustomListVariables.find((lv) => lv.name === field);
+  const switchCase = safeSwitchCases.find((sc) => sc.name === field);
   const fieldObjList = fieldOptionsList
     ? fieldOptionsList.find((f) => f.label === field)
     : null;
 
-  if (fieldVar?.type) return fieldVar.type;
-  if (listVar?.type) return listVar.type;
-  if (fieldObjList?.type) return fieldObjList.type;
+  if (fieldVar?.type) {
+    return fieldVar.type;
+  }
+  if (listVar?.type) {
+    return listVar.type;
+  }
+
+  // For switch cases, infer type from outcomes (the "then" values)
+  // The targetField is where the result is stored, not what determines the type
+  if (switchCase) {
+    const type = inferSwitchCaseType(
+      switchCase.switchCondition,
+      safeCustomVariables,
+      fieldOptionsList,
+      schema,
+      fallbackFieldOptions,
+    );
+    return type;
+  }
+
+  if (fieldObjList?.type) {
+    return fieldObjList.type;
+  }
+
+  // Early return if field is null/undefined
+  if (!field) {
+    return undefined;
+  }
 
   // Check for exact match first (backward compatibility)
   const safeFieldOptions = fallbackFieldOptions || [];
   const exactMatch = safeFieldOptions.find((f) => f.label === field);
-  if (exactMatch?.type) return exactMatch.type;
-
+  if (exactMatch?.type) {
+    return exactMatch.type;
+  }
   // Handle nested field paths (e.g., "Candidate.isdiffpos", "cross_matches.NED_BetaV3.z")
   const fieldParts = field.split(".");
 
@@ -260,10 +403,13 @@ export const transformEquationForDisplay = (equation, arrayCollection) => {
   if (!equation || !arrayCollection) {
     return equation;
   }
-  
+
   // Replace 'this.' with 'arrayCollection.' for better user understanding
   // Use regex to match 'this.' followed by a field name (letters, numbers, underscores)
-  return equation.replace(/\bthis\.([a-zA-Z_][a-zA-Z0-9_]*)/g, `${arrayCollection}.$1`);
+  return equation.replace(
+    /\bthis\.([a-zA-Z_][a-zA-Z0-9_]*)/g,
+    `${arrayCollection}.$1`,
+  );
 };
 
 export const isFieldType = (
@@ -274,6 +420,7 @@ export const isFieldType = (
   fallbackFieldOptions,
   fieldOptionsList,
   customListVariables = [],
+  customSwitchCases = [],
 ) => {
   return (
     getFieldType(
@@ -283,6 +430,7 @@ export const isFieldType = (
       fallbackFieldOptions,
       fieldOptionsList,
       customListVariables,
+      customSwitchCases,
     ) === type
   );
 };
@@ -295,6 +443,7 @@ export const getOperatorsForField = (
   fallbackFieldOptions,
   fieldOptionsList,
   customListVariables = [],
+  customSwitchCases = [],
 ) => {
   // Use getFieldType to determine the type, which handles nested fields properly
   const type = getFieldType(
@@ -304,6 +453,7 @@ export const getOperatorsForField = (
     fallbackFieldOptions,
     fieldOptionsList,
     customListVariables,
+    customSwitchCases,
   );
 
   // If we can't determine the type, return empty array
@@ -391,19 +541,34 @@ export const getFieldOptionsWithVariable = (
 
   // Filter switch cases to only show those created before current context
   const filteredSwitchCases = currentContextTime
-    ? customSwitchCases?.filter((sc) => !sc.createdAt || sc.createdAt < currentContextTime)
+    ? customSwitchCases?.filter(
+        (sc) => !sc.createdAt || sc.createdAt < currentContextTime,
+      )
     : customSwitchCases;
 
   const switchCaseOptions =
-    filteredSwitchCases?.map((sc) => ({
-      label: sc.name,
-      type: "switch_variable",
-      isSwitchCase: true,
-      isVariable: false,
-      isListVariable: false,
-      switchCondition: sc.switchCondition,
-      group: "Switch Cases",
-    })) || [];
+    filteredSwitchCases?.map((sc) => {
+      // Always infer type from switch case outcomes (the "then" values)
+      // regardless of whether it has a targetField or not
+      const inferredType =
+        inferSwitchCaseType(
+          sc.switchCondition,
+          customVariables,
+          fieldOptionsList,
+          null,
+          schemaFieldOptions,
+        ) || "string";
+
+      return {
+        label: sc.name,
+        type: inferredType,
+        isSwitchCase: true,
+        isVariable: false,
+        isListVariable: false,
+        switchCondition: sc.switchCondition,
+        group: "Switch Cases",
+      };
+    }) || [];
 
   const variableOptions =
     customVariables?.map((eq) => ({

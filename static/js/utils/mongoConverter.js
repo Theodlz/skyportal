@@ -489,10 +489,6 @@ const convertBlockToMongo = (
     return {};
   }
 
-  if (block.customBlockName && block.isTrue === false) {
-    return {};
-  }
-
   if (block.type === "condition" || block.category === "condition") {
     let condition;
     if (isInArrayFilter) {
@@ -574,15 +570,28 @@ const convertBlockToMongo = (
   }
 
   if (conditions.length === 1) {
-    return conditions[0];
+    const result = conditions[0];
+    // Apply NOT if isTrue is false
+    if (block.isTrue === false) {
+      return { $nor: [result] };
+    }
+    return result;
   }
 
   const logic = (block.logic || "and").toLowerCase();
+  let result;
   if (logic === "or") {
-    return { $or: conditions };
+    result = { $or: conditions };
   } else {
-    return { $and: conditions };
+    result = { $and: conditions };
   }
+
+  // Apply NOT if isTrue is false (for nested blocks or custom blocks)
+  if (block.isTrue === false) {
+    return { $nor: [result] };
+  }
+
+  return result;
 };
 
 const convertConditionToMongo = (
