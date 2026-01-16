@@ -41,40 +41,6 @@ export class RobustLatexToMongoConverter {
   }
 
   /**
-   * Clean LaTeX expression
-   * @private
-   */
-  _cleanExpression(expression) {
-    // First, handle fractions before other processing
-    let cleaned = this._convertFractions(expression);
-
-    // Handle LaTeX parentheses - convert \left( and \right) to regular parentheses
-    cleaned = cleaned
-      .replace(/\\left\(/g, "(") // Convert \left( to (
-      .replace(/\\right\)/g, ")") // Convert \right) to )
-      .replace(/\\left\[/g, "(") // Convert \left[ to (
-      .replace(/\\right\]/g, ")") // Convert \right] to )
-      .replace(/\\left\\\{/g, "(") // Convert \left\{ to (
-      .replace(/\\right\\\}/g, ")"); // Convert \right\} to )
-
-    // Then handle nested LaTeX absolute values by converting them to standard notation
-    // This handles nested cases like \left|\left|x\right|-y\right|
-    let prevCleaned;
-    do {
-      prevCleaned = cleaned;
-      // Use a more sophisticated regex to handle nested \left| \right| pairs
-      cleaned = this._replaceLatexAbsoluteValues(cleaned);
-    } while (cleaned !== prevCleaned);
-
-    return cleaned
-      .replace(/\s+/g, " ") // Normalize whitespace
-      .replace(/\\cdot/g, "*") // Convert \cdot to *
-      .replace(/\\times/g, "*") // Convert \times to *
-      .replace(/\\div/g, "/") // Convert \div to /
-      .trim();
-  }
-
-  /**
    * Convert LaTeX fractions to division operations
    * @private
    */
@@ -593,11 +559,12 @@ export class RobustLatexToMongoConverter {
       // Field conversion with array context awareness:
       // In array filter context: absolute document references stay as $field,
       // array-relative fields would be $$this.field (but we're processing absolute refs here)
-      return `$${trimmed}`;
+      // Wrap with $ifNull to handle null values gracefully in arithmetic operations
+      return { $ifNull: [`$${trimmed}`, 0] };
     }
 
-    // Fallback for unknown patterns
-    return `$${trimmed}`;
+    // Fallback for unknown patterns - also wrap with $ifNull
+    return { $ifNull: [`$${trimmed}`, 0] };
   }
 
   /**
