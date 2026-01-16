@@ -1806,7 +1806,7 @@ const BlockHeader = ({
                         if (blockToUpdate.id === block.id) {
                           return {
                             ...blockToUpdate,
-                            operator: "$" + e.target.value.toLowerCase(),
+                            operator: `$${e.target.value.toLowerCase()}`,
                             logic: e.target.value,
                           };
                         }
@@ -1829,7 +1829,7 @@ const BlockHeader = ({
                     // Fallback to context update
                     updateBlockLogic(
                       block.id,
-                      "$" + e.target.value.toLowerCase(),
+                      `$${e.target.value.toLowerCase()}`,
                     );
                   }
                 }}
@@ -2418,7 +2418,7 @@ const ConditionComponentInner = ({
       newField,
       customVariables,
       schema,
-      fieldOptions, // fallbackFieldOptions
+      fieldOptions,
       fieldOptionsList,
       customListVariables,
       customSwitchCases,
