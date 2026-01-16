@@ -1041,6 +1041,7 @@ const ListVariableInput = ({
     customVariables,
     customListVariables,
     fieldOptionsList,
+    customSwitchCases,
     isListDialogOpen,
     setListConditionDialog,
   } = useConditionContext();
