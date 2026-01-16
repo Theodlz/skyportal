@@ -58,7 +58,7 @@ const escapeLatexForDisplay = (text) => {
   if (!text) return text;
   // Escape underscores to prevent subscript rendering
   // Replace _ with \_ to show it as literal underscore
-  return text.replace(/_/g, '\\_');
+  return text.replace(/_/g, "\\_");
 };
 
 const useBlockState = (block, isRoot) => {
@@ -143,15 +143,17 @@ const CustomAddElement = ({
               newItem = {
                 ...defaultCondition(),
                 operator: "$switch",
-                value: { 
-                  cases: [{ 
-                    block: {
-                      ...defaultBlock(),
-                      operator: "$and",
+                value: {
+                  cases: [
+                    {
+                      block: {
+                        ...defaultBlock(),
+                        operator: "$and",
+                      },
+                      then: "",
                     },
-                    then: "" 
-                  }], 
-                  default: "" 
+                  ],
+                  default: "",
                 },
               };
             } else {
@@ -821,8 +823,12 @@ const ValueInput = ({
   const schema = useSelector((state) => state.filter_modules?.schema);
   const fieldOptions = flattenFieldOptions(schema);
 
-  const { customListVariables, customVariables, customSwitchCases, fieldOptionsList } =
-    useConditionContext();
+  const {
+    customListVariables,
+    customVariables,
+    customSwitchCases,
+    fieldOptionsList,
+  } = useConditionContext();
 
   // Check conditions that don't require context first
   if (shouldSkipValueInput(conditionOrBlock)) {
@@ -1216,7 +1222,14 @@ ListVariableInput.propTypes = {
   setEquationAnchor: PropTypes.func,
 };
 
-const ConditionalValueInput = ({ conditionOrBlock, block, updateCondition, defaultCondition, defaultBlock, fieldOptionsList }) => {
+const ConditionalValueInput = ({
+  conditionOrBlock,
+  block,
+  updateCondition,
+  defaultCondition,
+  defaultBlock,
+  fieldOptionsList,
+}) => {
   const handleSwitchDataChange = (newSwitchData) => {
     updateCondition(block.id, conditionOrBlock.id, "value", newSwitchData);
   };
@@ -1387,17 +1400,17 @@ const BlockHeader = ({
   // Keyboard shortcut to add a condition
   useEffect(() => {
     const handleKeyDown = (e) => {
-      const isShortcut = e.metaKey && e.shiftKey && e.key === 'C';
-      
+      const isShortcut = e.metaKey && e.shiftKey && e.key === "C";
+
       if (!isShortcut) return;
 
       // // Don't trigger if user is typing in an input, textarea, or contenteditable
       // const activeElement = document.activeElement;
-      // const isInputField = 
+      // const isInputField =
       //   activeElement.tagName === 'INPUT' ||
       //   activeElement.tagName === 'TEXTAREA' ||
       //   activeElement.isContentEditable;
-      
+
       // if (isInputField) return;
 
       // Prevent default browser behavior
@@ -1430,8 +1443,8 @@ const BlockHeader = ({
       });
     };
 
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, [block.id, createDefaultCondition, setFilters]);
 
   // Create a wrapper for removeBlock that works with both local and context filters
@@ -1783,7 +1796,9 @@ const BlockHeader = ({
           <>
             <FormControl size="small" sx={{ minWidth: 80 }}>
               <Select
-                value={(block?.operator || block?.logic || "$and").replace("$", "").toLowerCase()}
+                value={(block?.operator || block?.logic || "$and")
+                  .replace("$", "")
+                  .toLowerCase()}
                 onChange={(e) => {
                   if (localFilters && setLocalFilters) {
                     const updatedFilters = localFilters.map((currentBlock) => {
@@ -1812,7 +1827,10 @@ const BlockHeader = ({
                     setLocalFilters(updatedFilters);
                   } else {
                     // Fallback to context update
-                    updateBlockLogic(block.id, "$" + e.target.value.toLowerCase());
+                    updateBlockLogic(
+                      block.id,
+                      "$" + e.target.value.toLowerCase(),
+                    );
                   }
                 }}
               >
@@ -1947,10 +1965,9 @@ const BlockHeader = ({
             }}
           >
             <Switch
-              checked={block?.blockValue !== false}
+              checked={block?.isTrue !== false}
               onChange={(e) => {
-                // For nested custom blocks, don't add isTrue property
-                // Just toggle the boolean value without making it a root custom block
+                // Toggle isTrue to negate the entire block's logic
                 setFilters((prevFilters) => {
                   const updateBlock = (b) => {
                     if (b.id !== block.id) {
@@ -1965,16 +1982,15 @@ const BlockHeader = ({
                           : [],
                       };
                     }
-                    // For nested custom blocks, use a different property name
-                    // to avoid triggering root custom block behavior
-                    return { ...b, blockValue: e.target.checked };
+                    // Use isTrue property to negate block logic (NOT operation)
+                    return { ...b, isTrue: e.target.checked };
                   };
                   return prevFilters.map(updateBlock);
                 });
               }}
               color="default"
               size="medium"
-              inputProps={{ "aria-label": "Nested custom block boolean value" }}
+              inputProps={{ "aria-label": "Negate block logic" }}
             />
             <Box
               component="span"
@@ -2350,18 +2366,19 @@ const ConditionComponentInner = ({
     customVariables,
     customListVariables,
     customSwitchCases || [],
-    fieldOptions, // Pass schema field options
-    conditionOrBlock.createdAt, // Filter switch cases created after this condition
+    fieldOptions,
+    conditionOrBlock.createdAt,
   );
-  
+
   const operatorOptions = conditionOrBlock.field
     ? getOperatorsForField(
         conditionOrBlock.field,
         customVariables,
         schema,
-        fieldOptions, // fallbackFieldOptions
+        fieldOptions,
         fieldOptionsList,
         customListVariables,
+        customSwitchCases,
       )
     : [];
 
@@ -2404,15 +2421,17 @@ const ConditionComponentInner = ({
       fieldOptions, // fallbackFieldOptions
       fieldOptionsList,
       customListVariables,
+      customSwitchCases,
     );
     const isBooleanField = isFieldType(
       newField,
       "boolean",
       customVariables,
       schema,
-      fieldOptions, // This is the local variable, not the import
+      fieldOptions,
       fieldOptionsList,
       customListVariables,
+      customSwitchCases,
     );
 
     // Check if this is a list variable and get its operator
@@ -2531,7 +2550,6 @@ const ConditionComponentInner = ({
 
         {/* Main switch content */}
         <Box sx={{ flex: 1 }}>
-
           {/* Switch Logic Builder */}
           <ConditionalValueInput
             conditionOrBlock={conditionOrBlock}
@@ -2832,9 +2850,9 @@ const BlockComponent = ({
       sx={{
         display: "flex",
         flexDirection: "column",
-        gap: isStickyHeader ? 0 : (blockState.isCollapsed ? 0 : 1),
+        gap: isStickyHeader ? 0 : blockState.isCollapsed ? 0 : 1,
         p: blockState.isCollapsed ? 1 : 2,
-        pt: isStickyHeader ? 0 : (blockState.isCollapsed ? 1 : 2), 
+        pt: isStickyHeader ? 0 : blockState.isCollapsed ? 1 : 2,
         borderColor: "grey.300",
         borderRadius: 2,
       }}
