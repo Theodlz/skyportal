@@ -223,17 +223,6 @@ const AddVariableDialog = () => {
       lastWord.length > 0 &&
       (afterCursor.length === 0 || /^[\s+\-*/()=<>!&|,]/.test(afterCursor));
 
-    // Only skip suggestions if we're at the end AND it looks like a complete field path
-    if (isAtEndOfCompleteField && afterCursor.length === 0) {
-      // Check if this looks like a complete field path (contains dots or matches known complete field pattern)
-      if (
-        lastWord.includes(".") ||
-        lastWord.match(/^(this|candidate|[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_])/)
-      ) {
-        return [];
-      }
-    }
-
     const suggestions = [];
 
     // Helper function to check if adding a suggestion would be meaningful
@@ -418,7 +407,12 @@ const AddVariableDialog = () => {
 
           // If it's a record type, suggest its nested fields (except booleans and arrays)
           // This function recursively processes nested records
-          const processNestedRecord = (recordField, parentPath, depth = 0) => {
+          const processNestedRecord = (
+            recordField,
+            parentPath,
+            depth = 0,
+            bandMultiplier = null,
+          ) => {
             if (depth > 5) return; // Prevent infinite recursion
 
             // Get the record type - handle both direct records and union types
@@ -436,42 +430,133 @@ const AddVariableDialog = () => {
             }
 
             if (recordType && recordType.fields) {
-              recordType.fields.forEach((nestedField) => {
-                const nestedFieldType = extractFieldType(nestedField.type);
-                const nestedPath = `${parentPath}.${nestedField.name}`;
+              // Check if this looks like a band-specific container (photstats)
+              const isBandContainer =
+                recordField.name === "photstats" ||
+                parentPath.endsWith(".photstats");
 
-                // Numeric types we want to include
-                const numericTypes = ["double", "float", "int", "long"];
-                const isNumericField = numericTypes.includes(nestedFieldType);
+              // Common photometric bands
+              const commonBands = ["g", "r", "i", "z", "u", "y"];
 
-                // If it's a numeric or string field (not boolean, not array), suggest it
-                if (
-                  isNumericField ||
-                  (nestedFieldType === "string" &&
-                    !["boolean", "array"].includes(nestedFieldType))
-                ) {
-                  if (
-                    nestedPath.toLowerCase().includes(lastWord.toLowerCase()) &&
-                    wouldChangeMeaningfully(nestedPath)
+              // Helper to find a named type definition within the same record's fields
+              const resolveNamedTypeLocally = (typeName) => {
+                for (const siblingField of recordType.fields) {
+                  // Check if this field defines the named type we're looking for
+                  if (Array.isArray(siblingField.type)) {
+                    for (const unionType of siblingField.type) {
+                      if (
+                        typeof unionType === "object" &&
+                        unionType.type === "record" &&
+                        unionType.name === typeName
+                      ) {
+                        return unionType;
+                      }
+                    }
+                  } else if (
+                    typeof siblingField.type === "object" &&
+                    siblingField.type.type === "record" &&
+                    siblingField.type.name === typeName
                   ) {
-                    fieldSuggestions.push({
-                      type: "field",
-                      display: nestedField.name,
-                      fullPath: nestedPath,
-                      collection: field.name,
-                      description: `${`${parentPath.replace(
-                        /^[^.]+\.?/,
-                        "",
-                      )} → ${nestedField.name}`.replace(
-                        /^→ /,
-                        "",
-                      )} (${nestedFieldType})`,
-                    });
+                    return siblingField.type;
                   }
                 }
-                // If it's a nested record, recurse
-                else if (nestedFieldType === "record") {
-                  processNestedRecord(nestedField, nestedPath, depth + 1);
+                // Fall back to global resolution
+                return resolveNamedType(typeName, activeSchema);
+              };
+
+              recordType.fields.forEach((nestedField) => {
+                // Try to extract field type and resolve named type references
+                let nestedFieldType = extractFieldType(nestedField.type);
+                let actualNestedFieldObject = nestedField;
+
+                // If extractFieldType returns a string that's not a primitive type,
+                // it might be a named type reference - try to resolve it
+                const primitiveTypes = [
+                  "double",
+                  "float",
+                  "int",
+                  "long",
+                  "string",
+                  "boolean",
+                  "array",
+                  "record",
+                  "null",
+                ];
+                if (
+                  typeof nestedFieldType === "string" &&
+                  !primitiveTypes.includes(nestedFieldType)
+                ) {
+                  const resolved = resolveNamedTypeLocally(nestedFieldType);
+                  if (resolved && resolved.type === "record") {
+                    nestedFieldType = "record";
+                    // Create a synthetic field object with the resolved type
+                    actualNestedFieldObject = {
+                      ...nestedField,
+                      type: resolved,
+                    };
+                  }
+                }
+
+                // If this is a band container and the field is a single letter that could be a band
+                const isBandField =
+                  isBandContainer &&
+                  nestedField.name.length === 1 &&
+                  nestedFieldType === "record";
+
+                if (isBandField) {
+                  // Expand this to all common bands
+                  commonBands.forEach((band) => {
+                    const bandPath = `${parentPath}.${band}`;
+                    // Recurse into the band structure for each band
+                    processNestedRecord(
+                      actualNestedFieldObject,
+                      bandPath,
+                      depth + 1,
+                      band,
+                    );
+                  });
+                } else {
+                  const nestedPath = `${parentPath}.${nestedField.name}`;
+
+                  // Numeric types we want to include
+                  const numericTypes = ["double", "float", "int", "long"];
+                  const isNumericField = numericTypes.includes(nestedFieldType);
+
+                  // If it's a numeric or string field (not boolean, not array), suggest it
+                  if (
+                    isNumericField ||
+                    (nestedFieldType === "string" &&
+                      !["boolean", "array"].includes(nestedFieldType))
+                  ) {
+                    if (
+                      nestedPath
+                        .toLowerCase()
+                        .includes(lastWord.toLowerCase()) &&
+                      wouldChangeMeaningfully(nestedPath)
+                    ) {
+                      fieldSuggestions.push({
+                        type: "field",
+                        display: nestedField.name,
+                        fullPath: nestedPath,
+                        collection: field.name,
+                        description: `${`${parentPath.replace(
+                          /^[^.]+\.?/,
+                          "",
+                        )} → ${nestedField.name}`.replace(
+                          /^→ /,
+                          "",
+                        )} (${nestedFieldType})`,
+                      });
+                    }
+                  }
+                  // If it's a nested record, recurse (but don't add as suggestion)
+                  else if (nestedFieldType === "record") {
+                    processNestedRecord(
+                      actualNestedFieldObject,
+                      nestedPath,
+                      depth + 1,
+                    );
+                  }
                 }
               });
             }
@@ -546,10 +631,10 @@ const AddVariableDialog = () => {
     }
 
     // Combine suggestions with intelligent ordering
-    // Prioritize array subfield suggestions, then regular fields, operators, then variables
+    // Prioritize regular fields, then array subfield suggestions, operators, then variables
     return [
-      ...thisFieldSuggestions,
       ...fieldSuggestions,
+      ...thisFieldSuggestions,
       ...operatorSuggestions,
       ...variableSuggestions,
     ];
