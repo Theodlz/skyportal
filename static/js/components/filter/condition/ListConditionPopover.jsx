@@ -147,7 +147,9 @@ const ListConditionPopover = ({
     // Priority 2.5: Check for direct aggregation operator with subField in conditionOrBlock
     if (
       conditionOrBlock.operator &&
-      ["$min", "$max", "$avg", "$sum"].includes(conditionOrBlock.operator)
+      ["$min", "$max", "$avg", "$sum", "$count"].includes(
+        conditionOrBlock.operator,
+      )
     ) {
       return renderAggregationDisplay(conditionOrBlock);
     }
@@ -202,7 +204,7 @@ const ListConditionPopover = ({
     const canEdit =
       listVar.listCondition.value &&
       typeof listVar.listCondition.value === "object" &&
-      !["$min", "$max", "$avg", "$sum"].includes(
+      !["$min", "$max", "$avg", "$sum", "$count"].includes(
         listVar.listCondition.operator,
       );
 
@@ -373,7 +375,7 @@ const ListConditionPopover = ({
             />
           ) : listVar.listCondition.subField ||
             (listVar.listCondition.operator &&
-              ["$min", "$max", "$avg", "$sum"].includes(
+              ["$min", "$max", "$avg", "$sum", "$count"].includes(
                 listVar.listCondition.operator,
               )) ? (
             renderAggregationDisplay(listVar.listCondition)
@@ -401,7 +403,44 @@ const ListConditionPopover = ({
       (listCondition.value && listCondition.value.subField) ||
       "";
 
-    if (!operator || !arrayField || !subField) {
+    // $count doesn't require a subField
+    if (!operator || !arrayField) {
+      return (
+        <div style={{ fontSize: 14, color: "#6b7280", fontStyle: "italic" }}>
+          Incomplete aggregation information available.
+        </div>
+      );
+    }
+
+    // For $count operator, display without subField
+    if (operator === "$count") {
+      return (
+        <div>
+          <div
+            style={{
+              padding: "12px 16px",
+              backgroundColor: "#f0fdf4",
+              borderRadius: 8,
+              fontSize: 16,
+              color: "#166534",
+              border: "1px solid #bbf7d0",
+              fontWeight: 600,
+              fontFamily: "monospace",
+              marginBottom: 12,
+            }}
+          >
+            COUNT({arrayField})
+          </div>
+          <div style={{ fontSize: 14, color: "#6b7280" }}>
+            This aggregation operation counts the number of elements in the "
+            {arrayField}" array.
+          </div>
+        </div>
+      );
+    }
+
+    // Other operators require subField
+    if (!subField) {
       return (
         <div style={{ fontSize: 14, color: "#6b7280", fontStyle: "italic" }}>
           Incomplete aggregation information available.

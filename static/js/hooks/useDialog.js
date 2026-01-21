@@ -121,6 +121,7 @@ export const useListConditionDialog = (
     { value: "$max", label: "Maximum Value" },
     { value: "$avg", label: "Average Value" },
     { value: "$sum", label: "Sum of Values" },
+    { value: "$count", label: "Count Elements" },
   ];
 
   // Find condition id in filters to retrieve the field name and operator
@@ -278,12 +279,16 @@ export const useListConditionForm = (
     ...(fieldOptions || []).filter(
       (field) => field.type === "array" || field.isExpandableArray,
     ),
-    ...customListVariables.map((lv) => ({
-      label: lv.name,
-      type: "array_variable",
-      isListVariable: true,
-      isDbVariable: true, // All list variables from customListVariables are database variables
-    })),
+    // Only include list variables that are actually saved (exist in customListVariables)
+    // This prevents using undefined or circular list variables
+    ...customListVariables
+      .filter((lv) => lv.name && lv.listCondition) // Only include properly defined list variables
+      .map((lv) => ({
+        label: lv.name,
+        type: "array_variable",
+        isListVariable: true,
+        isDbVariable: true, // All list variables from customListVariables are database variables
+      })),
     // Include switch cases where all outcomes are arrays
     ...(customSwitchCases || [])
       .filter((sc) => {

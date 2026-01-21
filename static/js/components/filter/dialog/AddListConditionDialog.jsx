@@ -244,6 +244,7 @@ const ListOperatorSelector = ({
       $max: "Returns the maximum value from the array elements",
       $avg: "Returns the average value from the array elements",
       $sum: "Returns the sum of all array elements",
+      $count: "Returns the number of elements in the array",
     };
     return descriptions[operator] || "";
   };
@@ -538,6 +539,22 @@ const AddListConditionDialog = () => {
     if (validationError) {
       alert(validationError);
       return;
+    }
+
+    // Check if the selected base field is a list variable that must be defined
+    const selectedFieldOption = form.availableArrayFields.find(
+      (field) => field.label === dialog.listFieldName,
+    );
+    if (selectedFieldOption?.isListVariable) {
+      const baseListVariable = customListVariables.find(
+        (lv) => lv.name === dialog.listFieldName,
+      );
+      if (!baseListVariable || !baseListVariable.listCondition) {
+        alert(
+          `The list variable "${dialog.listFieldName}" must be defined before it can be used. Please save it first.`,
+        );
+        return;
+      }
     }
 
     // Check if an arithmetic variable with the same name already exists

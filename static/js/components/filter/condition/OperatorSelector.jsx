@@ -220,8 +220,8 @@ const ListVariableOperator = ({
     const baseOperators = ["$exists", "$isNumber"];
     const lengthOperators = ["$lengthGt", "$lengthLt"];
 
-    // If the list variable was created with $min, $max, $avg, or $sum
-    if (["$min", "$max", "$avg", "$sum"].includes(listOperator)) {
+    // If the list variable was created with $min, $max, $avg, $sum, or $count (all return numbers)
+    if (["$min", "$max", "$avg", "$sum", "$count"].includes(listOperator)) {
       return [
         "$eq",
         "$ne",

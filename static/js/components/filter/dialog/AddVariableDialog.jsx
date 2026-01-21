@@ -607,7 +607,7 @@ const AddVariableDialog = () => {
 
     // List variable suggestions (only numerical aggregation operators) - ADD LAST
     if (customListVariables && Array.isArray(customListVariables)) {
-      const numericalOperators = ["$min", "$max", "$avg", "$sum"];
+      const numericalOperators = ["$min", "$max", "$avg", "$sum", "$count"];
       customListVariables.forEach((listVar) => {
         if (
           listVar.name &&
