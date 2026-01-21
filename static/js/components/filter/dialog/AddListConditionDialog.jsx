@@ -593,6 +593,24 @@ const AddListConditionDialog = () => {
       value: operatorNeedsConditions ? dialog.localFilters[0] : null,
       subField: operatorNeedsSubField ? form.selectedSubField : null,
       subFieldOptions: (() => {
+        // First check if the array field is a list variable
+        const existingListVar = customListVariables.find(
+          (lv) => lv.name === dialog.listFieldName,
+        );
+        if (existingListVar && existingListVar.listCondition?.subFieldOptions) {
+          // Use subFieldOptions from the existing list variable, but update group names
+          // to match the NEW list variable name (not the source)
+          const newListVarName = form.conditionName.trim();
+          return existingListVar.listCondition.subFieldOptions.map((opt) => ({
+            ...opt,
+            group: opt.group ? newListVarName : undefined,
+            // Update label to reference the new list variable instead of original field
+            label: opt.label.includes(".")
+              ? opt.label.replace(/^[^.]+/, newListVarName)
+              : opt.label,
+          }));
+        }
+
         // Use the same comprehensive field options that were used in the dialog
         if (operatorNeedsConditions) {
           const arrayField = fieldOptions.find(
@@ -616,7 +634,7 @@ const AddListConditionDialog = () => {
             return [...fieldOptions, ...subFieldOptionsConsistent];
           }
         }
-        // Fall back to the original subFieldOptions
+        // Fall back to the original subFieldOptions from dialog
         return dialog.subFieldOptions;
       })(),
       name: form.conditionName.trim(),

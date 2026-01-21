@@ -198,8 +198,18 @@ export const useListConditionDialog = (
       (lv) => lv.name === fieldLabel,
     );
     if (listVariable && listVariable.listCondition?.subFieldOptions) {
-      // Use sub-field options from the list variable
-      setSubFieldOptions(listVariable.listCondition.subFieldOptions);
+      // Use sub-field options from the list variable, but update group names
+      // to match this list variable's name
+      const updatedSubFieldOptions =
+        listVariable.listCondition.subFieldOptions.map((opt) => ({
+          ...opt,
+          group: opt.group ? fieldLabel : undefined,
+          // Update label to reference this list variable
+          label: opt.label.includes(".")
+            ? opt.label.replace(/^[^.]+/, fieldLabel)
+            : opt.label,
+        }));
+      setSubFieldOptions(updatedSubFieldOptions);
     } else {
       // Use regular array field sub-options
       const options = getArrayFieldSubOptions(fieldLabel, schema);
