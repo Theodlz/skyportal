@@ -208,6 +208,32 @@ const ListConditionPopover = ({
       return operatorLabels[operator] || operator;
     };
 
+    // Get the output type for a list operator
+    const getOperatorOutputType = (operator) => {
+      // Array-returning operators
+      if (
+        ["$anyElementTrue", "$allElementsTrue", "$filter"].includes(operator)
+      ) {
+        return "array";
+      }
+      // Number-returning operators (excluding $map which we don't specify)
+      if (
+        [
+          "$min",
+          "$max",
+          "$avg",
+          "$sum",
+          "$count",
+          "$stdDevPop",
+          "$median",
+        ].includes(operator)
+      ) {
+        return "number";
+      }
+      // For $map and others, return null (don't display type)
+      return null;
+    };
+
     // Determine if this list variable can be edited (has conditions to edit)
     const canEdit =
       listVar.listCondition.value &&
@@ -317,10 +343,32 @@ const ListConditionPopover = ({
               border: "1px solid #bae6fd",
               fontWeight: 500,
               marginBottom: 4,
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
             }}
           >
-            <span style={{ fontWeight: 600 }}>Operator:</span>{" "}
-            {getOperatorLabel(listVar.listCondition.operator)}
+            <div>
+              <span style={{ fontWeight: 600 }}>Operator:</span>{" "}
+              {getOperatorLabel(listVar.listCondition.operator)}
+            </div>
+            {getOperatorOutputType(listVar.listCondition.operator) && (
+              <div
+                style={{
+                  padding: "4px 10px",
+                  backgroundColor: "#dbeafe",
+                  borderRadius: 4,
+                  fontSize: 12,
+                  color: "#1e40af",
+                  fontWeight: 600,
+                  border: "1px solid #93c5fd",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.5px",
+                }}
+              >
+                → {getOperatorOutputType(listVar.listCondition.operator)}
+              </div>
+            )}
           </div>
         )}
 

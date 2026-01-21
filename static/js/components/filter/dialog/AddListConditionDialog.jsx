@@ -257,6 +257,29 @@ const ListOperatorSelector = ({
     return descriptions[operator] || "";
   };
 
+  const getOperatorOutputType = (operator) => {
+    // Array-returning operators
+    if (["$anyElementTrue", "$allElementsTrue", "$filter"].includes(operator)) {
+      return "array";
+    }
+    // Number-returning operators (excluding $map which we don't specify)
+    if (
+      [
+        "$min",
+        "$max",
+        "$avg",
+        "$sum",
+        "$count",
+        "$stdDevPop",
+        "$median",
+      ].includes(operator)
+    ) {
+      return "number";
+    }
+    // For $map and others, return null (don't display type)
+    return null;
+  };
+
   return (
     <Box sx={{ mb: 2 }}>
       <FormControl fullWidth variant="outlined">
@@ -268,7 +291,36 @@ const ListOperatorSelector = ({
         >
           {operators?.map((op) => (
             <MenuItem key={op.value} value={op.value}>
-              {op.label}
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  width: "100%",
+                }}
+              >
+                <span>{op.label}</span>
+                {getOperatorOutputType(op.value) && (
+                  <Box
+                    component="span"
+                    sx={{
+                      ml: "auto",
+                      px: 1,
+                      py: 0.25,
+                      fontSize: "0.7rem",
+                      fontWeight: 600,
+                      color: "#1e40af",
+                      backgroundColor: "#dbeafe",
+                      border: "1px solid #93c5fd",
+                      borderRadius: 1,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                    }}
+                  >
+                    → {getOperatorOutputType(op.value)}
+                  </Box>
+                )}
+              </Box>
             </MenuItem>
           )) || []}
         </Select>
