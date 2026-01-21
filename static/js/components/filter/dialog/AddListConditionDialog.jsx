@@ -150,8 +150,8 @@ const ArrayFieldSelector = ({
   return (
     <Box sx={{ mb: 2 }}>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Select an array field or existing list variable to create conditions
-        for:
+        Select an array field, existing list variable, or switch case with array
+        outcomes to create conditions for:
       </Typography>
 
       <Autocomplete
@@ -187,6 +187,11 @@ const ArrayFieldSelector = ({
                 {option.isDbVariable && (
                   <div style={{ fontSize: "0.8em", color: "#666" }}>
                     Database List Variable
+                  </div>
+                )}
+                {option.isSwitchCase && (
+                  <div style={{ fontSize: "0.8em", color: "#666" }}>
+                    Switch Case (Array Outcomes)
                   </div>
                 )}
               </div>
@@ -445,12 +450,17 @@ const AddListConditionDialog = () => {
     setCustomListVariables,
     customListVariables,
     customVariables,
+    customSwitchCases,
     localFiltersUpdater,
     fieldOptions, // Get fieldOptions from context instead of computing it here
   } = useCurrentBuilder();
 
   // Use our custom hooks
-  const form = useListConditionForm(fieldOptions, customListVariables);
+  const form = useListConditionForm(
+    fieldOptions,
+    customListVariables,
+    customSwitchCases,
+  );
 
   const dialog = useListConditionDialog(
     listConditionDialog,

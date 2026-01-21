@@ -286,7 +286,6 @@ export const convertToMongoAggregation = (
         });
         if (deps.listVariables) {
           deps.listVariables.forEach((listVarName) => {
-            console.log("usedFields.listVariables.add", usedFields);
             usedFields.listVariables.push(listVarName);
           });
         }
@@ -996,6 +995,7 @@ const convertConditionToMongo = (
                   (f &&
                     (f.value === caseItem.then ||
                       f.name === caseItem.then ||
+                      f.label === caseItem.then ||
                       f.field === caseItem.then)),
               );
 
@@ -1063,6 +1063,7 @@ const convertConditionToMongo = (
                 (f &&
                   (f.value === value.default ||
                     f.name === value.default ||
+                    f.label === value.default ||
                     f.field === value.default)),
             );
 
@@ -1486,6 +1487,7 @@ const convertConditionToProjectExpr = (
                   (f &&
                     (f.value === caseItem.then ||
                       f.name === caseItem.then ||
+                      f.label === caseItem.then ||
                       f.field === caseItem.then)),
               );
 
@@ -1553,6 +1555,7 @@ const convertConditionToProjectExpr = (
                 (f &&
                   (f.value === value.default ||
                     f.name === value.default ||
+                    f.label === value.default ||
                     f.field === value.default)),
             );
 
@@ -1958,6 +1961,7 @@ const convertConditionToMongoExpr = (
                   (f &&
                     (f.value === caseItem.then ||
                       f.name === caseItem.then ||
+                      f.label === caseItem.then ||
                       f.field === caseItem.then)),
               );
 
@@ -2041,6 +2045,7 @@ const convertConditionToMongoExpr = (
                 (f &&
                   (f.value === value.default ||
                     f.name === value.default ||
+                    f.label === value.default ||
                     f.field === value.default)),
             );
 
@@ -3115,6 +3120,7 @@ const convertSwitchCaseToMongo = (
               (f &&
                 (f.value === caseItem.then ||
                   f.name === caseItem.then ||
+                  f.label === caseItem.then ||
                   f.field === caseItem.then)),
           );
 

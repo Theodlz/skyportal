@@ -321,16 +321,31 @@ const AutocompleteFields = ({
             const variableOption = options.find(
               (opt) => opt.label === value && opt.isVariable,
             );
-            const fieldOption = (fieldOptions || []).find(
-              (opt) => opt.label === value && !opt.isVariable,
+            const fieldOption = options.find(
+              (opt) =>
+                opt.label === value &&
+                !opt.isVariable &&
+                !opt.isListVariable &&
+                !opt.isSwitchCase,
             );
-            const listOption = (fieldOptions || []).find(
+            const listOption = options.find(
               (opt) => opt.label === value && opt.type === "array",
+            );
+            const listVariableOption = options.find(
+              (opt) => opt.label === value && opt.isListVariable,
+            );
+            const switchCaseOption = options.find(
+              (opt) => opt.label === value && opt.isSwitchCase,
             );
             const isListCondition =
               value && typeof value === "object" && value.type === "array";
             const hasChip =
-              variableOption || fieldOption || listOption || isListCondition;
+              variableOption ||
+              fieldOption ||
+              listOption ||
+              listVariableOption ||
+              switchCaseOption ||
+              isListCondition;
 
             return (
               <TextField
@@ -395,12 +410,20 @@ const AutocompleteFields = ({
         />
         {/* Chip for variable field, clickable to show equation */}
         {(() => {
+          // Don't render chips for empty values
+          if (!value || value === "") {
+            return null;
+          }
+
           const variableOption = options.find(
             (opt) => opt.label === value && opt.isVariable,
           );
           const fieldOption = options.find(
             (opt) =>
-              opt.label === value && !opt.isVariable && !opt.isListVariable && !opt.isSwitchCase,
+              opt.label === value &&
+              !opt.isVariable &&
+              !opt.isListVariable &&
+              !opt.isSwitchCase,
           );
           const listVariableOption = options.find(
             (opt) => opt.label === value && opt.isListVariable,
@@ -420,7 +443,8 @@ const AutocompleteFields = ({
                   transform: "translateY(-50%)",
                   display: "inline-flex",
                   alignItems: "center",
-                  background: "linear-gradient(90deg, #e5e7eb 60%, #d1d5db 100%)",
+                  background:
+                    "linear-gradient(90deg, #e5e7eb 60%, #d1d5db 100%)",
                   color: "#374151",
                   borderRadius: 16,
                   padding: "2px 12px",

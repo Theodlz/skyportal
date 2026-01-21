@@ -1639,63 +1639,108 @@ const MongoQueryDialog = () => {
                                 minHeight: "fit-content",
                               }}
                             >
-                              {typeof row[key] === "object" &&
-                              row[key] !== null ? (
-                                <Box
-                                  sx={{
-                                    maxWidth: 300,
-                                    maxHeight: expandedCells.has(
-                                      `${rowIndex}-${key}`,
-                                    )
-                                      ? "none"
-                                      : 100,
-                                    overflow: expandedCells.has(
-                                      `${rowIndex}-${key}`,
-                                    )
-                                      ? "visible"
-                                      : "hidden",
-                                    position: "relative",
-                                    minHeight: "fit-content",
-                                    height: "auto",
-                                    "& .react-json-view": {
-                                      height: "auto !important",
-                                      minHeight: "fit-content",
-                                    },
-                                  }}
-                                >
-                                  <ReactJson
-                                    src={row[key]}
-                                    theme="rjv-default"
-                                    collapsed={
-                                      key === "annotations"
-                                        ? false
-                                        : !expandedCells.has(
+                              {(() => {
+                                const value = row[key];
+
+                                // Handle null or undefined - display as text
+                                if (value === null || value === undefined) {
+                                  return (
+                                    <Typography
+                                      variant="body2"
+                                      sx={{
+                                        wordBreak: "break-word",
+                                        whiteSpace: "pre-wrap",
+                                        fontStyle: "italic",
+                                        color: "text.secondary",
+                                      }}
+                                    >
+                                      {value === null ? "null" : "undefined"}
+                                    </Typography>
+                                  );
+                                }
+
+                                // Handle objects (including arrays)
+                                if (typeof value === "object") {
+                                  try {
+                                    // Validate that the object can be stringified (valid JSON structure)
+                                    JSON.stringify(value);
+
+                                    return (
+                                      <Box
+                                        sx={{
+                                          maxWidth: 300,
+                                          maxHeight: expandedCells.has(
                                             `${rowIndex}-${key}`,
                                           )
-                                    }
-                                    displayDataTypes={false}
-                                    displayObjectSize={false}
-                                    enableClipboard={false}
-                                    name={false}
-                                    style={{
-                                      fontSize: "12px",
-                                      lineHeight: "1.4",
-                                      height: "auto",
-                                      minHeight: "fit-content",
+                                            ? "none"
+                                            : 100,
+                                          overflow: expandedCells.has(
+                                            `${rowIndex}-${key}`,
+                                          )
+                                            ? "visible"
+                                            : "hidden",
+                                          position: "relative",
+                                          minHeight: "fit-content",
+                                          height: "auto",
+                                          "& .react-json-view": {
+                                            height: "auto !important",
+                                            minHeight: "fit-content",
+                                          },
+                                        }}
+                                      >
+                                        <ReactJson
+                                          src={value}
+                                          theme="rjv-default"
+                                          collapsed={
+                                            key === "annotations"
+                                              ? false
+                                              : !expandedCells.has(
+                                                  `${rowIndex}-${key}`,
+                                                )
+                                          }
+                                          displayDataTypes={false}
+                                          displayObjectSize={false}
+                                          enableClipboard={false}
+                                          name={false}
+                                          style={{
+                                            fontSize: "12px",
+                                            lineHeight: "1.4",
+                                            height: "auto",
+                                            minHeight: "fit-content",
+                                          }}
+                                        />
+                                      </Box>
+                                    );
+                                  } catch (error) {
+                                    // If object can't be stringified, display error info
+                                    return (
+                                      <Typography
+                                        variant="body2"
+                                        sx={{
+                                          wordBreak: "break-word",
+                                          whiteSpace: "pre-wrap",
+                                          color: "error.main",
+                                        }}
+                                      >
+                                        {`[Invalid Object: ${error.message}]`}
+                                      </Typography>
+                                    );
+                                  }
+                                }
+
+                                // Handle primitive values (string, number, boolean)
+                                return (
+                                  <Typography
+                                    variant="body2"
+                                    sx={{
+                                      wordBreak: "break-word",
+                                      whiteSpace: "pre-wrap",
                                     }}
-                                  />
-                                </Box>
-                              ) : (
-                                <Typography
-                                  variant="body2"
-                                  sx={{
-                                    wordBreak: "break-word",
-                                    whiteSpace: "pre-wrap",
-                                  }}
-                                >
-                                  {String(row[key])}
-                                </Typography>
-                              )}
+                                  >
+                                    {String(value)}
+                                  </Typography>
+                                );
+                              })()}
                             </TableCell>
                           ))}
                       </TableRow>

@@ -264,6 +264,7 @@ export const useListConditionDialog = (
 export const useListConditionForm = (
   fieldOptions,
   customListVariables = [],
+  customSwitchCases = [],
 ) => {
   const [selectedArrayField, setSelectedArrayField] = useState("");
   const [selectedOperator, setSelectedOperator] = useState("");
@@ -271,7 +272,7 @@ export const useListConditionForm = (
   const [conditionName, setConditionName] = useState("");
   const [nameError, setNameError] = useState("");
 
-  // Get all available array fields (including list variables)
+  // Get all available array fields (including list variables and switch cases with array outcomes)
   const availableArrayFields = [
     // Include schema array fields - check for both type "array" and isExpandableArray
     ...(fieldOptions || []).filter(
@@ -283,6 +284,66 @@ export const useListConditionForm = (
       isListVariable: true,
       isDbVariable: true, // All list variables from customListVariables are database variables
     })),
+    // Include switch cases where all outcomes are arrays
+    ...(customSwitchCases || [])
+      .filter((sc) => {
+        // Check if the switch case has array outcomes
+        const switchCondition = sc.switchCondition;
+        if (!switchCondition || !switchCondition.value) return false;
+
+        const outcomes = [];
+
+        // Collect all possible outcome values
+        if (
+          switchCondition.value.cases &&
+          Array.isArray(switchCondition.value.cases)
+        ) {
+          switchCondition.value.cases.forEach((caseItem) => {
+            if (
+              caseItem.then !== undefined &&
+              caseItem.then !== null &&
+              caseItem.then !== ""
+            ) {
+              outcomes.push(caseItem.then);
+            }
+          });
+        }
+
+        if (
+          switchCondition.value.default !== undefined &&
+          switchCondition.value.default !== null &&
+          switchCondition.value.default !== ""
+        ) {
+          outcomes.push(switchCondition.value.default);
+        }
+
+        if (outcomes.length === 0) return false;
+
+        // Check if all outcomes refer to array fields or array variables
+        return outcomes.every((outcome) => {
+          // Check if outcome is an array variable
+          const arrayVar = customListVariables.find(
+            (lv) => lv.name === outcome,
+          );
+          if (arrayVar) return true;
+
+          // Check if outcome is an array field from schema
+          const arrayField = (fieldOptions || []).find(
+            (field) =>
+              field.label === outcome &&
+              (field.type === "array" || field.isExpandableArray),
+          );
+          if (arrayField) return true;
+
+          return false;
+        });
+      })
+      .map((sc) => ({
+        label: sc.name,
+        type: "array_switch",
+        isSwitchCase: true,
+        isDbVariable: false,
+      })),
   ];
 
   const validateConditionName = useCallback((name) => {
@@ -619,5 +680,11 @@ export const usePopoverRegistry = (
         window.openSwitchCasePopover = null;
       }
     };
-  }, [conditionId, customListVariables, setListPopoverAnchor, customSwitchCases, setSwitchPopoverAnchor]);
+  }, [
+    conditionId,
+    customListVariables,
+    setListPopoverAnchor,
+    customSwitchCases,
+    setSwitchPopoverAnchor,
+  ]);
 };

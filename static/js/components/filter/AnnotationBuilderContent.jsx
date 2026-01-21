@@ -501,9 +501,10 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
                   ? fieldName.split(".")[0]
                   : `${filter_stream} fields`),
           isArray: field.type === "array",
-          isArrayVariable: field.type === "array_variable",
+          isArrayVariable:
+            field.type === "array_variable" || field.type === "array_switch",
           subFields:
-            field.type === "array_variable"
+            field.type === "array_variable" || field.type === "array_switch"
               ? field.listCondition?.subFieldOptions
               : subFields,
           ...(expression ? { expression } : {}),
@@ -867,7 +868,8 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
                         fieldName: newValue?.name || "",
                         isArray:
                           newValue?.type === "array" ||
-                          newValue?.type === "array_variable",
+                          newValue?.type === "array_variable" ||
+                          newValue?.type === "array_switch",
                         subFields,
                       });
                     }}

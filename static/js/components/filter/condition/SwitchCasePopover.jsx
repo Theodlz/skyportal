@@ -1,12 +1,121 @@
 import React from "react";
 import PropTypes from "prop-types";
-import { Popover, Box, Typography, Paper, Divider } from "@mui/material";
+import { Popover, Box, Typography, Paper, Divider, Chip } from "@mui/material";
 import BlockComponent from "../block/BlockComponent";
+
+// Helper component to render a chip for field/variable values
+const ValueChip = ({
+  value,
+  customVariables = [],
+  customListVariables = [],
+  customSwitchCases = [],
+  fieldOptionsList = [],
+}) => {
+  if (!value || value === "") {
+    return (
+      <span style={{ fontStyle: "italic", color: "#9ca3af" }}>(empty)</span>
+    );
+  }
+
+  // Check if it's an arithmetic variable (yellow)
+  const variable = customVariables.find((v) => v.name === value);
+  if (variable) {
+    return (
+      <Chip
+        label={value}
+        size="small"
+        sx={{
+          background: "#fde68a",
+          color: "#b45309",
+          fontWeight: 700,
+          border: "1.5px solid #fbbf24",
+          fontSize: "0.875rem",
+        }}
+      />
+    );
+  }
+
+  // Check if it's a list variable (green)
+  const listVariable = customListVariables.find((lv) => lv.name === value);
+  if (listVariable) {
+    return (
+      <Chip
+        label={value}
+        size="small"
+        sx={{
+          background: "#bbf7d0",
+          color: "#166534",
+          fontWeight: 700,
+          border: "1.5px solid #4ade80",
+          fontSize: "0.875rem",
+        }}
+      />
+    );
+  }
+
+  // Check if it's a switch case (grey)
+  const switchCase = customSwitchCases.find((sc) => sc.name === value);
+  if (switchCase) {
+    return (
+      <Chip
+        label={value}
+        size="small"
+        sx={{
+          background: "#e5e7eb",
+          color: "#374151",
+          fontWeight: 700,
+          border: "1.5px solid #9ca3af",
+          fontSize: "0.875rem",
+        }}
+      />
+    );
+  }
+
+  // Check if it's a field (blue)
+  const field = fieldOptionsList.find((f) => f.label === value);
+  if (field) {
+    return (
+      <Chip
+        label={value}
+        size="small"
+        sx={{
+          background: "#dbeafe",
+          color: "#1e40af",
+          fontWeight: 600,
+          border: "1.5px solid #60a5fa",
+          fontSize: "0.875rem",
+        }}
+      />
+    );
+  }
+
+  // Default - just plain text (could be a literal value)
+  return (
+    <Typography
+      variant="body2"
+      component="span"
+      sx={{
+        backgroundColor: "#f9fafb",
+        color: "#1f2937",
+        px: 1.5,
+        py: 0.5,
+        borderRadius: 1,
+        fontFamily: "monospace",
+        border: "1px solid #e5e7eb",
+        display: "inline-block",
+      }}
+    >
+      {value}
+    </Typography>
+  );
+};
 
 const SwitchCasePopover = ({
   switchPopoverAnchor,
   setSwitchPopoverAnchor,
   customSwitchCases,
+  customVariables = [],
+  customListVariables = [],
   fieldOptionsList,
 }) => {
   const isOpen = Boolean(switchPopoverAnchor);
@@ -40,12 +149,15 @@ const SwitchCasePopover = ({
     const defaultValue = switchCondition?.value?.default || "";
 
     return (
-      <Box sx={{ 
-        p: 3, 
-        width: 1000, 
-        maxWidth: "95vw", 
-        background: "linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 50%, #d1d5db 100%)"
-      }}>
+      <Box
+        sx={{
+          p: 3,
+          width: 1000,
+          maxWidth: "95vw",
+          background:
+            "linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 50%, #d1d5db 100%)",
+        }}
+      >
         <Box
           sx={{
             display: "flex",
@@ -70,7 +182,14 @@ const SwitchCasePopover = ({
           </Typography>
         </Box>
 
-        <Box sx={{ maxHeight: "70vh", overflowY: "auto", overflowX: "hidden", pr: 1 }}>
+        <Box
+          sx={{
+            maxHeight: "70vh",
+            overflowY: "auto",
+            overflowX: "hidden",
+            pr: 1,
+          }}
+        >
           {cases.map((caseItem, index) => (
             <Paper
               key={index}
@@ -122,20 +241,29 @@ const SwitchCasePopover = ({
               </Box>
 
               {/* Display the block conditions (read-only) */}
-              {caseItem.block && caseItem.block.children && caseItem.block.children.length > 0 ? (
+              {caseItem.block &&
+              caseItem.block.children &&
+              caseItem.block.children.length > 0 ? (
                 <Box sx={{ mb: 2, width: "100%", minWidth: 0 }}>
                   <BlockComponent
                     block={caseItem.block}
                     parentBlockId={null}
                     isRoot={true}
                     fieldOptionsList={fieldOptionsList}
+                    customVariables={customVariables}
+                    customListVariables={customListVariables}
+                    customSwitchCases={customSwitchCases}
                     localFilters={[caseItem.block]}
                     setLocalFilters={() => {}} // Read-only
                     disableSwitchOption={true}
                   />
                 </Box>
               ) : (
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2, pl: 1, fontStyle: "italic" }}>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mb: 2, pl: 1, fontStyle: "italic" }}
+                >
                   No conditions
                 </Typography>
               )}
@@ -153,26 +281,21 @@ const SwitchCasePopover = ({
                   borderColor: "#d1d5db",
                 }}
               >
-                <Typography variant="caption" sx={{ fontWeight: 700, minWidth: 50, color: "#374151" }}>
+                <Typography
+                  variant="caption"
+                  sx={{ fontWeight: 700, minWidth: 50, color: "#374151" }}
+                >
                   THEN:
                 </Typography>
-                <Typography
-                  variant="body2"
-                  sx={{
-                    backgroundColor: "#f9fafb",
-                    color: "#1f2937",
-                    px: 1.5,
-                    py: 0.75,
-                    borderRadius: 1,
-                    fontFamily: "monospace",
-                    flex: 1,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    border: "1px solid #e5e7eb",
-                  }}
-                >
-                  {caseItem.then || "(empty)"}
-                </Typography>
+                <Box sx={{ flex: 1 }}>
+                  <ValueChip
+                    value={caseItem.then}
+                    customVariables={customVariables}
+                    customListVariables={customListVariables}
+                    customSwitchCases={customSwitchCases}
+                    fieldOptionsList={fieldOptionsList}
+                  />
+                </Box>
               </Box>
             </Paper>
           ))}
@@ -189,26 +312,21 @@ const SwitchCasePopover = ({
             }}
           >
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "#374151", minWidth: 80 }}>
+              <Typography
+                variant="subtitle2"
+                sx={{ fontWeight: 700, color: "#374151", minWidth: 80 }}
+              >
                 DEFAULT:
               </Typography>
-              <Typography
-                variant="body2"
-                sx={{
-                  backgroundColor: "#f9fafb",
-                  color: "#1f2937",
-                  px: 1.5,
-                  py: 0.75,
-                  borderRadius: 1,
-                  fontFamily: "monospace",
-                  flex: 1,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  border: "1px solid #e5e7eb",
-                }}
-              >
-                {defaultValue || "(empty)"}
-              </Typography>
+              <Box sx={{ flex: 1 }}>
+                <ValueChip
+                  value={defaultValue}
+                  customVariables={customVariables}
+                  customListVariables={customListVariables}
+                  customSwitchCases={customSwitchCases}
+                  fieldOptionsList={fieldOptionsList}
+                />
+              </Box>
             </Box>
           </Paper>
         </Box>
@@ -249,7 +367,9 @@ const SwitchCasePopover = ({
 SwitchCasePopover.propTypes = {
   switchPopoverAnchor: PropTypes.object,
   setSwitchPopoverAnchor: PropTypes.func.isRequired,
-  customSwitchCases: PropTypes.array.isRequired,
+  customSwitchCases: PropTypes.array,
+  customVariables: PropTypes.array,
+  customListVariables: PropTypes.array,
   fieldOptionsList: PropTypes.array.isRequired,
 };
 

@@ -68,16 +68,10 @@ const useBlockState = (block, isRoot) => {
   const customBlockName = useMemo(() => {
     if (!block) return null;
 
-    // Start with the block's existing custom block name
+    // Only use customBlockName if explicitly set on the block
+    // Don't try to infer it from customBlocks by ID to avoid showing
+    // names from previous save attempts that weren't completed
     let blockName = block.customBlockName;
-
-    // If no custom block name, try to find it from customBlocks by ID
-    if (!blockName) {
-      const found = customBlocks?.find((cb) => cb.block?.id === block?.id);
-      if (found) {
-        blockName = found.name.replace(/^Custom\./, "");
-      }
-    }
 
     // If block has custom block name, check if it's been updated in customBlocks
     if (block.customBlockName) {
@@ -1481,8 +1475,17 @@ const BlockHeader = ({
   };
 
   const resetBlockToOriginal = (blockId) => {
-    const customBlock = customBlocks.find((cb) => cb.name === customBlockName);
-    if (!customBlock) return;
+    // Find the custom block - need to match with or without "Custom." prefix
+    const customBlock = customBlocks.find(
+      (cb) =>
+        cb.name === customBlockName ||
+        cb.name === `Custom.${customBlockName}` ||
+        cb.name.replace(/^Custom\./, "") === customBlockName,
+    );
+    if (!customBlock) {
+      console.error("Custom block not found:", customBlockName);
+      return;
+    }
 
     // Collect all nested block IDs that will be created
     const nestedBlockIds = [];
@@ -1503,6 +1506,8 @@ const BlockHeader = ({
           : [],
         // Only set customBlockName on the top level block, preserve existing names for nested blocks
         customBlockName: isTopLevel ? customBlockName : b.customBlockName,
+        // Preserve isTrue for root custom blocks
+        isTrue: isTopLevel ? true : b.isTrue,
       };
 
       // If this is a nested block, add its ID to the list for collapsing
@@ -1583,6 +1588,18 @@ const BlockHeader = ({
     const deepEqual = (obj1, obj2) => {
       if (obj1 === obj2) return true;
       if (obj1 == null || obj2 == null) return obj1 === obj2;
+
+      // Handle string vs number comparison for values
+      // (e.g., "123" should equal 123 for condition values)
+      if (typeof obj1 === "string" && typeof obj2 === "number") {
+        const num = parseFloat(obj1);
+        return !isNaN(num) && num === obj2;
+      }
+      if (typeof obj1 === "number" && typeof obj2 === "string") {
+        const num = parseFloat(obj2);
+        return !isNaN(num) && num === obj1;
+      }
+
       if (typeof obj1 !== typeof obj2) return false;
       if (typeof obj1 !== "object") return obj1 === obj2;
       if (Array.isArray(obj1) !== Array.isArray(obj2)) return false;
@@ -2362,13 +2379,20 @@ const ConditionComponentInner = ({
     setFilters,
     createDefaultCondition,
   );
+
+  // For empty conditions (no field selected), show all switch cases to allow using newly created ones
+  // For conditions with fields, use createdAt to prevent circular references
+  const contextTime = conditionOrBlock.field
+    ? conditionOrBlock.createdAt
+    : null;
+
   const fieldOptionsWithVariable = getFieldOptionsWithVariable(
     fieldOptionsList,
     customVariables,
     customListVariables,
     customSwitchCases || [],
     fieldOptions,
-    conditionOrBlock.createdAt,
+    contextTime,
   );
 
   const operatorOptions = conditionOrBlock.field
@@ -2664,6 +2688,8 @@ const ConditionComponentInner = ({
         switchPopoverAnchor={switchPopoverAnchor}
         setSwitchPopoverAnchor={setSwitchPopoverAnchor}
         customSwitchCases={customSwitchCases}
+        customVariables={customVariables}
+        customListVariables={customListVariables}
         fieldOptionsList={fieldOptionsList}
       />
     </Box>

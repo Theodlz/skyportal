@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useDispatch } from "react-redux";
 import {
   Dialog,
@@ -67,13 +67,18 @@ const AddSwitchDialog = () => {
   const [collapsedCases, setCollapsedCases] = useState(new Set());
 
   // Get all field options including variables for the target field selector
-  const allFieldOptions = getFieldOptionsWithVariable(
-    fieldOptionsList || [],
-    customVariables || [],
-    customListVariables || [],
-    customSwitchCases || [],
-    [],
-    Date.now(), // Switch dialog shows all switch cases since we're creating a new one
+  // Memoize to recalculate when dependencies change
+  const allFieldOptions = useMemo(
+    () =>
+      getFieldOptionsWithVariable(
+        fieldOptionsList || [],
+        customVariables || [],
+        customListVariables || [],
+        customSwitchCases || [],
+        [],
+        Date.now(), // Switch dialog shows all switch cases since we're creating a new one
+      ),
+    [fieldOptionsList, customVariables, customListVariables, customSwitchCases],
   );
 
   useEffect(() => {
@@ -181,16 +186,20 @@ const AddSwitchDialog = () => {
       }),
     );
 
-    // Add to custom switch cases
-    setCustomSwitchCases((prev) => [
-      ...prev,
-      {
-        name: switchName.trim(),
-        type: "switch_variable",
-        switchCondition,
-        createdAt: Date.now(),
-      },
-    ]);
+    // Add to custom switch cases - use functional update to ensure latest state
+    setCustomSwitchCases((prev) => {
+      // Filter out any existing switch case with the same name, then add the new one
+      const filtered = prev.filter((sc) => sc.name !== switchName.trim());
+      return [
+        ...filtered,
+        {
+          name: switchName.trim(),
+          type: "switch_variable",
+          switchCondition,
+          createdAt: Date.now(),
+        },
+      ];
+    });
 
     // Add condition to the filter
     const newCondition = {

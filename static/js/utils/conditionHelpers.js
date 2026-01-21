@@ -179,9 +179,10 @@ const inferSwitchCaseType = (
     // Check if outcome is a variable
     const variable = customVariables?.find((v) => v.name === outcome);
     if (variable) {
+      const varType = variable.type || "number";
       if (!inferredType) {
-        inferredType = variable.type || "number";
-      } else if (inferredType !== (variable.type || "number")) {
+        inferredType = varType;
+      } else if (inferredType !== varType) {
         // Mixed types - default to string
         return "string";
       }
@@ -477,6 +478,7 @@ export const getOperatorsForField = (
       return ["$eq", "$ne", "$regex", "$type", ...baseOperators];
     case "array":
     case "array_variable": // List variables should have the same operators as regular arrays
+    case "array_switch": // Switch cases with array outcomes should have the same operators as regular arrays
       return [
         // "$in",
         // "$nin",

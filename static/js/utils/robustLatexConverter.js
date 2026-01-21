@@ -559,12 +559,13 @@ export class RobustLatexToMongoConverter {
       // Field conversion with array context awareness:
       // In array filter context: absolute document references stay as $field,
       // array-relative fields would be $$this.field (but we're processing absolute refs here)
-      // Wrap with $ifNull to handle null values gracefully in arithmetic operations
-      return { $ifNull: [`$${trimmed}`, 0] };
+      // Use $ifNull to convert undefined to null (ensures proper null propagation without errors)
+      // If field is missing/undefined, becomes null. If null, stays null. Arithmetic with null = null.
+      return { $ifNull: [`$${trimmed}`, null] };
     }
 
-    // Fallback for unknown patterns - also wrap with $ifNull
-    return { $ifNull: [`$${trimmed}`, 0] };
+    // Fallback for unknown patterns - ensure undefined becomes null
+    return { $ifNull: [`$${trimmed}`, null] };
   }
 
   /**
