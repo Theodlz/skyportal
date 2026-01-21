@@ -155,9 +155,16 @@ export const convertToMongoAggregation = (
   const hasListOperationVariables = customListVariables.some(
     (listVar) =>
       listVar.listCondition &&
-      ["$filter", "$min", "$max", "$avg", "$sum", "$size"].includes(
-        listVar.listCondition.operator,
-      ) &&
+      [
+        "$filter",
+        "$min",
+        "$max",
+        "$avg",
+        "$sum",
+        "$size",
+        "$stdDevPop",
+        "$median",
+      ].includes(listVar.listCondition.operator) &&
       usedFields.listVariables.includes(listVar.name),
   );
 
@@ -268,9 +275,18 @@ export const convertToMongoAggregation = (
         levelProjectStage.$project.objectId = 1;
       }
 
-      // Include all previously projected list variables
+      // Include all previously projected variables (both list and arithmetic)
       projectedVariables.forEach((varName) => {
         levelProjectStage.$project[varName] = 1;
+      });
+
+      // Include all custom blocks with false values
+      customBlocksWithFalseValue.forEach((customBlock) => {
+        const variableName = `${customBlock.name.replace(
+          /[^a-zA-Z0-9]/g,
+          "_",
+        )}`;
+        levelProjectStage.$project[variableName] = 1;
       });
 
       // Add list variables at this dependency level
@@ -693,7 +709,12 @@ const convertConditionToMongo = (
   if (!condition.operator) {
     return {};
   }
-  const value = condition.value;
+
+  // For list variables, value might be in different properties
+  let value = condition.value;
+  if (value === undefined || value === null) {
+    value = condition.comparisonValue;
+  }
 
   const listVariable = customListVariables.find(
     (lv) => lv.name === condition.field,
@@ -702,7 +723,15 @@ const convertConditionToMongo = (
     const listCondition = listVariable.listCondition;
 
     if (
-      ["$min", "$max", "$avg", "$sum", "$size"].includes(listCondition.operator)
+      [
+        "$min",
+        "$max",
+        "$avg",
+        "$sum",
+        "$size",
+        "$stdDevPop",
+        "$median",
+      ].includes(listCondition.operator)
     ) {
       const field = condition.field;
 
@@ -710,50 +739,54 @@ const convertConditionToMongo = (
         case "$lengthGt": {
           const gtLength = parseNumberIfNeeded(value);
           if (gtLength < 0) {
-            return { [field]: { $exists: true } };
+            return { $expr: { $ne: [`$${field}`, null] } };
           }
-          return { [`${field}.${gtLength}`]: { $exists: true } };
+          return { $expr: { $gt: [`$${field}`, gtLength] } };
         }
         case "$lengthLt": {
           const ltLength = parseNumberIfNeeded(value);
           if (ltLength <= 0) {
-            return { [`${field}.0`]: { $exists: false } };
+            return { $expr: { $eq: [`$${field}`, null] } };
           }
-          return { [`${field}.${ltLength - 1}`]: { $exists: false } };
+          return { $expr: { $lt: [`$${field}`, ltLength] } };
         }
         case "$exists":
         case "exists":
-          return { [field]: { $exists: value !== false } };
+          if (value !== false) {
+            return { $expr: { $ne: [`$${field}`, null] } };
+          } else {
+            return { $expr: { $eq: [`$${field}`, null] } };
+          }
         case "not exists":
-          return { [field]: { $exists: false } };
+          return { $expr: { $eq: [`$${field}`, null] } };
         default: {
           const compareValue = parseNumberIfNeeded(value);
           switch (operator) {
             case "$gt":
             case "greater than":
             case ">":
-              return { [field]: { $gt: compareValue } };
+              return { $expr: { $gt: [`$${field}`, compareValue] } };
             case "$gte":
             case "greater than or equal":
             case ">=":
-              return { [field]: { $gte: compareValue } };
+              return { $expr: { $gte: [`$${field}`, compareValue] } };
             case "$lt":
             case "less than":
             case "<":
-              return { [field]: { $lt: compareValue } };
+              return { $expr: { $lt: [`$${field}`, compareValue] } };
             case "$lte":
             case "less than or equal":
             case "<=":
-              return { [field]: { $lte: compareValue } };
+              return { $expr: { $lte: [`$${field}`, compareValue] } };
             case "$ne":
             case "not equals":
             case "!=":
-              return { [field]: { $ne: compareValue } };
+              return { $expr: { $ne: [`$${field}`, compareValue] } };
             case "$eq":
             case "equals":
             case "=":
             default:
-              return { [field]: { $eq: compareValue } };
+              return { $expr: { $eq: [`$${field}`, compareValue] } };
           }
         }
       }
@@ -823,6 +856,8 @@ const convertConditionToMongo = (
       "$avg",
       "$sum",
       "$size",
+      "$stdDevPop",
+      "$median",
     ].includes(operator)
   ) {
     return convertListConditionToMongo(
@@ -4494,7 +4529,12 @@ const generateListVariableDefinition = (
         cond: filterCondition,
       },
     };
-  } else if (["$min", "$max", "$avg", "$sum"].includes(operator) && subField) {
+  } else if (
+    ["$min", "$max", "$avg", "$sum", "$stdDevPop", "$median"].includes(operator)
+  ) {
+    if (!subField) {
+      return null;
+    }
     switch (operator) {
       case "$min":
         return { $min: `$${arrayField}.${subField}` };
@@ -4504,6 +4544,15 @@ const generateListVariableDefinition = (
         return { $avg: `$${arrayField}.${subField}` };
       case "$sum":
         return { $sum: `$${arrayField}.${subField}` };
+      case "$stdDevPop":
+        return { $stdDevPop: `$${arrayField}.${subField}` };
+      case "$median":
+        return {
+          $median: {
+            input: `$${arrayField}.${subField}`,
+            method: "approximate",
+          },
+        };
     }
   } else if (operator === "$count") {
     return { $size: { $ifNull: [`$${arrayField}`, []] } };

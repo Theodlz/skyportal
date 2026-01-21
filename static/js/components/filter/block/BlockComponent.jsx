@@ -853,6 +853,9 @@ const ValueInput = ({
       "$max",
       "$avg",
       "$sum",
+      "$count",
+      "$stdDevPop",
+      "$median",
       "$anyElementTrue",
       "$allElementsTrue",
     ];

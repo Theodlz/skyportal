@@ -147,9 +147,15 @@ const ListConditionPopover = ({
     // Priority 2.5: Check for direct aggregation operator with subField in conditionOrBlock
     if (
       conditionOrBlock.operator &&
-      ["$min", "$max", "$avg", "$sum", "$count"].includes(
-        conditionOrBlock.operator,
-      )
+      [
+        "$min",
+        "$max",
+        "$avg",
+        "$sum",
+        "$count",
+        "$stdDevPop",
+        "$median",
+      ].includes(conditionOrBlock.operator)
     ) {
       return renderAggregationDisplay(conditionOrBlock);
     }
@@ -194,7 +200,9 @@ const ListConditionPopover = ({
         $max: "Maximum",
         $avg: "Average",
         $sum: "Sum",
-        $size: "Size",
+        $count: "Count Elements",
+        $stdDevPop: "Standard Deviation (Population)",
+        $median: "Median",
         $all: "All",
       };
       return operatorLabels[operator] || operator;
@@ -204,9 +212,15 @@ const ListConditionPopover = ({
     const canEdit =
       listVar.listCondition.value &&
       typeof listVar.listCondition.value === "object" &&
-      !["$min", "$max", "$avg", "$sum", "$count"].includes(
-        listVar.listCondition.operator,
-      );
+      ![
+        "$min",
+        "$max",
+        "$avg",
+        "$sum",
+        "$count",
+        "$stdDevPop",
+        "$median",
+      ].includes(listVar.listCondition.operator);
 
     return (
       <div
@@ -375,9 +389,15 @@ const ListConditionPopover = ({
             />
           ) : listVar.listCondition.subField ||
             (listVar.listCondition.operator &&
-              ["$min", "$max", "$avg", "$sum", "$count"].includes(
-                listVar.listCondition.operator,
-              )) ? (
+              [
+                "$min",
+                "$max",
+                "$avg",
+                "$sum",
+                "$count",
+                "$stdDevPop",
+                "$median",
+              ].includes(listVar.listCondition.operator)) ? (
             renderAggregationDisplay(listVar.listCondition)
           ) : (
             <div
@@ -493,7 +513,9 @@ const ListConditionPopover = ({
         $max: "Maximum",
         $avg: "Average",
         $sum: "Sum",
-        $size: "Size",
+        $count: "Count Elements",
+        $stdDevPop: "Standard Deviation (Population)",
+        $median: "Median",
         $all: "All",
       };
       return operatorLabels[operator] || operator;

@@ -72,9 +72,14 @@ const SubFieldSelector = ({
     return subFieldOptions.filter((option) => option.type === "number");
   };
 
-  const shouldShowSubFieldSelector = ["$min", "$max", "$avg", "$sum"].includes(
-    selectedOperator,
-  );
+  const shouldShowSubFieldSelector = [
+    "$min",
+    "$max",
+    "$avg",
+    "$sum",
+    "$stdDevPop",
+    "$median",
+  ].includes(selectedOperator);
 
   if (!shouldShowSubFieldSelector) {
     return null;
@@ -245,6 +250,9 @@ const ListOperatorSelector = ({
       $avg: "Returns the average value from the array elements",
       $sum: "Returns the sum of all array elements",
       $count: "Returns the number of elements in the array",
+      $stdDevPop:
+        "Returns the population standard deviation of the array elements",
+      $median: "Returns the median value from the array elements",
     };
     return descriptions[operator] || "";
   };
@@ -581,9 +589,14 @@ const AddListConditionDialog = () => {
       "$allElementsTrue",
       "$filter",
     ].includes(form.selectedOperator);
-    const operatorNeedsSubField = ["$min", "$max", "$avg", "$sum"].includes(
-      form.selectedOperator,
-    );
+    const operatorNeedsSubField = [
+      "$min",
+      "$max",
+      "$avg",
+      "$sum",
+      "$stdDevPop",
+      "$median",
+    ].includes(form.selectedOperator);
 
     // Create a list condition that wraps the inner conditions
     const listCondition = {
@@ -673,9 +686,14 @@ const AddListConditionDialog = () => {
   };
 
   const isFormValid = () => {
-    const operatorNeedsSubField = ["$min", "$max", "$avg", "$sum"].includes(
-      form.selectedOperator,
-    );
+    const operatorNeedsSubField = [
+      "$min",
+      "$max",
+      "$avg",
+      "$sum",
+      "$stdDevPop",
+      "$median",
+    ].includes(form.selectedOperator);
     const operatorNeedsConditions = [
       "$anyElementTrue",
       "$allElementsTrue",

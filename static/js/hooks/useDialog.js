@@ -122,6 +122,8 @@ export const useListConditionDialog = (
     { value: "$avg", label: "Average Value" },
     { value: "$sum", label: "Sum of Values" },
     { value: "$count", label: "Count Elements" },
+    { value: "$stdDevPop", label: "Standard Deviation" },
+    { value: "$median", label: "Median Value" },
   ];
 
   // Find condition id in filters to retrieve the field name and operator
@@ -458,9 +460,14 @@ export const useListConditionSave = () => {
     }
 
     // Check if subfield is required for aggregation operators
-    const operatorNeedsSubField = ["$min", "$max", "$avg", "$sum"].includes(
-      selectedOperator,
-    );
+    const operatorNeedsSubField = [
+      "$min",
+      "$max",
+      "$avg",
+      "$sum",
+      "$stdDevPop",
+      "$median",
+    ].includes(selectedOperator);
     if (operatorNeedsSubField && !selectedSubField.trim()) {
       return "Please select a subfield for the aggregation operation";
     }

@@ -492,6 +492,9 @@ export const getOperatorsForField = (
         "$max",
         "$avg",
         "$sum",
+        "$count",
+        "$stdDevPop",
+        "$median",
         ...baseOperators,
       ];
     case "array_variable_boolean": // List variables with anyElementTrue/allElementsTrue operators - exclude length operators
@@ -507,6 +510,9 @@ export const getOperatorsForField = (
         "$max",
         "$avg",
         "$sum",
+        "$count",
+        "$stdDevPop",
+        "$median",
         ...baseOperators,
       ];
     case "boolean":
