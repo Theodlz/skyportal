@@ -1180,11 +1180,8 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
         )}
       </Paper>
 
-      {/* Dialogs */}
-      <AddVariableDialog />
-      <AddListConditionDialog />
-      <AddSwitchDialog />
-      <SaveBlockDialogMenu />
+      {/* Dialogs - Removed to prevent duplicates when both FilterBuilderContent and AnnotationBuilderContent are mounted */}
+      {/* The dialogs are rendered in FilterBuilderContent which is always mounted alongside this component */}
 
       {/* Map dialog for map type */}
       <MapAnnotationsDialog
