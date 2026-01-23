@@ -174,9 +174,7 @@ const OperatorSelector = ({
     <AutocompleteOperators
       operators={operatorOptions}
       value={conditionOrBlock.operator}
-      onChange={(op) =>
-        updateCondition(block.id, conditionOrBlock.id, "operator", op)
-      }
+      onChange={(op) => updateCondition(block.id, conditionOrBlock.id, "operator", op)}
       mongoOperatorLabels={mongoOperatorLabels}
       style={{ minWidth: 60, maxWidth: 80 }}
     />

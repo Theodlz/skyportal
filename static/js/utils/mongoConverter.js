@@ -751,12 +751,14 @@ const convertConditionToMongo = (
           return { $expr: { $lt: [`$${field}`, ltLength] } };
         }
         case "$exists":
-        case "exists":
-          if (value !== false) {
-            return { $expr: { $ne: [`$${field}`, null] } };
-          } else {
-            return { $expr: { $eq: [`$${field}`, null] } };
-          }
+        case "exists": {
+          // Default to true (check existence) when value is null/undefined
+          // Only check for non-existence when value is explicitly false
+          const checkExists = value !== false;
+          return checkExists
+            ? { $expr: { $ne: [`$${field}`, null] } }
+            : { $expr: { $eq: [`$${field}`, null] } };
+        }
         case "not exists":
           return { $expr: { $eq: [`$${field}`, null] } };
         default: {
@@ -1888,6 +1890,20 @@ const convertConditionToMongoExpr = (
         }
         return {};
 
+      case "$isNumber":
+        return { $isNumber: fieldPath };
+
+      case "$exists":
+      case "exists": {
+        const checkExists = value !== false;
+        return checkExists
+          ? { $ne: [fieldPath, null] }
+          : { $eq: [fieldPath, null] };
+      }
+
+      case "not exists":
+        return { $eq: [fieldPath, null] };
+
       default:
         return { $eq: [fieldPath, parseNumberIfNeeded(value)] };
     }
@@ -1956,15 +1972,18 @@ const convertConditionToMongoExpr = (
         isBooleanValue,
       );
 
-    case "$exists":
     case "$isNumber":
-      return { $isNumber: `${fieldPath}` };
-    case "exists":
-      if (value !== false) {
-        return { $ne: [fieldPath, null] };
-      } else {
-        return { $eq: [fieldPath, null] };
-      }
+      return { $isNumber: fieldPath };
+
+    case "$exists":
+    case "exists": {
+      // Default to true (check existence) when value is null/undefined
+      // Only check for non-existence when value is explicitly false
+      const checkExists = value !== false;
+      return checkExists
+        ? { $ne: [fieldPath, null] }
+        : { $eq: [fieldPath, null] };
+    }
 
     case "not exists":
       return { $eq: [fieldPath, null] };

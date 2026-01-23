@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from "react";
-import { Popover, Button, IconButton, Tooltip } from "@mui/material";
+import { Popover, Button, IconButton, Tooltip, Select, MenuItem, FormControl } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
 import SaveIcon from "@mui/icons-material/Save";
 import CancelIcon from "@mui/icons-material/Cancel";
@@ -27,6 +27,8 @@ const ListConditionPopover = ({
   const isOpen = Boolean(listPopoverAnchor);
   const [editMode, setEditMode] = useState(false);
   const [editedConditions, setEditedConditions] = useState(null);
+  const [editingOperator, setEditingOperator] = useState(false);
+  const [editedOperator, setEditedOperator] = useState(null);
   const { setCustomListVariables } = useCurrentBuilder();
   const dispatch = useDispatch();
 
@@ -52,6 +54,8 @@ const ListConditionPopover = ({
     window.currentListVariable = null; // Clear temporary data
     setEditMode(false); // Reset edit mode
     setEditedConditions(null); // Clear edited conditions
+    setEditingOperator(false); // Reset operator editing
+    setEditedOperator(null); // Clear edited operator
 
     // Ensure focus is properly managed when closing
     if (anchorElement) {
@@ -70,10 +74,11 @@ const ListConditionPopover = ({
   };
 
   const handleSaveEdit = async (listVar) => {
-    if (editedConditions && setCustomListVariables) {
+    if ((editedConditions || editedOperator) && setCustomListVariables) {
       const updatedListCondition = {
         ...listVar.listCondition,
-        value: editedConditions,
+        ...(editedConditions && { value: editedConditions }),
+        ...(editedOperator && { operator: editedOperator }),
       };
 
       try {
@@ -105,6 +110,8 @@ const ListConditionPopover = ({
         // Exit edit mode
         setEditMode(false);
         setEditedConditions(null);
+        setEditingOperator(false);
+        setEditedOperator(null);
       } catch (error) {
         console.error("Failed to save list variable:", error);
         alert("Failed to save changes to the database. Please try again.");
@@ -115,6 +122,8 @@ const ListConditionPopover = ({
   const handleCancelEdit = () => {
     setEditMode(false);
     setEditedConditions(null);
+    setEditingOperator(false);
+    setEditedOperator(null);
   };
 
   const handleStartEdit = (listVar) => {
@@ -234,6 +243,22 @@ const ListConditionPopover = ({
       return null;
     };
 
+    // Get operators that are compatible with the given operator (same output type)
+    const getCompatibleOperators = (operator) => {
+      const outputType = getOperatorOutputType(operator);
+      
+      if (outputType === "array") {
+        return ["$anyElementTrue", "$allElementsTrue", "$filter"];
+      }
+      
+      if (outputType === "number") {
+        return ["$min", "$max", "$avg", "$sum", "$count", "$stdDevPop", "$median"];
+      }
+      
+      // For other operators, return just the operator itself (can't change)
+      return [operator];
+    };
+
     // Determine if this list variable can be edited (has conditions to edit)
     const canEdit =
       listVar.listCondition.value &&
@@ -348,26 +373,102 @@ const ListConditionPopover = ({
               gap: 12,
             }}
           >
-            <div>
-              <span style={{ fontWeight: 600 }}>Operator:</span>{" "}
-              {getOperatorLabel(listVar.listCondition.operator)}
-            </div>
-            {getOperatorOutputType(listVar.listCondition.operator) && (
-              <div
-                style={{
-                  padding: "4px 10px",
-                  backgroundColor: "#dbeafe",
-                  borderRadius: 4,
-                  fontSize: 12,
-                  color: "#1e40af",
-                  fontWeight: 600,
-                  border: "1px solid #93c5fd",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.5px",
-                }}
-              >
-                → {getOperatorOutputType(listVar.listCondition.operator)}
-              </div>
+            {!editingOperator ? (
+              <>
+                <div style={{ flex: 1 }}>
+                  <span style={{ fontWeight: 600 }}>Operator:</span>{" "}
+                  {getOperatorLabel(listVar.listCondition.operator)}
+                </div>
+                {getOperatorOutputType(listVar.listCondition.operator) && (
+                  <div
+                    style={{
+                      padding: "4px 10px",
+                      backgroundColor: "#dbeafe",
+                      borderRadius: 4,
+                      fontSize: 12,
+                      color: "#1e40af",
+                      fontWeight: 600,
+                      border: "1px solid #93c5fd",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                    }}
+                  >
+                    → {getOperatorOutputType(listVar.listCondition.operator)}
+                  </div>
+                )}
+                <Tooltip title="Edit operator">
+                  <IconButton
+                    size="small"
+                    onClick={() => {
+                      setEditingOperator(true);
+                      setEditedOperator(listVar.listCondition.operator);
+                    }}
+                    style={{
+                      backgroundColor: "#e0f2fe",
+                      color: "#0369a1",
+                      padding: 4,
+                    }}
+                  >
+                    <EditIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </>
+            ) : (
+              <>
+                <div style={{ flex: 1 }}>
+                  <span style={{ fontWeight: 600 }}>Operator:</span>
+                  <FormControl
+                    size="small"
+                    style={{ marginLeft: 8, minWidth: 200 }}
+                  >
+                    <Select
+                      value={editedOperator}
+                      onChange={(e) => setEditedOperator(e.target.value)}
+                      style={{
+                        fontSize: 14,
+                        backgroundColor: "white",
+                      }}
+                    >
+                      {getCompatibleOperators(listVar.listCondition.operator).map(
+                        (op) => (
+                          <MenuItem key={op} value={op}>
+                            {getOperatorLabel(op)}
+                          </MenuItem>
+                        )
+                      )}
+                    </Select>
+                  </FormControl>
+                </div>
+                <Tooltip title="Save operator change">
+                  <IconButton
+                    size="small"
+                    onClick={() => handleSaveEdit(listVar)}
+                    style={{
+                      backgroundColor: "#dcfce7",
+                      color: "#166534",
+                      padding: 4,
+                    }}
+                  >
+                    <SaveIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Cancel">
+                  <IconButton
+                    size="small"
+                    onClick={() => {
+                      setEditingOperator(false);
+                      setEditedOperator(null);
+                    }}
+                    style={{
+                      backgroundColor: "#fee2e2",
+                      color: "#991b1b",
+                      padding: 4,
+                    }}
+                  >
+                    <CancelIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </>
             )}
           </div>
         )}

@@ -205,6 +205,10 @@ const AddVariableDialog = () => {
     { symbol: "round(", name: "Round", type: "math" },
     { symbol: "floor(", name: "Floor", type: "math" },
     { symbol: "ceil(", name: "Ceiling", type: "math" },
+    { symbol: "min(", name: "Minimum", type: "aggregate" },
+    { symbol: "max(", name: "Maximum", type: "aggregate" },
+    { symbol: "avg(", name: "Average", type: "aggregate" },
+    { symbol: "sum(", name: "Sum", type: "aggregate" },
   ];
 
   const getSuggestions = () => {
@@ -639,11 +643,11 @@ const AddVariableDialog = () => {
     }
 
     // Combine suggestions with intelligent ordering
-    // Prioritize regular fields, then array subfield suggestions, operators, then variables
+    // Prioritize operators (math/aggregate functions), then fields, then variables
     return [
+      ...operatorSuggestions,
       ...fieldSuggestions,
       ...thisFieldSuggestions,
-      ...operatorSuggestions,
       ...variableSuggestions,
     ];
   };

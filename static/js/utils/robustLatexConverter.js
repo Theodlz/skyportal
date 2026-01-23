@@ -511,7 +511,27 @@ export class RobustLatexToMongoConverter {
       };
     }
 
-    // 5. Function notation: abs(expression)
+    // 5a. Multi-argument aggregate functions: min(...), max(...), sum(...), avg(...)
+    const aggregateFuncMatch = trimmed.match(/^(min|max|sum|avg)\((.+)\)$/);
+    if (aggregateFuncMatch) {
+      const [, funcName, argsString] = aggregateFuncMatch;
+      // Parse comma-separated arguments
+      const args = this._parseCommaSeparatedArgs(argsString, depth, isInArrayFilter);
+      
+      // Map function names to MongoDB operators
+      const operatorMap = {
+        min: '$min',
+        max: '$max',
+        sum: '$sum',
+        avg: '$avg'
+      };
+      
+      return {
+        [operatorMap[funcName]]: args
+      };
+    }
+
+    // 5b. Function notation: abs(expression)
     const absFuncMatch = trimmed.match(/^abs\((.+)\)$/);
     if (absFuncMatch) {
       return {
@@ -569,6 +589,53 @@ export class RobustLatexToMongoConverter {
   }
 
   /**
+   * Parse comma-separated arguments for aggregate functions
+   * Handles nested parentheses and commas within sub-expressions
+   * @private
+   */
+  _parseCommaSeparatedArgs(argsString, depth = 0, isInArrayFilter = false) {
+    const args = [];
+    let currentArg = '';
+    let parenDepth = 0;
+    let braceDepth = 0;
+    
+    for (let i = 0; i < argsString.length; i++) {
+      const char = argsString[i];
+      
+      if (char === '(') {
+        parenDepth++;
+        currentArg += char;
+      } else if (char === ')') {
+        parenDepth--;
+        currentArg += char;
+      } else if (char === '{') {
+        braceDepth++;
+        currentArg += char;
+      } else if (char === '}') {
+        braceDepth--;
+        currentArg += char;
+      } else if (char === ',' && parenDepth === 0 && braceDepth === 0) {
+        // Found a top-level comma - parse and store the current argument
+        const trimmedArg = currentArg.trim();
+        if (trimmedArg) {
+          args.push(this._parseWithExpressionTree(trimmedArg, depth + 1, isInArrayFilter));
+        }
+        currentArg = '';
+      } else {
+        currentArg += char;
+      }
+    }
+    
+    // Don't forget the last argument
+    const trimmedArg = currentArg.trim();
+    if (trimmedArg) {
+      args.push(this._parseWithExpressionTree(trimmedArg, depth + 1, isInArrayFilter));
+    }
+    
+    return args;
+  }
+
+  /**
    * Extract field dependencies from expression
    * @param {string} latexExpression
    * @returns {Array} Array of field names
@@ -598,6 +665,10 @@ export class RobustLatexToMongoConverter {
           "log",
           "ln",
           "abs",
+          "min",
+          "max",
+          "sum",
+          "avg",
           "left",
           "right",
           "frac",

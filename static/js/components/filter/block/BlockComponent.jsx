@@ -639,8 +639,20 @@ const SaveBlockComponent = ({
       if (b.isListVariable) {
         return !!b.field;
       }
+      
+      // Operators that don't require a value or accept boolean/special values
+      const operatorsWithOptionalValue = ["$exists", "$isNumber"];
+      if (operatorsWithOptionalValue.includes(b.operator)) {
+        return true; // Value is optional or can be any type (including false)
+      }
+
+      // Check if field and operator are present
+      if (!b.field || !b.operator) {
+        return false;
+      }
+      
       // Regular conditions need field, operator, and value
-      return !!b.field && !!b.operator && b.value !== "";
+      return b.value !== "" && b.value !== null && b.value !== undefined;
     }
     if (b.category === "block") {
       return b.children.length > 0 && b.children.every(validateBlock);
@@ -890,6 +902,12 @@ const ValueInput = ({
 
   // Check conditions that require context
   if (isBooleanField(conditionOrBlock, customVariables, fieldOptionsList)) {
+    return null;
+  }
+  
+  // Skip value input for operators that have special inputs (handled by SpecialOperatorInputs)
+  const operatorsWithSpecialInputs = ["$exists", "$isNumber", "$round"];
+  if (operatorsWithSpecialInputs.includes(conditionOrBlock.operator)) {
     return null;
   }
 
