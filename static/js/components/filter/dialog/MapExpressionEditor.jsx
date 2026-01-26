@@ -116,7 +116,7 @@ const MapExpressionEditor = ({
                 onChange={(e) =>
                   handleFieldChange(index, "fieldName", e.target.value)
                 }
-                placeholder="sep"
+                placeholder="name"
               />
             </Box>
 
@@ -153,56 +153,6 @@ const MapExpressionEditor = ({
         >
           Add Field
         </Button>
-      </Paper>
-
-      <Paper
-        variant="outlined"
-        sx={{
-          p: 2,
-          backgroundColor: "grey.50",
-        }}
-      >
-        <Typography variant="subtitle2" gutterBottom>
-          Generated MongoDB $map:
-        </Typography>
-        <Paper
-          variant="outlined"
-          sx={{
-            p: 1.5,
-            mt: 1,
-            fontFamily: "monospace",
-            fontSize: "0.875rem",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
-            backgroundColor: "background.paper",
-            maxHeight: 300,
-            overflow: "auto",
-          }}
-        >
-          {JSON.stringify(
-            {
-              $map: {
-                input: `$${arrayField || "arrayField"}`,
-                in: mapFields.reduce((acc, field) => {
-                  if (field.fieldName && field.expression) {
-                    acc[field.fieldName] = field.expression;
-                  }
-                  return acc;
-                }, {}),
-              },
-            },
-            null,
-            2,
-          )}
-        </Paper>
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{ mt: 1, display: "block" }}
-        >
-          MongoDB will use $$this to reference each array element. Each field
-          name creates an output field.
-        </Typography>
       </Paper>
 
       {/* Equation Popover for arithmetic variables */}
