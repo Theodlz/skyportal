@@ -282,6 +282,7 @@ export class RobustLatexToMongoConverter {
         case "/":
           return { $divide: [leftVal, rightVal] };
         case "^":
+        case "**":
           return { $pow: [leftVal, rightVal] };
         default:
           break;
@@ -388,7 +389,7 @@ export class RobustLatexToMongoConverter {
     const operators = [
       { ops: ["+", "-"], precedence: 1 },
       { ops: ["*", "/"], precedence: 2 },
-      { ops: ["^"], precedence: 3 },
+      { ops: ["**", "^"], precedence: 3 }, // ** must come before * in the list
     ];
 
     let parenLevel = 0;
@@ -432,32 +433,51 @@ export class RobustLatexToMongoConverter {
 
       if (parenLevel === 0 && funcLevel === 0 && absLevel === 0) {
         for (const { ops, precedence } of operators) {
-          if (ops.includes(char) && precedence <= bestPrec) {
-            // Make sure this operator isn't part of a function name
-            // (only skip if the operator itself is a letter and preceded by a letter)
-            if (
-              i > 0 &&
-              /[a-zA-Z]/.test(char) &&
-              /[a-zA-Z]/.test(expression[i - 1])
-            ) {
-              continue;
-            }
+          for (const op of ops) {
+            // Check if we have a multi-character operator like **
+            if (op.length > 1) {
+              const startIdx = i - op.length + 1;
+              if (
+                startIdx >= 0 &&
+                expression.substring(startIdx, i + 1) === op &&
+                precedence <= bestPrec
+              ) {
+                const left = expression.substring(0, startIdx).trim();
+                const right = expression.substring(i + 1).trim();
 
-            // Handle negative numbers (don't treat - as subtraction if it's the start or after specific operators)
-            if (
-              char === "-" &&
-              (i === 0 || /[+\-*/^(]/.test(expression[i - 1]))
-            ) {
-              continue;
-            }
+                if (left && right) {
+                  bestOp = { left, operator: op, right };
+                  bestPrec = precedence;
+                }
+              }
+            } else if (op === char && precedence <= bestPrec) {
+              // Single character operator
+              // Make sure this operator isn't part of a function name
+              // (only skip if the operator itself is a letter and preceded by a letter)
+              if (
+                i > 0 &&
+                /[a-zA-Z]/.test(char) &&
+                /[a-zA-Z]/.test(expression[i - 1])
+              ) {
+                continue;
+              }
 
-            const left = expression.substring(0, i).trim();
-            const right = expression.substring(i + 1).trim();
+              // Handle negative numbers (don't treat - as subtraction if it's the start or after specific operators)
+              if (
+                char === "-" &&
+                (i === 0 || /[+\-*/^(]/.test(expression[i - 1]))
+              ) {
+                continue;
+              }
 
-            // Make sure both sides exist
-            if (left && right) {
-              bestOp = { left, operator: char, right };
-              bestPrec = precedence;
+              const left = expression.substring(0, i).trim();
+              const right = expression.substring(i + 1).trim();
+
+              // Make sure both sides exist
+              if (left && right) {
+                bestOp = { left, operator: char, right };
+                bestPrec = precedence;
+              }
             }
           }
         }
@@ -516,18 +536,22 @@ export class RobustLatexToMongoConverter {
     if (aggregateFuncMatch) {
       const [, funcName, argsString] = aggregateFuncMatch;
       // Parse comma-separated arguments
-      const args = this._parseCommaSeparatedArgs(argsString, depth, isInArrayFilter);
-      
+      const args = this._parseCommaSeparatedArgs(
+        argsString,
+        depth,
+        isInArrayFilter,
+      );
+
       // Map function names to MongoDB operators
       const operatorMap = {
-        min: '$min',
-        max: '$max',
-        sum: '$sum',
-        avg: '$avg'
+        min: "$min",
+        max: "$max",
+        sum: "$sum",
+        avg: "$avg",
       };
-      
+
       return {
-        [operatorMap[funcName]]: args
+        [operatorMap[funcName]]: args,
       };
     }
 
@@ -595,43 +619,51 @@ export class RobustLatexToMongoConverter {
    */
   _parseCommaSeparatedArgs(argsString, depth = 0, isInArrayFilter = false) {
     const args = [];
-    let currentArg = '';
+    let currentArg = "";
     let parenDepth = 0;
     let braceDepth = 0;
-    
+
     for (let i = 0; i < argsString.length; i++) {
       const char = argsString[i];
-      
-      if (char === '(') {
+
+      if (char === "(") {
         parenDepth++;
         currentArg += char;
-      } else if (char === ')') {
+      } else if (char === ")") {
         parenDepth--;
         currentArg += char;
-      } else if (char === '{') {
+      } else if (char === "{") {
         braceDepth++;
         currentArg += char;
-      } else if (char === '}') {
+      } else if (char === "}") {
         braceDepth--;
         currentArg += char;
-      } else if (char === ',' && parenDepth === 0 && braceDepth === 0) {
+      } else if (char === "," && parenDepth === 0 && braceDepth === 0) {
         // Found a top-level comma - parse and store the current argument
         const trimmedArg = currentArg.trim();
         if (trimmedArg) {
-          args.push(this._parseWithExpressionTree(trimmedArg, depth + 1, isInArrayFilter));
+          args.push(
+            this._parseWithExpressionTree(
+              trimmedArg,
+              depth + 1,
+              isInArrayFilter,
+            ),
+          );
         }
-        currentArg = '';
+        currentArg = "";
       } else {
         currentArg += char;
       }
     }
-    
+
     // Don't forget the last argument
     const trimmedArg = currentArg.trim();
     if (trimmedArg) {
-      args.push(this._parseWithExpressionTree(trimmedArg, depth + 1, isInArrayFilter));
+      args.push(
+        this._parseWithExpressionTree(trimmedArg, depth + 1, isInArrayFilter),
+      );
     }
-    
+
     return args;
   }
 
@@ -648,7 +680,37 @@ export class RobustLatexToMongoConverter {
     // First clean the expression to remove LaTeX syntax that might create false field matches
     const cleanedExpression = this._cleanExpression(latexExpression);
 
-    const fields = [];
+    const fields = new Set();
+
+    // Extract fields from aggregate functions like min(var1, var2, var3)
+    const aggregateFuncPattern = /\b(min|max|sum|avg)\s*\(([^)]+)\)/g;
+    let aggregateMatch;
+    while (
+      (aggregateMatch = aggregateFuncPattern.exec(cleanedExpression)) !== null
+    ) {
+      const argsString = aggregateMatch[2];
+      // Split by commas, handling nested expressions
+      const args = this._splitCommaSeparatedFields(argsString);
+      args.forEach((arg) => {
+        const trimmedArg = arg.trim();
+        // Check if it's a field reference (not a number, not a nested expression)
+        if (
+          trimmedArg &&
+          !this.numberPattern.test(trimmedArg) &&
+          !trimmedArg.includes("(") &&
+          !trimmedArg.includes("+") &&
+          !trimmedArg.includes("-") &&
+          !trimmedArg.includes("*") &&
+          !trimmedArg.includes("/") &&
+          !trimmedArg.startsWith("this.") &&
+          trimmedArg !== "this"
+        ) {
+          fields.add(trimmedArg);
+        }
+      });
+    }
+
+    // Extract fields from the general expression pattern
     let match;
     this.fieldPattern.lastIndex = 0;
 
@@ -676,11 +738,46 @@ export class RobustLatexToMongoConverter {
         !field.startsWith("this.") &&
         field !== "this"
       ) {
-        fields.push(field);
+        fields.add(field);
       }
     }
 
-    return [...new Set(fields)]; // Remove duplicates
+    return [...fields]; // Convert Set to Array
+  }
+
+  /**
+   * Split comma-separated fields, respecting nested parentheses
+   * @private
+   */
+  _splitCommaSeparatedFields(argsString) {
+    const args = [];
+    let currentArg = "";
+    let parenDepth = 0;
+
+    for (let i = 0; i < argsString.length; i++) {
+      const char = argsString[i];
+
+      if (char === "(") {
+        parenDepth++;
+        currentArg += char;
+      } else if (char === ")") {
+        parenDepth--;
+        currentArg += char;
+      } else if (char === "," && parenDepth === 0) {
+        if (currentArg.trim()) {
+          args.push(currentArg.trim());
+        }
+        currentArg = "";
+      } else {
+        currentArg += char;
+      }
+    }
+
+    if (currentArg.trim()) {
+      args.push(currentArg.trim());
+    }
+
+    return args;
   }
 }
 

@@ -96,7 +96,7 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
 
   // MongoDB aggregation conversion
   const generateMongoQuery = () => {
-    // Collect field names from projection fields that need to be available
+    // Collect field names from annotation fields that need to be available
     const annotationFields = projectionFields
       ? projectionFields
           .filter((f) => f.fieldName && f.fieldName !== "objectId")
@@ -175,7 +175,8 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
 
   const hasValidQuery = () => {
     // Use localFilterData if it exists and has been modified, otherwise use filters
-    const dataToCheck = (hasBeenModified && localFilterData) ? localFilterData : filters;
+    const dataToCheck =
+      hasBeenModified && localFilterData ? localFilterData : filters;
     const pipeline = convertToMongoAggregation(
       dataToCheck,
       schema,
@@ -183,7 +184,7 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
       customVariables,
       customListVariables,
       customSwitchCases,
-      [] // No annotation fields for validation
+      [], // No annotation fields for validation
     );
     return isValidPipeline(pipeline);
   };

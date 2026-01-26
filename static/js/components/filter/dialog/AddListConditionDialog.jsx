@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -24,6 +24,7 @@ import {
 import { useCurrentBuilder } from "../../../hooks/useContexts";
 import BlockComponent from "../block/BlockComponent";
 import FilterBuilder from "../FilterBuilder";
+import MapExpressionEditor from "./MapExpressionEditor";
 import { postElement } from "../../../ducks/boom_filter_modules";
 import { useDispatch } from "react-redux";
 
@@ -243,6 +244,7 @@ const ListOperatorSelector = ({
         "Returns true if all elements in the array match the conditions",
       $filter:
         "Filters the array to return only elements that match the conditions",
+      $map: "Transforms each element in the array by applying an expression",
       $size: "Checks if the array has a specific number of elements",
       $all: "Returns true if the array contains all specified values",
       $min: "Returns the minimum value from the array elements",
@@ -258,11 +260,15 @@ const ListOperatorSelector = ({
   };
 
   const getOperatorOutputType = (operator) => {
+    // Boolean-returning operators
+    if (["$anyElementTrue", "$allElementsTrue"].includes(operator)) {
+      return "boolean";
+    }
     // Array-returning operators
-    if (["$anyElementTrue", "$allElementsTrue", "$filter"].includes(operator)) {
+    if (["$filter", "$map"].includes(operator)) {
       return "array";
     }
-    // Number-returning operators (excluding $map which we don't specify)
+    // Number-returning operators
     if (
       [
         "$min",
@@ -276,7 +282,7 @@ const ListOperatorSelector = ({
     ) {
       return "number";
     }
-    // For $map and others, return null (don't display type)
+    // For others, return null (don't display type)
     return null;
   };
 
@@ -346,22 +352,45 @@ const ConditionBuilderSection = ({
   setLocalFilters,
   subFieldOptions,
   fieldOptions, // Receive as prop instead of computing
+  mapFields,
+  onMapFieldsChange,
+  customVariables,
 }) => {
   const shouldShowConditionBuilder = [
     "$anyElementTrue",
     "$allElementsTrue",
     "$filter",
-    "$map",
   ].includes(selectedOperator);
 
-  if (!shouldShowConditionBuilder) {
+  const shouldShowMapEditor = selectedOperator === "$map";
+
+  if (!shouldShowConditionBuilder && !shouldShowMapEditor) {
     return null;
+  }
+
+  // Show Map Expression Editor for $map operator
+  if (shouldShowMapEditor) {
+    return (
+      <MapExpressionEditor
+        mapFields={mapFields}
+        onMapFieldsChange={onMapFieldsChange}
+        arrayField={selectedArrayField}
+        subFieldOptions={subFieldOptions}
+        customVariables={customVariables}
+      />
+    );
   }
 
   // Get the array field and its subfields
   const arrayField = fieldOptions.find(
     (f) => f.type === "array" && f.label === selectedArrayField,
   );
+
+  // Check if the selected field is a custom list variable (from subFieldOptions)
+  const isCustomListVariable =
+    subFieldOptions &&
+    subFieldOptions.length > 0 &&
+    !arrayField?.arrayItems?.fields;
 
   if (!arrayField || !arrayField.arrayItems || !arrayField.arrayItems.fields) {
     // For cross_matches style fields, we should use the passed subFieldOptions
@@ -435,10 +464,11 @@ const ConditionBuilderSection = ({
     };
   });
 
-  const fieldOptionsList = [
-    ...(fieldOptions || []),
-    ...subFieldOptionsConsistent,
-  ];
+  // For custom list variables, use subFieldOptions as-is (already properly formatted)
+  // For schema fields, use the subFieldOptionsConsistent with prefixes
+  const fieldOptionsList = isCustomListVariable
+    ? [...(fieldOptions || []), ...subFieldOptions]
+    : [...(fieldOptions || []), ...subFieldOptionsConsistent];
 
   return (
     <Box>
@@ -516,6 +546,11 @@ const AddListConditionDialog = () => {
     fieldOptions, // Get fieldOptions from context instead of computing it here
   } = useCurrentBuilder();
 
+  // State for $map operator - now array of field definitions
+  const [mapFields, setMapFields] = useState([
+    { fieldName: "", expression: "" },
+  ]);
+
   // Use our custom hooks
   const form = useListConditionForm(
     fieldOptions,
@@ -553,12 +588,29 @@ const AddListConditionDialog = () => {
           dialog.listFieldNameFromCondition,
         );
       }
+
+      // Auto-populate $map fields if editing a $map condition
+      if (dialog.operatorFromCondition === "$map" && dialog.conditionValue) {
+        const mapData = dialog.conditionValue;
+        if (mapData.mapExpression) {
+          // Convert mapExpression object to array of fields
+          const entries = Object.entries(mapData.mapExpression);
+          if (entries.length > 0) {
+            const fields = entries.map(([fieldName, expression]) => ({
+              fieldName,
+              expression,
+            }));
+            setMapFields(fields);
+          }
+        }
+      }
     }
   }, [
     listConditionDialog.open,
     listConditionDialog.conditionId,
     dialog.listFieldNameFromCondition,
     dialog.operatorFromCondition,
+    dialog.conditionValue,
     form.selectedArrayField,
     form.selectedOperator,
     form.setSelectedArrayField,
@@ -572,6 +624,8 @@ const AddListConditionDialog = () => {
     setListConditionDialog({ open: false, blockId: null });
     form.resetForm();
     dialog.resetDialog();
+    // Reset $map state
+    setMapFields([{ fieldName: "", expression: "" }]);
   };
 
   const handleFieldSelection = (fieldLabel) => {
@@ -649,13 +703,36 @@ const AddListConditionDialog = () => {
       "$stdDevPop",
       "$median",
     ].includes(form.selectedOperator);
+    const isMapOperator = form.selectedOperator === "$map";
+
+    // Build map expression object if it's a $map operator
+    let mapExpressionObj = null;
+    if (isMapOperator) {
+      // Validate that at least one field is defined
+      const validFields = mapFields.filter((f) => f.fieldName && f.expression);
+      if (validFields.length === 0) {
+        alert(
+          "Please provide at least one field with both a name and an expression for the $map operator.",
+        );
+        return;
+      }
+      // Build the map expression structure: { field1: expression1, field2: expression2, ... }
+      mapExpressionObj = validFields.reduce((acc, field) => {
+        acc[field.fieldName] = field.expression;
+        return acc;
+      }, {});
+    }
 
     // Create a list condition that wraps the inner conditions
     const listCondition = {
       type: "array",
       field: dialog.listFieldName,
       operator: form.selectedOperator,
-      value: operatorNeedsConditions ? dialog.localFilters[0] : null,
+      value: operatorNeedsConditions
+        ? dialog.localFilters[0]
+        : isMapOperator
+          ? { mapExpression: mapExpressionObj }
+          : null,
       subField: operatorNeedsSubField ? form.selectedSubField : null,
       subFieldOptions: (() => {
         // First check if the array field is a list variable
@@ -663,17 +740,20 @@ const AddListConditionDialog = () => {
           (lv) => lv.name === dialog.listFieldName,
         );
         if (existingListVar && existingListVar.listCondition?.subFieldOptions) {
-          // Use subFieldOptions from the existing list variable, but update group names
-          // to match the NEW list variable name (not the source)
-          const newListVarName = form.conditionName.trim();
-          return existingListVar.listCondition.subFieldOptions.map((opt) => ({
-            ...opt,
-            group: opt.group ? newListVarName : undefined,
-            // Update label to reference the new list variable instead of original field
-            label: opt.label.includes(".")
-              ? opt.label.replace(/^[^.]+/, newListVarName)
-              : opt.label,
-          }));
+          // Use subFieldOptions from the existing list variable
+          // Extract just the subfield name (after the last dot) to avoid nesting issues
+          return existingListVar.listCondition.subFieldOptions.map((opt) => {
+            // Extract the subfield name (everything after the last dot)
+            const subfieldName = opt.label.includes(".")
+              ? opt.label.split(".").pop()
+              : opt.label;
+
+            return {
+              ...opt,
+              group: undefined, // Don't group by list variable name
+              label: subfieldName, // Use just the subfield name, relative to this list
+            };
+          });
         }
 
         // Use the same comprehensive field options that were used in the dialog
@@ -750,8 +830,8 @@ const AddListConditionDialog = () => {
       "$anyElementTrue",
       "$allElementsTrue",
       "$filter",
-      "$map",
     ].includes(form.selectedOperator);
+    const isMapOperator = form.selectedOperator === "$map";
 
     return (
       form.selectedArrayField &&
@@ -761,7 +841,9 @@ const AddListConditionDialog = () => {
       (!operatorNeedsSubField || form.selectedSubField) &&
       (!operatorNeedsConditions ||
         (dialog.localFilters.length > 0 &&
-          dialog.localFilters[0].children.length > 0))
+          dialog.localFilters[0].children.length > 0)) &&
+      (!isMapOperator ||
+        mapFields.some((f) => f.fieldName.trim() && f.expression.trim()))
     );
   };
 
@@ -822,6 +904,9 @@ const AddListConditionDialog = () => {
                 setLocalFilters={dialog.setLocalFilters}
                 subFieldOptions={dialog.subFieldOptions}
                 fieldOptions={fieldOptions}
+                mapFields={mapFields}
+                onMapFieldsChange={setMapFields}
+                customVariables={customVariables}
               />
             </>
           )}

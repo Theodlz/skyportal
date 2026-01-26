@@ -1,5 +1,15 @@
 import React, { useRef, useEffect, useState } from "react";
-import { Popover, Button, IconButton, Tooltip, Select, MenuItem, FormControl } from "@mui/material";
+import {
+  Popover,
+  Button,
+  IconButton,
+  Tooltip,
+  Select,
+  MenuItem,
+  FormControl,
+  Box,
+  Typography,
+} from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
 import SaveIcon from "@mui/icons-material/Save";
 import CancelIcon from "@mui/icons-material/Cancel";
@@ -213,19 +223,22 @@ const ListConditionPopover = ({
         $stdDevPop: "Standard Deviation (Population)",
         $median: "Median",
         $all: "All",
+        $map: "Map",
       };
       return operatorLabels[operator] || operator;
     };
 
     // Get the output type for a list operator
     const getOperatorOutputType = (operator) => {
+      // Boolean-returning operators
+      if (["$anyElementTrue", "$allElementsTrue"].includes(operator)) {
+        return "boolean";
+      }
       // Array-returning operators
-      if (
-        ["$anyElementTrue", "$allElementsTrue", "$filter"].includes(operator)
-      ) {
+      if (["$filter", "$map"].includes(operator)) {
         return "array";
       }
-      // Number-returning operators (excluding $map which we don't specify)
+      // Number-returning operators
       if (
         [
           "$min",
@@ -239,22 +252,39 @@ const ListConditionPopover = ({
       ) {
         return "number";
       }
-      // For $map and others, return null (don't display type)
+      // For others, return null (don't display type)
       return null;
     };
 
     // Get operators that are compatible with the given operator (same output type)
     const getCompatibleOperators = (operator) => {
+      // $map cannot be switched to/from other operators
+      if (operator === "$map") {
+        return ["$map"];
+      }
+
       const outputType = getOperatorOutputType(operator);
-      
+
+      if (outputType === "boolean") {
+        return ["$anyElementTrue", "$allElementsTrue"];
+      }
+
       if (outputType === "array") {
-        return ["$anyElementTrue", "$allElementsTrue", "$filter"];
+        return ["$filter"];
       }
-      
+
       if (outputType === "number") {
-        return ["$min", "$max", "$avg", "$sum", "$count", "$stdDevPop", "$median"];
+        return [
+          "$min",
+          "$max",
+          "$avg",
+          "$sum",
+          "$count",
+          "$stdDevPop",
+          "$median",
+        ];
       }
-      
+
       // For other operators, return just the operator itself (can't change)
       return [operator];
     };
@@ -271,6 +301,7 @@ const ListConditionPopover = ({
         "$count",
         "$stdDevPop",
         "$median",
+        "$map",
       ].includes(listVar.listCondition.operator);
 
     return (
@@ -396,22 +427,24 @@ const ListConditionPopover = ({
                     → {getOperatorOutputType(listVar.listCondition.operator)}
                   </div>
                 )}
-                <Tooltip title="Edit operator">
-                  <IconButton
-                    size="small"
-                    onClick={() => {
-                      setEditingOperator(true);
-                      setEditedOperator(listVar.listCondition.operator);
-                    }}
-                    style={{
-                      backgroundColor: "#e0f2fe",
-                      color: "#0369a1",
-                      padding: 4,
-                    }}
-                  >
-                    <EditIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                {listVar.listCondition.operator !== "$map" && (
+                  <Tooltip title="Edit operator">
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        setEditingOperator(true);
+                        setEditedOperator(listVar.listCondition.operator);
+                      }}
+                      style={{
+                        backgroundColor: "#e0f2fe",
+                        color: "#0369a1",
+                        padding: 4,
+                      }}
+                    >
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
               </>
             ) : (
               <>
@@ -429,13 +462,13 @@ const ListConditionPopover = ({
                         backgroundColor: "white",
                       }}
                     >
-                      {getCompatibleOperators(listVar.listCondition.operator).map(
-                        (op) => (
-                          <MenuItem key={op} value={op}>
-                            {getOperatorLabel(op)}
-                          </MenuItem>
-                        )
-                      )}
+                      {getCompatibleOperators(
+                        listVar.listCondition.operator,
+                      ).map((op) => (
+                        <MenuItem key={op} value={op}>
+                          {getOperatorLabel(op)}
+                        </MenuItem>
+                      ))}
                     </Select>
                   </FormControl>
                 </div>
@@ -474,7 +507,147 @@ const ListConditionPopover = ({
         )}
 
         <div style={{ width: "100%" }}>
-          {listVar.listCondition.value ? (
+          {listVar.listCondition.operator === "$map" &&
+          listVar.listCondition.value ? (
+            // For $map operator, display the map configuration in a user-friendly way
+            <Box
+              sx={{
+                p: 2,
+                bgcolor: "background.paper",
+                border: "1px solid",
+                borderColor: "grey.300",
+                borderRadius: 1,
+              }}
+            >
+              <Typography
+                variant="subtitle2"
+                sx={{ fontWeight: 600, mb: 2, color: "primary.main" }}
+              >
+                Map Expression
+              </Typography>
+
+              {(() => {
+                const mapData = listVar.listCondition.value;
+                const mapExpression = mapData.mapExpression || {};
+                const fields = Object.entries(mapExpression);
+
+                return (
+                  <>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ display: "block", mb: 0.5 }}
+                      >
+                        For each element in{" "}
+                        <strong>{listVar.listCondition.field}</strong>, create:
+                      </Typography>
+                    </Box>
+
+                    {fields.map(([fieldName, expression], index) => {
+                      // Try to find the arithmetic variable details
+                      const arithmeticVar = customVariables?.find(
+                        (v) => v.name === expression,
+                      );
+
+                      return (
+                        <Box
+                          key={fieldName}
+                          sx={{
+                            p: 1.5,
+                            mb: index < fields.length - 1 ? 2 : 0,
+                            bgcolor: "grey.50",
+                            borderRadius: 1,
+                            border: "1px solid",
+                            borderColor: "grey.200",
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              display: "flex",
+                              alignItems: "baseline",
+                              mb: 1,
+                            }}
+                          >
+                            <Typography
+                              variant="body2"
+                              sx={{ fontWeight: 600, mr: 1 }}
+                            >
+                              Field:
+                            </Typography>
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                fontFamily: "monospace",
+                                color: "success.main",
+                              }}
+                            >
+                              {fieldName}
+                            </Typography>
+                          </Box>
+
+                          <Box sx={{ display: "flex", alignItems: "baseline" }}>
+                            <Typography
+                              variant="body2"
+                              sx={{ fontWeight: 600, mr: 1 }}
+                            >
+                              Expression:
+                            </Typography>
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                fontFamily: "monospace",
+                                color: "info.main",
+                              }}
+                            >
+                              {expression}
+                            </Typography>
+                          </Box>
+
+                          {arithmeticVar && (
+                            <Box
+                              sx={{
+                                mt: 2,
+                                pt: 2,
+                                borderTop: "1px solid",
+                                borderColor: "grey.300",
+                              }}
+                            >
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                sx={{ display: "block", mb: 0.5 }}
+                              >
+                                Formula:
+                              </Typography>
+                              <Typography
+                                variant="body2"
+                                sx={{
+                                  fontFamily: "monospace",
+                                  fontSize: "0.85rem",
+                                }}
+                              >
+                                {arithmeticVar.variable}
+                              </Typography>
+                            </Box>
+                          )}
+                        </Box>
+                      );
+                    })}
+
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ display: "block", mt: 2, fontStyle: "italic" }}
+                    >
+                      This transforms each array element by computing{" "}
+                      {fields.length} field{fields.length > 1 ? "s" : ""}.
+                    </Typography>
+                  </>
+                );
+              })()}
+            </Box>
+          ) : listVar.listCondition.value ? (
             <BlockComponent
               block={
                 editMode

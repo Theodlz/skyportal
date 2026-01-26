@@ -62,14 +62,56 @@ export const convertToMongoAggregation = (
   customSwitchCases = [],
   additionalFieldsToProject = [],
 ) => {
-  if (
-    !filters ||
-    (filters.length === 0 && additionalFieldsToProject.length === 0)
-  ) {
-    return [];
-  }
+  // if (
+  //   !filters ||
+  //   (filters.length === 0 && additionalFieldsToProject.length === 0)
+  // ) {
+  //   return [];
+  // }
 
   const pipeline = [];
+
+  // Track variables that depend on list variables - they need to be added AFTER list vars
+  const variablesDependingOnListVars = new Map(); // Map<groupIndex, Set<varName>>
+
+  // this one unsure for now
+  // Collect all match stages with their dependencies
+  const pendingMatchStages = [];
+
+  // Track all variables that have been defined so far
+  const definedVariables = new Set();
+
+  // if everything is done correctly, do i need this?
+  // Helper to check if a match can be executed (all dependencies satisfied)
+  const canExecuteMatch = (dependencies, definedVars) => {
+    for (const dep of dependencies) {
+      if (!definedVars.has(dep)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // Helper to add any pending matches whose dependencies are now satisfied
+  const addReadyMatches = () => {
+    const readyMatches = [];
+    const stillPending = [];
+
+    pendingMatchStages.forEach((item) => {
+      if (canExecuteMatch(item.dependencies, definedVariables)) {
+        readyMatches.push(item.matchStage);
+      } else {
+        stillPending.push(item);
+      }
+    });
+
+    // Update pending list
+    pendingMatchStages.length = 0;
+    stillPending.forEach((item) => pendingMatchStages.push(item));
+
+    // Add ready matches to pipeline
+    readyMatches.forEach((matchStage) => pipeline.push(matchStage));
+  };
 
   const { simpleConditions, complexFilters } =
     separateSimpleAndComplexConditions(
@@ -201,6 +243,13 @@ export const convertToMongoAggregation = (
 
   const projectedVariables = new Set();
 
+  // Add base fields and custom blocks with false values as already defined
+  usedFields.baseFields.forEach((field) => definedVariables.add(field));
+  customBlocksWithFalseValue.forEach((customBlock) => {
+    const variableName = `${customBlock.name.replace(/[^a-zA-Z0-9]/g, "_")}`;
+    definedVariables.add(variableName);
+  });
+
   let initialProjectStage = null;
   if (needsProjectStage) {
     initialProjectStage = { $project: {} };
@@ -261,24 +310,33 @@ export const convertToMongoAggregation = (
 
     pipeline.push(initialProjectStage);
 
+    // Mark variables as defined
+    projectedVariables.forEach((varName) => definedVariables.add(varName));
+
+    // Check if any matches can be executed now
+    addReadyMatches();
+
     // Add subsequent stages for list variables with dependencies
     for (let level = 1; level < listVarDependencyLevels.length; level++) {
       const levelProjectStage = { $project: {} };
 
-      // Preserve all base fields from initial stage
-      filteredBaseFields.forEach((field) => {
+      // Collect all fields to preserve and check for collisions
+      const fieldsToPreserve = [
+        ...filteredBaseFields,
+        ...Array.from(definedVariables),
+      ];
+
+      // Remove path collisions before adding to project stage
+      const filteredFieldsToPreserve = removePathCollisions(fieldsToPreserve);
+
+      filteredFieldsToPreserve.forEach((field) => {
         levelProjectStage.$project[field] = 1;
       });
 
       // Ensure objectId is included
-      if (!filteredBaseFields.includes("objectId")) {
+      if (!filteredFieldsToPreserve.includes("objectId")) {
         levelProjectStage.$project.objectId = 1;
       }
-
-      // Include all previously projected variables (both list and arithmetic)
-      projectedVariables.forEach((varName) => {
-        levelProjectStage.$project[varName] = 1;
-      });
 
       // Include all custom blocks with false values
       customBlocksWithFalseValue.forEach((customBlock) => {
@@ -315,6 +373,12 @@ export const convertToMongoAggregation = (
       // Only push the stage if we actually added new variables
       if (hasNewVariables) {
         pipeline.push(levelProjectStage);
+
+        // Mark variables as defined
+        projectedVariables.forEach((varName) => definedVariables.add(varName));
+
+        // Check if any matches can be executed now
+        addReadyMatches();
       }
     }
   }
@@ -394,10 +458,31 @@ export const convertToMongoAggregation = (
       const variableLayers = [];
       const processedVars = new Set();
 
+      // Separate variables into those with and without list variable dependencies
+      const varsWithoutListDeps = [];
+      const varsWithListDeps = [];
+
       sortedVars.forEach((varName) => {
+        const deps = getAllVariableDependencies(varName, dependencyGraph);
+        if (deps.listVariables && deps.listVariables.length > 0) {
+          varsWithListDeps.push(varName);
+        } else {
+          varsWithoutListDeps.push(varName);
+        }
+      });
+
+      // Store variables with list dependencies for later processing
+      if (varsWithListDeps.length > 0) {
+        variablesDependingOnListVars.set(groupIndex, new Set(varsWithListDeps));
+      }
+
+      // First, process variables WITHOUT list dependencies
+      varsWithoutListDeps.forEach((varName) => {
         const deps = getAllVariableDependencies(varName, dependencyGraph);
 
         let requiredLayer = 0;
+
+        // Check arithmetic variable dependencies
         deps.variables.forEach((depVar) => {
           if (processedVars.has(depVar)) {
             for (let i = 0; i < variableLayers.length; i++) {
@@ -444,7 +529,7 @@ export const convertToMongoAggregation = (
           const fieldsToProject = [
             ...usedFields.baseFields,
             ...usedFields.listVariables,
-            ...Array.from(projectedVariables),
+            ...Array.from(definedVariables), // Only preserve variables that have already been defined
           ];
 
           const filteredFields = removePathCollisions(fieldsToProject);
@@ -491,6 +576,12 @@ export const convertToMongoAggregation = (
         });
 
         pipeline.push(projectStage);
+
+        // Mark variables as defined
+        projectedVariables.forEach((varName) => definedVariables.add(varName));
+
+        // Check if any matches can be executed now
+        addReadyMatches();
       });
     }
 
@@ -524,29 +615,49 @@ export const convertToMongoAggregation = (
     }
 
     if (Object.keys(matchStage.$match).length > 0) {
-      pipeline.push(matchStage);
+      // Extract dependencies for this match stage
+      const matchDependencies = new Set();
+      group.blocks.forEach((block) => {
+        const varsInBlock = getVariablesUsedInBlock(
+          block,
+          customVariables,
+          customListVariables,
+          customSwitchCases,
+        );
+        varsInBlock.forEach((varName) => matchDependencies.add(varName));
+      });
+
+      // Store match stage with its dependencies
+      pendingMatchStages.push({
+        matchStage,
+        dependencies: matchDependencies,
+      });
     }
   });
 
   const finalProjectStage = { $project: { objectId: 1 } };
 
+  // Collect all fields to preserve
   const allFieldsToProject = [
     ...usedFields.baseFields,
-    ...usedFields.customVariables,
+    ...usedFields.customVariables.filter((varName) =>
+      definedVariables.has(varName),
+    ),
+    ...usedFields.listVariables.filter((listVarName) =>
+      definedVariables.has(listVarName),
+    ),
   ];
 
+  // Remove path collisions before adding to project stage
   const filteredFields = removePathCollisions(allFieldsToProject);
 
   filteredFields.forEach((field) => {
     finalProjectStage.$project[field] = 1;
   });
 
-  // Handle list variables - preserve already projected ones, define new ones
+  // Handle list variables that need to be defined (not just preserved)
   usedFields.listVariables.forEach((listVarName) => {
-    if (projectedVariables.has(listVarName)) {
-      // Already projected, just preserve it
-      finalProjectStage.$project[listVarName] = 1;
-    } else {
+    if (!definedVariables.has(listVarName)) {
       // Not yet projected, need to define it
       const listVar = customListVariables.find((lv) => lv.name === listVarName);
       if (listVar && listVar.listCondition) {
@@ -560,12 +671,163 @@ export const convertToMongoAggregation = (
         );
         if (definition) {
           finalProjectStage.$project[listVarName] = definition;
+          projectedVariables.add(listVarName);
         }
       }
     }
   });
 
-  pipeline.push(finalProjectStage);
+  // Only push finalProjectStage if it actually adds new variables
+  // Check if any list variables were newly defined (not just preserved)
+  let hasNewDefinitions = false;
+  Object.keys(finalProjectStage.$project).forEach((key) => {
+    if (key !== "objectId" && !definedVariables.has(key)) {
+      hasNewDefinitions = true;
+    }
+  });
+
+  if (hasNewDefinitions) {
+    pipeline.push(finalProjectStage);
+
+    // Mark variables as defined
+    projectedVariables.forEach((varName) => definedVariables.add(varName));
+
+    // Check if any matches can be executed now
+    addReadyMatches();
+  }
+
+  // Now handle arithmetic variables that depend on list variables
+  // These need to be in separate stages after list variables are defined
+  // AND they need to be layered by their dependencies on each other
+  if (variablesDependingOnListVars.size > 0) {
+    variablesDependingOnListVars.forEach((varsSet, groupIndex) => {
+      const varsArray = Array.from(varsSet);
+
+      // Layer these variables by their dependencies on each other
+      const listDepVarLayers = [];
+      const processedListDepVars = new Set();
+
+      varsArray.forEach((varName) => {
+        const deps = getAllVariableDependencies(varName, dependencyGraph);
+        let requiredLayer = 0;
+
+        // Check if this variable depends on other variables in varsArray
+        deps.variables.forEach((depVar) => {
+          if (varsSet.has(depVar) && processedListDepVars.has(depVar)) {
+            // Find which layer the dependency is in
+            for (let i = 0; i < listDepVarLayers.length; i++) {
+              if (listDepVarLayers[i].has(depVar)) {
+                requiredLayer = Math.max(requiredLayer, i + 1);
+                break;
+              }
+            }
+          }
+        });
+
+        while (listDepVarLayers.length <= requiredLayer) {
+          listDepVarLayers.push(new Set());
+        }
+        listDepVarLayers[requiredLayer].add(varName);
+        processedListDepVars.add(varName);
+      });
+
+      // Create a separate projection stage for each layer
+      listDepVarLayers.forEach((layerVars) => {
+        const postListVarProjectStage = { $project: {} };
+
+        // Preserve all previously projected fields and variables
+        const fieldsToPreserve = [
+          ...usedFields.baseFields,
+          ...Array.from(definedVariables),
+        ];
+
+        // Remove path collisions before adding to project stage
+        const filteredFieldsToPreserve = removePathCollisions(fieldsToPreserve);
+
+        filteredFieldsToPreserve.forEach((field) => {
+          postListVarProjectStage.$project[field] = 1;
+        });
+
+        // Ensure objectId is included
+        if (!filteredFieldsToPreserve.includes("objectId")) {
+          postListVarProjectStage.$project.objectId = 1;
+        }
+
+        // Add new variable definitions for this layer
+        layerVars.forEach((varName) => {
+          const customVar = customVariables.find((v) => v.name === varName);
+          const switchCase = customSwitchCases.find((v) => v.name === varName);
+
+          if (customVar && customVar.variable) {
+            const eqParts = customVar.variable.split("=");
+            if (eqParts.length === 2) {
+              const latexExpression = eqParts[1].trim();
+              try {
+                const mongoExpression =
+                  latexToMongoConverter.convertToMongo(latexExpression);
+                postListVarProjectStage.$project[varName] = mongoExpression;
+                projectedVariables.add(varName);
+              } catch (error) {
+                console.warn(
+                  `Failed to convert LaTeX expression for variable ${varName}:`,
+                  error,
+                );
+              }
+            }
+          } else if (switchCase && switchCase.switchCondition) {
+            const switchExpr = convertSwitchCaseToMongo(
+              switchCase.switchCondition,
+              schema,
+              fieldOptions,
+              customVariables,
+              customListVariables,
+              customSwitchCases,
+            );
+            if (switchExpr) {
+              postListVarProjectStage.$project[varName] = switchExpr;
+              projectedVariables.add(varName);
+            }
+          }
+        });
+
+        pipeline.push(postListVarProjectStage);
+
+        // Mark variables as defined
+        projectedVariables.forEach((varName) => definedVariables.add(varName));
+
+        // Check if any matches can be executed now
+        addReadyMatches();
+      });
+    });
+  }
+
+  // Add any remaining pending matches
+  pendingMatchStages.forEach((item) => {
+    pipeline.push(item.matchStage);
+  });
+
+  // Ensure the last stage is always a project stage
+  if (pipeline.length > 0) {
+    const lastStage = pipeline[pipeline.length - 1];
+    if (!lastStage.$project) {
+      // Add a final project stage that preserves everything
+      const finalCleanupStage = { $project: { objectId: 1 } };
+
+      const fieldsToPreserve = [
+        ...usedFields.baseFields,
+        ...Array.from(definedVariables),
+      ];
+
+      // Remove path collisions before adding to project stage
+      const filteredFieldsToPreserve = removePathCollisions(fieldsToPreserve);
+
+      filteredFieldsToPreserve.forEach((field) => {
+        finalCleanupStage.$project[field] = 1;
+      });
+
+      pipeline.push(finalCleanupStage);
+    }
+  }
 
   return pipeline;
 };
@@ -690,6 +952,20 @@ const convertBlockToMongo = (
   return result;
 };
 
+/**
+ * Converts a condition object to a MongoDB query format based on the provided schema and options.
+ *
+ * @param {Object} condition - The condition object containing the field, operator, and value to be converted.
+ * @param {Object} schema - The schema definition used for validation and conversion.
+ * @param {Array} [fieldOptions=[]] - Optional field options for additional configuration.
+ * @param {Array} [customVariables=[]] - Custom variables that may be used in the condition.
+ * @param {Array} [customListVariables=[]] - Custom list variables for handling list conditions.
+ * @param {boolean} [isInArrayFilter=false] - Indicates if the condition is within an array filter context.
+ * @param {Object} [variableUsageCounts={}] - Counts of how many times each variable is used.
+ * @param {string|null} [arrayFieldName=null] - The name of the array field if applicable.
+ *
+ * @returns {Object} The MongoDB query representation of the condition.
+ */
 const convertConditionToMongo = (
   condition,
   schema,
@@ -706,9 +982,9 @@ const convertConditionToMongo = (
     return {};
   }
 
-  if (!condition.operator) {
-    return {};
-  }
+  // if (!condition.operator) {
+  //   return {};
+  // }
 
   // For list variables, value might be in different properties
   let value = condition.value;
@@ -968,24 +1244,24 @@ const convertConditionToMongo = (
       return { [field]: { [mongoOp]: parseNumberIfNeeded(value) } };
     }
 
-    case "$regex":
-    case "contains":
-    case "like":
-      return { [field]: { $regex: value, $options: "i" } };
+    // case "$regex":
+    // case "contains":
+    // case "like":
+    //   return { [field]: { $regex: value, $options: "i" } };
 
-    case "starts with":
-      return { [field]: { $regex: `^${escapeRegex(value)}`, $options: "i" } };
+    // case "starts with":
+    //   return { [field]: { $regex: `^${escapeRegex(value)}`, $options: "i" } };
 
-    case "ends with":
-      return { [field]: { $regex: `${escapeRegex(value)}$`, $options: "i" } };
+    // case "ends with":
+    //   return { [field]: { $regex: `${escapeRegex(value)}$`, $options: "i" } };
 
-    case "$in":
-    case "in":
-      return { [field]: { $in: Array.isArray(value) ? value : [value] } };
+    // case "$in":
+    // case "in":
+    //   return { [field]: { $in: Array.isArray(value) ? value : [value] } };
 
-    case "$nin":
-    case "not in":
-      return { [field]: { $nin: Array.isArray(value) ? value : [value] } };
+    // case "$nin":
+    // case "not in":
+    //   return { [field]: { $nin: Array.isArray(value) ? value : [value] } };
 
     case "$exists":
     case "exists":
@@ -997,30 +1273,30 @@ const convertConditionToMongo = (
     case "$isNumber":
       return { $isNumber: `${field}` };
 
-    case "between":
-      if (Array.isArray(value) && value.length === 2) {
-        return {
-          [field]: {
-            $gte: parseNumberIfNeeded(value[0]),
-            $lte: parseNumberIfNeeded(value[1]),
-          },
-        };
-      }
-      return {};
+    // case "between":
+    //   if (Array.isArray(value) && value.length === 2) {
+    //     return {
+    //       [field]: {
+    //         $gte: parseNumberIfNeeded(value[0]),
+    //         $lte: parseNumberIfNeeded(value[1]),
+    //       },
+    //     };
+    //   }
+    //   return {};
 
-    case "not between":
-      if (Array.isArray(value) && value.length === 2) {
-        return {
-          $or: [
-            { [field]: { $lt: parseNumberIfNeeded(value[0]) } },
-            { [field]: { $gt: parseNumberIfNeeded(value[1]) } },
-          ],
-        };
-      }
-      return {};
+    // case "not between":
+    //   if (Array.isArray(value) && value.length === 2) {
+    //     return {
+    //       $or: [
+    //         { [field]: { $lt: parseNumberIfNeeded(value[0]) } },
+    //         { [field]: { $gt: parseNumberIfNeeded(value[1]) } },
+    //       ],
+    //     };
+    //   }
+    //   return {};
 
-    case "array contains":
-      return { [field]: { $elemMatch: { $eq: value } } };
+    // case "array contains":
+    //   return { [field]: { $elemMatch: { $eq: value } } };
 
     case "$lengthGt": {
       const gtLength = parseNumberIfNeeded(value);
@@ -2322,6 +2598,19 @@ const parseNumberIfNeeded = (value) => {
   return value;
 };
 
+/**
+ * Converts string representations of null-like values to actual null.
+ *
+ * @param {*} value - The value to convert. If it's a string matching "null", "none", or "nan" (case-insensitive), it will be converted to null.
+ * @returns {*} Returns null if the value is a null-like string, otherwise returns the original value unchanged.
+ *
+ * @example
+ * convertNullLikeStringsToNull("null") // returns null
+ * convertNullLikeStringsToNull("NONE") // returns null
+ * convertNullLikeStringsToNull("NaN") // returns null
+ * convertNullLikeStringsToNull("hello") // returns "hello"
+ * convertNullLikeStringsToNull(42) // returns 42
+ */
 const convertNullLikeStringsToNull = (value) => {
   if (typeof value === "string") {
     const lowerValue = value.toLowerCase();
@@ -2340,6 +2629,7 @@ const escapeRegex = (string) => {
   return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 };
 
+// formatting the aggregation pipeline as a pretty-printed JSON string from an array of stages [{...}, {...}, ...]
 export const formatMongoAggregation = (pipeline) => {
   return JSON.stringify(pipeline, null, 2);
 };
@@ -2675,6 +2965,23 @@ const convertListConditionDefinitionToMongo = (
               },
               0,
             ],
+          },
+        };
+      }
+      return { [arrayField]: { $exists: true, $type: "array" } };
+
+    case "$map":
+      if (
+        nestedConditions &&
+        nestedConditions.mapVariable &&
+        nestedConditions.mapExpression
+      ) {
+        // nestedConditions.mapExpression is now an object like { sep: "myVariable" }
+        // where the key is the output field name and value is the arithmetic variable reference
+        return {
+          $map: {
+            input: { $ifNull: [`$${arrayField}`, []] },
+            in: nestedConditions.mapExpression,
           },
         };
       }
@@ -3403,7 +3710,8 @@ const buildVariableDependencyGraph = (
       if (!block) return;
 
       if (block.field) {
-        const fieldName = getFieldName(block.field);
+        // const fieldName = getFieldName(block.field);
+        const fieldName = block.field;
         const isVariable = customVariables.some((v) => v.name === fieldName);
         const isListVariable = customListVariables.some(
           (lv) => lv.name === fieldName,
@@ -3530,7 +3838,8 @@ const getVariablesUsedInBlock = (
     if (!b) return;
 
     if ((b.type === "condition" || b.category === "condition") && b.field) {
-      const fieldName = getFieldName(b.field);
+      // const fieldName = getFieldName(b.field);
+      const fieldName = b.field;
       const isCustomVariable = customVariables.some(
         (v) => v.name === fieldName,
       );
@@ -3675,6 +3984,86 @@ const collectUsedFieldsInBlock = (
   });
 };
 
+// Helper function to recursively collect list variable dependencies
+const collectListVariableDependencies = (
+  listVarName,
+  usedFields,
+  customListVariables = [],
+  visited = new Set(),
+) => {
+  if (visited.has(listVarName)) {
+    return; // Prevent infinite recursion
+  }
+  visited.add(listVarName);
+
+  const listVariable = customListVariables.find(
+    (lv) => lv.name === listVarName,
+  );
+  if (listVariable && listVariable.listCondition) {
+    const arrayField = listVariable.listCondition.field;
+
+    // Check if the arrayField is itself a list variable
+    const isArrayFieldListVar = customListVariables.some(
+      (lv) => lv.name === arrayField,
+    );
+
+    if (isArrayFieldListVar) {
+      usedFields.listVariables.add(arrayField);
+      // Recursively collect dependencies of this list variable
+      collectListVariableDependencies(
+        arrayField,
+        usedFields,
+        customListVariables,
+        visited,
+      );
+    } else {
+      usedFields.baseFields.add(arrayField);
+    }
+
+    // Also check filter conditions for additional dependencies
+    if (
+      listVariable.listCondition.value &&
+      listVariable.listCondition.value.children
+    ) {
+      try {
+        const mongoCondition = convertBlockToMongo(
+          listVariable.listCondition.value,
+          {},
+          [],
+          [],
+          customListVariables,
+          true,
+          {},
+          [],
+        );
+        // Extract any field references from the condition
+        const absoluteFields = extractAbsoluteFieldReferences(mongoCondition);
+        absoluteFields.forEach((field) => {
+          const isFieldListVar = customListVariables.some(
+            (lv) => lv.name === field,
+          );
+          if (isFieldListVar) {
+            usedFields.listVariables.add(field);
+            collectListVariableDependencies(
+              field,
+              usedFields,
+              customListVariables,
+              visited,
+            );
+          } else {
+            usedFields.baseFields.add(field);
+          }
+        });
+      } catch (error) {
+        console.warn(
+          "Failed to extract dependencies from list variable filter:",
+          error,
+        );
+      }
+    }
+  }
+};
+
 const collectUsedFieldsInCondition = (
   condition,
   usedFields,
@@ -3684,7 +4073,8 @@ const collectUsedFieldsInCondition = (
   if (!condition.field) {
     return;
   }
-  const fieldName = getFieldName(condition.field);
+  // const fieldName = getFieldName(condition.field);
+  const fieldName = condition.field;
   const isCustomVariable = customVariables.some((v) => v.name === fieldName);
   const isListVariable = customListVariables.some((v) => v.name === fieldName);
 
@@ -3706,8 +4096,48 @@ const collectUsedFieldsInCondition = (
           );
           if (isDepListVariable) {
             usedFields.listVariables.add(depField);
+            // Recursively collect dependencies of this list variable
+            collectListVariableDependencies(
+              depField,
+              usedFields,
+              customListVariables,
+            );
           } else if (isDepCustomVariable) {
             usedFields.customVariables.add(depField);
+            // Recursively collect dependencies of this custom variable
+            const depCustomVar = customVariables.find(
+              (v) => v.name === depField,
+            );
+            if (depCustomVar && depCustomVar.variable) {
+              const depEqParts = depCustomVar.variable.split("=");
+              if (depEqParts.length === 2) {
+                const depLatexExpression = depEqParts[1].trim();
+                const depFieldDependencies =
+                  latexToMongoConverter.extractFieldDependencies(
+                    depLatexExpression,
+                  );
+                depFieldDependencies.forEach((nestedDepField) => {
+                  const isNestedDepListVariable = customListVariables.some(
+                    (lv) => lv.name === nestedDepField,
+                  );
+                  const isNestedDepCustomVariable = customVariables.some(
+                    (v) => v.name === nestedDepField,
+                  );
+                  if (isNestedDepListVariable) {
+                    usedFields.listVariables.add(nestedDepField);
+                    collectListVariableDependencies(
+                      nestedDepField,
+                      usedFields,
+                      customListVariables,
+                    );
+                  } else if (isNestedDepCustomVariable) {
+                    usedFields.customVariables.add(nestedDepField);
+                  } else {
+                    usedFields.baseFields.add(nestedDepField);
+                  }
+                });
+              }
+            }
           } else {
             usedFields.baseFields.add(depField);
           }
@@ -3716,74 +4146,74 @@ const collectUsedFieldsInCondition = (
     }
   } else if (isListVariable) {
     usedFields.listVariables.add(fieldName);
+    // Recursively collect dependencies of this list variable
+    collectListVariableDependencies(fieldName, usedFields, customListVariables);
 
     const listVariable = customListVariables.find(
       (lv) => lv.name === fieldName,
     );
-    if (listVariable && listVariable.listCondition) {
-      const arrayField = listVariable.listCondition.field;
 
-      // Check if the arrayField is itself a list variable
-      const isArrayFieldListVar = customListVariables.some(
-        (lv) => lv.name === arrayField,
-      );
-      if (isArrayFieldListVar) {
-        usedFields.listVariables.add(arrayField);
-      } else {
-        usedFields.baseFields.add(arrayField);
-      }
+    // The rest of the dependencies are handled by collectListVariableDependencies
+    // Just process any additional filter conditions for absolute field references
+    if (
+      listVariable &&
+      listVariable.listCondition &&
+      listVariable.listCondition.value
+    ) {
+      try {
+        const mongoCondition = convertBlockToMongo(
+          listVariable.listCondition.value,
+          {},
+          [],
+          customVariables,
+          customListVariables,
+          true,
+          {},
+          [],
+        );
+        const absoluteFields = extractAbsoluteFieldReferences(mongoCondition);
 
-      // Process filter conditions if they exist
-      if (listVariable.listCondition.value) {
-        try {
-          const mongoCondition = convertBlockToMongo(
-            listVariable.listCondition.value,
-            {},
-            [],
-            customVariables,
-            customListVariables,
-            true,
-            {},
-            [],
+        absoluteFields.forEach((field) => {
+          const isVariableCustom = customVariables.some(
+            (v) => v.name === field,
           );
-          const absoluteFields = extractAbsoluteFieldReferences(mongoCondition);
+          const isVariableList = customListVariables.some(
+            (v) => v.name === field,
+          );
 
-          absoluteFields.forEach((field) => {
-            const isVariableCustom = customVariables.some(
-              (v) => v.name === field,
-            );
-            const isVariableList = customListVariables.some(
-              (v) => v.name === field,
-            );
-
-            if (isVariableCustom) {
-              usedFields.customVariables.add(field);
-              const customVar = customVariables.find((v) => v.name === field);
-              if (customVar && customVar.variable) {
-                const eqParts = customVar.variable.split("=");
-                if (eqParts.length === 2) {
-                  const latexExpression = eqParts[1].trim();
-                  const fieldDependencies =
-                    latexToMongoConverter.extractFieldDependencies(
-                      latexExpression,
-                    );
-                  fieldDependencies.forEach((depField) => {
-                    usedFields.baseFields.add(depField);
-                  });
-                }
+          if (isVariableCustom) {
+            usedFields.customVariables.add(field);
+            const customVar = customVariables.find((v) => v.name === field);
+            if (customVar && customVar.variable) {
+              const eqParts = customVar.variable.split("=");
+              if (eqParts.length === 2) {
+                const latexExpression = eqParts[1].trim();
+                const fieldDependencies =
+                  latexToMongoConverter.extractFieldDependencies(
+                    latexExpression,
+                  );
+                fieldDependencies.forEach((depField) => {
+                  usedFields.baseFields.add(depField);
+                });
               }
-            } else if (isVariableList) {
-              usedFields.listVariables.add(field);
-            } else {
-              usedFields.baseFields.add(field);
             }
-          });
-        } catch (error) {
-          console.warn(
-            "Failed to extract absolute field references from list variable:",
-            error,
-          );
-        }
+          } else if (isVariableList) {
+            usedFields.listVariables.add(field);
+            // Recursively collect dependencies of this list variable
+            collectListVariableDependencies(
+              field,
+              usedFields,
+              customListVariables,
+            );
+          } else {
+            usedFields.baseFields.add(field);
+          }
+        });
+      } catch (error) {
+        console.warn(
+          "Failed to extract absolute field references from list variable:",
+          error,
+        );
       }
     }
   } else {
@@ -3819,7 +4249,8 @@ const collectUsedFieldsInCondition = (
     }
 
     if (arrayValue.field) {
-      const arrayFieldName = getFieldName(arrayValue.field);
+      // const arrayFieldName = getFieldName(arrayValue.field);
+      const arrayFieldName = arrayValue.field;
       const isArrayCustomVariable = customVariables.some(
         (v) => v.name === arrayFieldName,
       );
@@ -3831,6 +4262,12 @@ const collectUsedFieldsInCondition = (
         usedFields.customVariables.add(arrayFieldName);
       } else if (isArrayListVariable) {
         usedFields.listVariables.add(arrayFieldName);
+        // Recursively collect dependencies of this list variable
+        collectListVariableDependencies(
+          arrayFieldName,
+          usedFields,
+          customListVariables,
+        );
       } else {
         usedFields.baseFields.add(arrayFieldName);
       }
@@ -3885,6 +4322,12 @@ const collectUsedFieldsInCondition = (
             }
           } else if (isVariableList) {
             usedFields.listVariables.add(field);
+            // Recursively collect dependencies of this list variable
+            collectListVariableDependencies(
+              field,
+              usedFields,
+              customListVariables,
+            );
           } else {
             usedFields.baseFields.add(field);
           }
@@ -3930,7 +4373,8 @@ const countVariableUsageInCondition = (
     return;
   }
 
-  const fieldName = getFieldName(condition.field);
+  // const fieldName = getFieldName(condition.field);
+  const fieldName = condition.field;
   if (Object.prototype.hasOwnProperty.call(usageCounts, fieldName)) {
     usageCounts[fieldName]++;
   }
@@ -3947,7 +4391,8 @@ const countVariableUsageInCondition = (
     }
 
     if (arrayValue.field) {
-      const arrayFieldName = getFieldName(arrayValue.field);
+      // const arrayFieldName = getFieldName(arrayValue.field);
+      const arrayFieldName = arrayValue.field;
       if (Object.prototype.hasOwnProperty.call(usageCounts, arrayFieldName)) {
         usageCounts[arrayFieldName]++;
       }
@@ -3963,17 +4408,17 @@ const countVariableUsageInCondition = (
   }
 };
 
-const getFieldName = (field) => {
-  if (typeof field === "string") {
-    return field;
-  }
+// const getFieldName = (field) => {
+//   if (typeof field === "string") {
+//     return field;
+//   }
 
-  if (field && typeof field === "object") {
-    return field.value || field.name || field.field || String(field);
-  }
+//   if (field && typeof field === "object") {
+//     return field.value || field.name || field.field || String(field);
+//   }
 
-  return String(field);
-};
+//   return String(field);
+// };
 
 const convertArrayOperatorToMongo = (field, operator, value) => {
   switch (operator) {
@@ -4248,7 +4693,8 @@ const isSimpleCondition = (
   }
 
   if (condition.field) {
-    const fieldName = getFieldName(condition.field);
+    // const fieldName = getFieldName(condition.field);
+    const fieldName = condition.field;
     if (customVariables.some((v) => v.name === fieldName)) {
       return false;
     }
@@ -4258,9 +4704,7 @@ const isSimpleCondition = (
     if (customSwitchCases.some((v) => v.name === fieldName)) {
       return false;
     }
-  }
-
-  if (condition.field) {
+    // TODO: Exclude arrays
     if (
       condition.field.startsWith("prv_candidates") ||
       condition.field.startsWith("fp_hists")
@@ -4269,6 +4713,7 @@ const isSimpleCondition = (
     }
   }
 
+  // NEED TO EXCLUDE MEDIAN, MIN, MAX, AVG, SUM OPERATORS?
   if (
     condition.operator &&
     ["$filter", "$map", "$anyElementTrue", "$allElementsTrue"].includes(
@@ -4292,10 +4737,10 @@ const isSimpleCondition = (
       "$gte",
       "$lt",
       "$lte",
-      "$in",
-      "$nin",
+      // "$in",
+      // "$nin",
       "$exists",
-      "$regex",
+      "$isNumber",
     ].includes(condition.operator)
   ) {
     return true;
@@ -4318,7 +4763,7 @@ const isBlockEntirelySimple = (
     return false;
   }
 
-  if (block.type === "condition" || block.category === "condition") {
+  if (block.category === "condition") {
     return isSimpleCondition(
       block,
       customVariables,
@@ -4329,14 +4774,14 @@ const isBlockEntirelySimple = (
 
   if (block.children && Array.isArray(block.children)) {
     return block.children.every((child) => {
-      if (child.category === "block" || child.type === "block") {
+      if (child.category === "block") {
         return isBlockEntirelySimple(
           child,
           customVariables,
           customListVariables,
           customSwitchCases,
         );
-      } else if (child.type === "condition" || child.category === "condition") {
+      } else if (child.category === "condition") {
         return isSimpleCondition(
           child,
           customVariables,
@@ -4356,7 +4801,7 @@ const convertSimpleBlockToMongo = (block, schema = {}, fieldOptions = []) => {
     return {};
   }
 
-  if (block.type === "condition" || block.category === "condition") {
+  if (block.category === "condition") {
     return (
       convertConditionToMongo(
         block,
@@ -4378,7 +4823,7 @@ const convertSimpleBlockToMongo = (block, schema = {}, fieldOptions = []) => {
   const conditions = [];
 
   block.children.forEach((child) => {
-    if (child.category === "block" || child.type === "block") {
+    if (child.category === "block") {
       const nestedCondition = convertSimpleBlockToMongo(
         child,
         schema,
@@ -4387,7 +4832,7 @@ const convertSimpleBlockToMongo = (block, schema = {}, fieldOptions = []) => {
       if (nestedCondition && Object.keys(nestedCondition).length > 0) {
         conditions.push(nestedCondition);
       }
-    } else if (child.category === "condition" || child.type === "condition") {
+    } else if (child.category === "condition") {
       const condition = convertConditionToMongo(
         child,
         schema,
@@ -4430,27 +4875,25 @@ const separateSimpleAndComplexConditions = (
   const simpleConditions = {};
   const complexFilters = [];
 
-  filters.forEach((block) => {
-    if (
-      isBlockEntirelySimple(
-        block,
-        customVariables,
-        customListVariables,
-        customSwitchCases,
-      )
-    ) {
-      const mongoCondition = convertSimpleBlockToMongo(
-        block,
-        schema,
-        fieldOptions,
-      );
-      if (mongoCondition && Object.keys(mongoCondition).length > 0) {
-        Object.assign(simpleConditions, mongoCondition);
-      }
-    } else {
-      complexFilters.push(block);
+  if (
+    isBlockEntirelySimple(
+      filters[0],
+      customVariables,
+      customListVariables,
+      customSwitchCases,
+    )
+  ) {
+    const mongoCondition = convertSimpleBlockToMongo(
+      filters[0],
+      schema,
+      fieldOptions,
+    );
+    if (mongoCondition && Object.keys(mongoCondition).length > 0) {
+      Object.assign(simpleConditions, mongoCondition);
     }
-  });
+  } else {
+    complexFilters.push(filters[0]);
+  }
 
   return {
     simpleConditions,
@@ -4472,12 +4915,48 @@ const buildListVariableDependencyLevels = (
     const listVar = customListVariables.find((lv) => lv.name === listVarName);
     if (!listVar || !listVar.listCondition) return [];
 
+    const deps = [];
     const arrayField = listVar.listCondition.field;
+
+    // Check if the array field itself is a list variable
     const isArrayFieldListVar = customListVariables.some(
       (lv) => lv.name === arrayField,
     );
+    if (isArrayFieldListVar) {
+      deps.push(arrayField);
+    }
 
-    return isArrayFieldListVar ? [arrayField] : [];
+    // Also check filter conditions for list variable references
+    if (listVar.listCondition.value && listVar.listCondition.value.children) {
+      try {
+        const mongoCondition = convertBlockToMongo(
+          listVar.listCondition.value,
+          {},
+          [],
+          [],
+          customListVariables,
+          true,
+          {},
+          [],
+        );
+        const absoluteFields = extractAbsoluteFieldReferences(mongoCondition);
+        absoluteFields.forEach((field) => {
+          const isFieldListVar = customListVariables.some(
+            (lv) => lv.name === field,
+          );
+          if (isFieldListVar && !deps.includes(field)) {
+            deps.push(field);
+          }
+        });
+      } catch (error) {
+        console.warn(
+          "Failed to extract dependencies from list variable:",
+          error,
+        );
+      }
+    }
+
+    return deps;
   };
 
   // Build levels using topological sort

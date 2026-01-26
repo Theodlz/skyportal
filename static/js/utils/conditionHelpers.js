@@ -248,6 +248,10 @@ export const getFieldType = (
   customListVariables = [],
   customSwitchCases = [],
 ) => {
+  if (!field) {
+    return undefined;
+  }
+
   // First check custom variables and list variables - ensure they are arrays
   const safeCustomVariables = Array.isArray(customVariables)
     ? customVariables
@@ -288,11 +292,6 @@ export const getFieldType = (
 
   if (fieldObjList?.type) {
     return fieldObjList.type;
-  }
-
-  // Early return if field is null/undefined
-  if (!field) {
-    return undefined;
   }
 
   // Check for exact match first (backward compatibility)

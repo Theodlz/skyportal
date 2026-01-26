@@ -200,17 +200,21 @@ export const useListConditionDialog = (
       (lv) => lv.name === fieldLabel,
     );
     if (listVariable && listVariable.listCondition?.subFieldOptions) {
-      // Use sub-field options from the list variable, but update group names
-      // to match this list variable's name
+      // Use sub-field options from the list variable
+      // Extract just the subfield name (after the last dot) to avoid nesting issues
       const updatedSubFieldOptions =
-        listVariable.listCondition.subFieldOptions.map((opt) => ({
-          ...opt,
-          group: opt.group ? fieldLabel : undefined,
-          // Update label to reference this list variable
-          label: opt.label.includes(".")
-            ? opt.label.replace(/^[^.]+/, fieldLabel)
-            : opt.label,
-        }));
+        listVariable.listCondition.subFieldOptions.map((opt) => {
+          // Extract the subfield name (everything after the last dot)
+          const subfieldName = opt.label.includes(".")
+            ? opt.label.split(".").pop()
+            : opt.label;
+
+          return {
+            ...opt,
+            group: undefined, // Don't group by list variable name
+            label: subfieldName, // Use just the subfield name, relative to this list
+          };
+        });
       setSubFieldOptions(updatedSubFieldOptions);
     } else {
       // Use regular array field sub-options
