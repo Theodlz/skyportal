@@ -1207,6 +1207,9 @@ const convertConditionToMongo = (
       if (fieldType === "boolean" || typeof processedValue === "boolean") {
         return { [field]: { $in: [parseNumberIfNeeded(processedValue)] } };
       }
+      if (fieldType === "string") {
+        return { [field]: { $eq: `${processedValue}` } };
+      }
       return { [field]: { $eq: parseNumberIfNeeded(processedValue) } };
     }
 
@@ -1224,6 +1227,9 @@ const convertConditionToMongo = (
       );
       if (fieldType === "boolean" || typeof processedValue === "boolean") {
         return { [field]: { $nin: [parseNumberIfNeeded(processedValue)] } };
+      }
+      if (fieldType === "string") {
+        return { [field]: { $ne: `${processedValue}` } };
       }
       return { [field]: { $ne: parseNumberIfNeeded(processedValue) } };
     }
@@ -1244,25 +1250,6 @@ const convertConditionToMongo = (
       return { [field]: { [mongoOp]: parseNumberIfNeeded(value) } };
     }
 
-    // case "$regex":
-    // case "contains":
-    // case "like":
-    //   return { [field]: { $regex: value, $options: "i" } };
-
-    // case "starts with":
-    //   return { [field]: { $regex: `^${escapeRegex(value)}`, $options: "i" } };
-
-    // case "ends with":
-    //   return { [field]: { $regex: `${escapeRegex(value)}$`, $options: "i" } };
-
-    // case "$in":
-    // case "in":
-    //   return { [field]: { $in: Array.isArray(value) ? value : [value] } };
-
-    // case "$nin":
-    // case "not in":
-    //   return { [field]: { $nin: Array.isArray(value) ? value : [value] } };
-
     case "$exists":
     case "exists":
       return { [field]: { $exists: value !== false } };
@@ -1272,31 +1259,6 @@ const convertConditionToMongo = (
 
     case "$isNumber":
       return { $isNumber: `${field}` };
-
-    // case "between":
-    //   if (Array.isArray(value) && value.length === 2) {
-    //     return {
-    //       [field]: {
-    //         $gte: parseNumberIfNeeded(value[0]),
-    //         $lte: parseNumberIfNeeded(value[1]),
-    //       },
-    //     };
-    //   }
-    //   return {};
-
-    // case "not between":
-    //   if (Array.isArray(value) && value.length === 2) {
-    //     return {
-    //       $or: [
-    //         { [field]: { $lt: parseNumberIfNeeded(value[0]) } },
-    //         { [field]: { $gt: parseNumberIfNeeded(value[1]) } },
-    //       ],
-    //     };
-    //   }
-    //   return {};
-
-    // case "array contains":
-    //   return { [field]: { $elemMatch: { $eq: value } } };
 
     case "$lengthGt": {
       const gtLength = parseNumberIfNeeded(value);
@@ -3498,35 +3460,37 @@ const handleInlinedVariableCondition = (mongoExpression, operator, value) => {
 
 const isFieldInSchema = (fieldPath, schema) => {
   if (!schema || !fieldPath) return false;
-  
+
   // Simple key-value schema
   if (schema[fieldPath]) return true;
-  
+
   // Avro schema format with fields array
   if (schema.fields && Array.isArray(schema.fields)) {
-    const parts = fieldPath.split('.');
+    const parts = fieldPath.split(".");
     let currentSchema = schema;
-    
+
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
-      
+
       if (!currentSchema.fields || !Array.isArray(currentSchema.fields)) {
         return false;
       }
-      
-      const field = currentSchema.fields.find(f => f.name === part);
+
+      const field = currentSchema.fields.find((f) => f.name === part);
       if (!field) return false;
-      
+
       // Last part, field exists
       if (i === parts.length - 1) return true;
-      
+
       // Navigate to nested type
-      if (field.type && typeof field.type === 'object') {
-        if (field.type.type === 'record') {
+      if (field.type && typeof field.type === "object") {
+        if (field.type.type === "record") {
           currentSchema = field.type;
         } else if (Array.isArray(field.type)) {
           // Handle union types like ["null", {...}]
-          const recordType = field.type.find(t => typeof t === 'object' && t.type === 'record');
+          const recordType = field.type.find(
+            (t) => typeof t === "object" && t.type === "record",
+          );
           if (recordType) {
             currentSchema = recordType;
           } else {
@@ -3540,7 +3504,7 @@ const isFieldInSchema = (fieldPath, schema) => {
       }
     }
   }
-  
+
   return false;
 };
 
@@ -3683,12 +3647,15 @@ const convertSwitchCaseToMongo = (
                 f.name === switchCondition.value.default ||
                 f.field === switchCondition.value.default)),
         );
-        const isSchemaField = isFieldInSchema(switchCondition.value.default, schema);
+        const isSchemaField = isFieldInSchema(
+          switchCondition.value.default,
+          schema,
+        );
 
         if (listVar || isField || isSchemaField) {
           switchExpr.$switch.default = `$${switchCondition.value.default}`;
         } else {
-          switchExpr.$switch.default = parseNumberIfNeeded(switchCondition.value.default);
+          switchExpr.$switch.default = switchCondition.value.default;
         }
       }
     } else {
