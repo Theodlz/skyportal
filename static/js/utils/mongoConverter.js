@@ -2474,7 +2474,10 @@ const createComparison = (
         return { $in: [fieldPath, value] };
       }
       return {
-        $eq: [fieldPath, isBoolean ? value : parseNumberIfNeeded(value)],
+        $eq: [
+          fieldPath,
+          typeof value === "string" ? value : parseNumberIfNeeded(value),
+        ],
       };
 
     case "$ne":
@@ -2482,7 +2485,10 @@ const createComparison = (
         return { $nin: [fieldPath, value] };
       }
       return {
-        $ne: [fieldPath, isBoolean ? value : parseNumberIfNeeded(value)],
+        $ne: [
+          fieldPath,
+          typeof value === "string" ? value : parseNumberIfNeeded(value),
+        ],
       };
 
     case "$in":
