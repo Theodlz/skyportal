@@ -1,5 +1,3 @@
-import { type } from "os";
-
 export const ztf_crossmatch_fields = {
   name: "cross_matches",
   type: {
