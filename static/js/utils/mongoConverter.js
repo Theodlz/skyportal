@@ -3496,6 +3496,54 @@ const handleInlinedVariableCondition = (mongoExpression, operator, value) => {
   }
 };
 
+const isFieldInSchema = (fieldPath, schema) => {
+  if (!schema || !fieldPath) return false;
+  
+  // Simple key-value schema
+  if (schema[fieldPath]) return true;
+  
+  // Avro schema format with fields array
+  if (schema.fields && Array.isArray(schema.fields)) {
+    const parts = fieldPath.split('.');
+    let currentSchema = schema;
+    
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      
+      if (!currentSchema.fields || !Array.isArray(currentSchema.fields)) {
+        return false;
+      }
+      
+      const field = currentSchema.fields.find(f => f.name === part);
+      if (!field) return false;
+      
+      // Last part, field exists
+      if (i === parts.length - 1) return true;
+      
+      // Navigate to nested type
+      if (field.type && typeof field.type === 'object') {
+        if (field.type.type === 'record') {
+          currentSchema = field.type;
+        } else if (Array.isArray(field.type)) {
+          // Handle union types like ["null", {...}]
+          const recordType = field.type.find(t => typeof t === 'object' && t.type === 'record');
+          if (recordType) {
+            currentSchema = recordType;
+          } else {
+            return false;
+          }
+        } else {
+          return false;
+        }
+      } else {
+        return false;
+      }
+    }
+  }
+  
+  return false;
+};
+
 const convertSwitchCaseToMongo = (
   switchCondition,
   schema = {},
@@ -3568,11 +3616,11 @@ const convertSwitchCaseToMongo = (
                   f.label === caseItem.then ||
                   f.field === caseItem.then)),
           );
-
-          if (listVar || isField) {
+          const isSchemaField = isFieldInSchema(caseItem.then, schema);
+          if (listVar || isField || isSchemaField) {
             thenValue = `$${caseItem.then}`;
           } else {
-            thenValue = caseItem.then;
+            thenValue = parseNumberIfNeeded(caseItem.then);
           }
         }
       } else {
@@ -3635,11 +3683,12 @@ const convertSwitchCaseToMongo = (
                 f.name === switchCondition.value.default ||
                 f.field === switchCondition.value.default)),
         );
+        const isSchemaField = isFieldInSchema(switchCondition.value.default, schema);
 
-        if (listVar || isField) {
+        if (listVar || isField || isSchemaField) {
           switchExpr.$switch.default = `$${switchCondition.value.default}`;
         } else {
-          switchExpr.$switch.default = switchCondition.value.default;
+          switchExpr.$switch.default = parseNumberIfNeeded(switchCondition.value.default);
         }
       }
     } else {
