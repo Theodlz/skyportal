@@ -237,18 +237,12 @@ export const convertToMongoAggregation = (
   });
 
   const needsProjectStage =
-    hasListOperationVariables ||
-    usedFields.baseFields.length > 0 ||
-    customBlocksWithFalseValue.length > 0;
+    hasListOperationVariables || usedFields.baseFields.length > 0;
 
   const projectedVariables = new Set();
 
-  // Add base fields and custom blocks with false values as already defined
+  // Add base fields as already defined
   usedFields.baseFields.forEach((field) => definedVariables.add(field));
-  customBlocksWithFalseValue.forEach((customBlock) => {
-    const variableName = `${customBlock.name.replace(/[^a-zA-Z0-9]/g, "_")}`;
-    definedVariables.add(variableName);
-  });
 
   let initialProjectStage = null;
   if (needsProjectStage) {
@@ -263,21 +257,6 @@ export const convertToMongoAggregation = (
     if (!filteredBaseFields.includes("objectId")) {
       initialProjectStage.$project.objectId = 1;
     }
-
-    customBlocksWithFalseValue.forEach((customBlock) => {
-      const variableName = `${customBlock.name.replace(/[^a-zA-Z0-9]/g, "_")}`;
-      const blockCondition = convertBlockToMongoExpr(
-        customBlock.block,
-        schema,
-        fieldOptions,
-        customVariables,
-        customListVariables,
-        customBlocksWithFalseValue,
-      );
-      if (blockCondition && Object.keys(blockCondition).length > 0) {
-        initialProjectStage.$project[variableName] = blockCondition;
-      }
-    });
 
     // Build dependency levels for list variables
     const listVarDependencyLevels = buildListVariableDependencyLevels(
@@ -337,15 +316,6 @@ export const convertToMongoAggregation = (
       if (!filteredFieldsToPreserve.includes("objectId")) {
         levelProjectStage.$project.objectId = 1;
       }
-
-      // Include all custom blocks with false values
-      customBlocksWithFalseValue.forEach((customBlock) => {
-        const variableName = `${customBlock.name.replace(
-          /[^a-zA-Z0-9]/g,
-          "_",
-        )}`;
-        levelProjectStage.$project[variableName] = 1;
-      });
 
       // Add list variables at this dependency level
       let hasNewVariables = false;
@@ -597,22 +567,14 @@ export const convertToMongoAggregation = (
         false,
         variableUsageCounts,
         customBlocksWithFalseValue,
+        null,
+        customSwitchCases,
       );
 
       if (blockCondition && Object.keys(blockCondition).length > 0) {
         Object.assign(matchStage.$match, blockCondition);
       }
     });
-
-    if (blockGroups.indexOf(group) === 0) {
-      customBlocksWithFalseValue.forEach((customBlock) => {
-        const variableName = `${customBlock.name.replace(
-          /[^a-zA-Z0-9]/g,
-          "_",
-        )}`;
-        matchStage.$match[variableName] = false;
-      });
-    }
 
     if (Object.keys(matchStage.$match).length > 0) {
       // Extract dependencies for this match stage
@@ -842,6 +804,7 @@ const convertBlockToMongo = (
   variableUsageCounts = {},
   customBlocksWithFalseValue = [],
   arrayFieldName = null,
+  customSwitchCases = [],
 ) => {
   if (!block) {
     return {};
@@ -857,6 +820,7 @@ const convertBlockToMongo = (
         schema,
         fieldOptions,
         arrayFieldName,
+        customSwitchCases,
       );
     } else {
       condition = convertConditionToMongo(
@@ -868,6 +832,7 @@ const convertBlockToMongo = (
         isInArrayFilter,
         variableUsageCounts,
         arrayFieldName,
+        customSwitchCases,
       );
     }
     return condition || {};
@@ -890,6 +855,8 @@ const convertBlockToMongo = (
         isInArrayFilter,
         variableUsageCounts,
         customBlocksWithFalseValue,
+        arrayFieldName,
+        customSwitchCases,
       );
       if (nestedCondition && Object.keys(nestedCondition).length > 0) {
         conditions.push(nestedCondition);
@@ -904,6 +871,7 @@ const convertBlockToMongo = (
           schema,
           fieldOptions,
           arrayFieldName,
+          customSwitchCases,
         );
       } else {
         condition = convertConditionToMongo(
@@ -915,6 +883,7 @@ const convertBlockToMongo = (
           isInArrayFilter,
           variableUsageCounts,
           arrayFieldName,
+          customSwitchCases,
         );
       }
       if (condition && Object.keys(condition).length > 0) {
@@ -975,6 +944,7 @@ const convertConditionToMongo = (
   isInArrayFilter = false,
   variableUsageCounts = {},
   arrayFieldName = null,
+  customSwitchCases = [],
 ) => {
   const operator = condition.operator;
 
@@ -1038,7 +1008,13 @@ const convertConditionToMongo = (
         case "not exists":
           return { $expr: { $eq: [`$${field}`, null] } };
         default: {
-          const compareValue = parseNumberIfNeeded(value);
+          const compareValue = parseValueForComparison(
+            value,
+            customVariables,
+            customSwitchCases,
+            customListVariables,
+            fieldOptions,
+          );
           switch (operator) {
             case "$gt":
             case "greater than":
@@ -1186,16 +1162,41 @@ const convertConditionToMongo = (
   }
 
   if (typeof fieldPath === "object" && fieldPath !== null) {
-    return handleInlinedVariableCondition(fieldPath, operator, value);
+    return handleInlinedVariableCondition(
+      fieldPath,
+      operator,
+      value,
+      customVariables,
+      customSwitchCases,
+      customListVariables,
+      fieldOptions,
+    );
   }
 
   const field = fieldPath;
+
+  // Check if value is a field reference (variable, list variable, switch case, or schema field)
+  const compareValue = parseValueForComparison(
+    value,
+    customVariables,
+    customSwitchCases,
+    customListVariables,
+    fieldOptions,
+  );
+
+  // If compareValue is a field reference (starts with $), we need to use $expr
+  const isFieldReference =
+    typeof compareValue === "string" && compareValue.startsWith("$");
 
   switch (operator) {
     case "$eq":
     case "equals":
     case "=": {
-      const processedValue = convertNullLikeStringsToNull(value);
+      if (isFieldReference) {
+        // Field-to-field comparison requires $expr
+        return { $expr: { $eq: [`$${field}`, compareValue] } };
+      }
+      const processedValue = convertNullLikeStringsToNull(compareValue);
       const fieldType = getFieldType(
         condition.field,
         customVariables,
@@ -1216,7 +1217,11 @@ const convertConditionToMongo = (
     case "$ne":
     case "not equals":
     case "!=": {
-      const processedValue = convertNullLikeStringsToNull(value);
+      if (isFieldReference) {
+        // Field-to-field comparison requires $expr
+        return { $expr: { $ne: [`$${field}`, compareValue] } };
+      }
+      const processedValue = convertNullLikeStringsToNull(compareValue);
       const fieldType = getFieldType(
         condition.field,
         customVariables,
@@ -1247,7 +1252,11 @@ const convertConditionToMongo = (
     case "less than or equal":
     case "<=": {
       const mongoOp = getNumericComparison(operator);
-      return { [field]: { [mongoOp]: parseNumberIfNeeded(value) } };
+      if (isFieldReference) {
+        // Field-to-field comparison requires $expr
+        return { $expr: { [mongoOp]: [`$${field}`, compareValue] } };
+      }
+      return { [field]: { [mongoOp]: parseNumberIfNeeded(compareValue) } };
     }
 
     case "$exists":
@@ -1441,7 +1450,11 @@ const convertConditionToMongo = (
     }
 
     default:
-      return { [field]: parseNumberIfNeeded(value) };
+      // Use parseValueForComparison for default case too
+      if (isFieldReference) {
+        return { $expr: { $eq: [`$${field}`, compareValue] } };
+      }
+      return { [field]: parseNumberIfNeeded(compareValue) };
   }
 };
 
@@ -1452,6 +1465,7 @@ const convertBlockToMongoExpr = (
   customVariables = [],
   customListVariables = [],
   customBlocksWithFalseValue = [],
+  customSwitchCases = [],
 ) => {
   if (!block) {
     return {};
@@ -1464,6 +1478,7 @@ const convertBlockToMongoExpr = (
       fieldOptions,
       customVariables,
       customListVariables,
+      customSwitchCases,
     );
   }
 
@@ -1475,6 +1490,7 @@ const convertBlockToMongoExpr = (
 
   block.children.forEach((child) => {
     if (child.category === "block" || child.type === "block") {
+      // Skip custom blocks in project stages - they should only be in match stages
       if (
         child.customBlockName &&
         customBlocksWithFalseValue.some(
@@ -1491,6 +1507,7 @@ const convertBlockToMongoExpr = (
         customVariables,
         customListVariables,
         customBlocksWithFalseValue,
+        customSwitchCases,
       );
       if (nestedCondition && Object.keys(nestedCondition).length > 0) {
         conditions.push(nestedCondition);
@@ -1502,6 +1519,7 @@ const convertBlockToMongoExpr = (
         fieldOptions,
         customVariables,
         customListVariables,
+        customSwitchCases,
       );
       if (condition && Object.keys(condition).length > 0) {
         conditions.push(condition);
@@ -1555,6 +1573,7 @@ const convertConditionToProjectExpr = (
   fieldOptions = [],
   customVariables = [],
   customListVariables = [],
+  customSwitchCases = [],
 ) => {
   const operator = condition.operator;
 
@@ -1574,32 +1593,98 @@ const convertConditionToProjectExpr = (
     case "$eq":
     case "equals":
     case "=":
-      return { $eq: [fieldPath, parseNumberIfNeeded(value)] };
+      return {
+        $eq: [
+          fieldPath,
+          parseValueForComparison(
+            value,
+            customVariables,
+            customSwitchCases,
+            customListVariables,
+            fieldOptions,
+          ),
+        ],
+      };
 
     case "$ne":
     case "not equals":
     case "!=":
-      return { $ne: [fieldPath, parseNumberIfNeeded(value)] };
+      return {
+        $ne: [
+          fieldPath,
+          parseValueForComparison(
+            value,
+            customVariables,
+            customSwitchCases,
+            customListVariables,
+            fieldOptions,
+          ),
+        ],
+      };
 
     case "$gt":
     case "greater than":
     case ">":
-      return { $gt: [fieldPath, parseNumberIfNeeded(value)] };
+      return {
+        $gt: [
+          fieldPath,
+          parseValueForComparison(
+            value,
+            customVariables,
+            customSwitchCases,
+            customListVariables,
+            fieldOptions,
+          ),
+        ],
+      };
 
     case "$gte":
     case "greater than or equal":
     case ">=":
-      return { $gte: [fieldPath, parseNumberIfNeeded(value)] };
+      return {
+        $gte: [
+          fieldPath,
+          parseValueForComparison(
+            value,
+            customVariables,
+            customSwitchCases,
+            customListVariables,
+            fieldOptions,
+          ),
+        ],
+      };
 
     case "$lt":
     case "less than":
     case "<":
-      return { $lt: [fieldPath, parseNumberIfNeeded(value)] };
+      return {
+        $lt: [
+          fieldPath,
+          parseValueForComparison(
+            value,
+            customVariables,
+            customSwitchCases,
+            customListVariables,
+            fieldOptions,
+          ),
+        ],
+      };
 
     case "$lte":
     case "less than or equal":
     case "<=":
-      return { $lte: [fieldPath, parseNumberIfNeeded(value)] };
+      return {
+        $lte: [
+          fieldPath,
+          parseValueForComparison(
+            value,
+            customVariables,
+            customSwitchCases,
+            customListVariables,
+            fieldOptions,
+          ),
+        ],
+      };
 
     case "$in":
     case "in":
@@ -1632,6 +1717,7 @@ const convertConditionToProjectExpr = (
           {},
           [],
           field,
+          customSwitchCases,
         );
         if (conditionsForMap && Object.keys(conditionsForMap).length > 0) {
           const anyElementExpr = {
@@ -1690,6 +1776,7 @@ const convertConditionToProjectExpr = (
           {},
           [],
           field,
+          customSwitchCases,
         );
         if (conditionsForMap && Object.keys(conditionsForMap).length > 0) {
           const allElementExpr = {
@@ -1748,6 +1835,7 @@ const convertConditionToProjectExpr = (
           {},
           [],
           field,
+          customSwitchCases,
         );
         if (filterCondition && Object.keys(filterCondition).length > 0) {
           return {
@@ -1944,6 +2032,7 @@ const convertConditionToMongoExpr = (
   schema = {},
   fieldOptions = [],
   arrayFieldName = null,
+  customSwitchCases = [],
 ) => {
   const operator = condition.operator;
 
@@ -2053,6 +2142,10 @@ const convertConditionToMongoExpr = (
           value,
           isBooleanField,
           isBooleanValue,
+          customVariables,
+          customSwitchCases,
+          customListVariables,
+          fieldOptions,
         );
 
       case "$ne":
@@ -2064,27 +2157,75 @@ const convertConditionToMongoExpr = (
           value,
           isBooleanField,
           isBooleanValue,
+          customVariables,
+          customSwitchCases,
+          customListVariables,
+          fieldOptions,
         );
 
       case "$gt":
       case "greater than":
       case ">":
-        return { $gt: [fieldPath, parseNumberIfNeeded(value)] };
+        return {
+          $gt: [
+            fieldPath,
+            parseValueForComparison(
+              value,
+              customVariables,
+              customSwitchCases,
+              customListVariables,
+              fieldOptions,
+            ),
+          ],
+        };
 
       case "$gte":
       case "greater than or equal":
       case ">=":
-        return { $gte: [fieldPath, parseNumberIfNeeded(value)] };
+        return {
+          $gte: [
+            fieldPath,
+            parseValueForComparison(
+              value,
+              customVariables,
+              customSwitchCases,
+              customListVariables,
+              fieldOptions,
+            ),
+          ],
+        };
 
       case "$lt":
       case "less than":
       case "<":
-        return { $lt: [fieldPath, parseNumberIfNeeded(value)] };
+        return {
+          $lt: [
+            fieldPath,
+            parseValueForComparison(
+              value,
+              customVariables,
+              customSwitchCases,
+              customListVariables,
+              fieldOptions,
+            ),
+          ],
+        };
 
       case "$lte":
       case "less than or equal":
       case "<=":
-        return { $lte: [fieldPath, parseNumberIfNeeded(value)] };
+        return {
+          $lte: [
+            fieldPath,
+            parseValueForComparison(
+              value,
+              customVariables,
+              customSwitchCases,
+              customListVariables,
+              fieldOptions,
+            ),
+          ],
+        };
 
       case "$in":
       case "in":
@@ -2094,6 +2235,10 @@ const convertConditionToMongoExpr = (
           value,
           isBooleanField,
           isBooleanValue,
+          customVariables,
+          customSwitchCases,
+          customListVariables,
+          fieldOptions,
         );
 
       case "$nin":
@@ -2104,14 +2249,40 @@ const convertConditionToMongoExpr = (
           value,
           isBooleanField,
           isBooleanValue,
+          customVariables,
+          customSwitchCases,
+          customListVariables,
+          fieldOptions,
         );
 
       case "between":
         if (Array.isArray(value) && value.length === 2) {
           return {
             $and: [
-              { $gte: [fieldPath, parseNumberIfNeeded(value[0])] },
-              { $lte: [fieldPath, parseNumberIfNeeded(value[1])] },
+              {
+                $gte: [
+                  fieldPath,
+                  parseValueForComparison(
+                    value[0],
+                    customVariables,
+                    customSwitchCases,
+                    customListVariables,
+                    fieldOptions,
+                  ),
+                ],
+              },
+              {
+                $lte: [
+                  fieldPath,
+                  parseValueForComparison(
+                    value[1],
+                    customVariables,
+                    customSwitchCases,
+                    customListVariables,
+                    fieldOptions,
+                  ),
+                ],
+              },
             ],
           };
         }
@@ -2121,8 +2292,30 @@ const convertConditionToMongoExpr = (
         if (Array.isArray(value) && value.length === 2) {
           return {
             $or: [
-              { $lt: [fieldPath, parseNumberIfNeeded(value[0])] },
-              { $gt: [fieldPath, parseNumberIfNeeded(value[1])] },
+              {
+                $lt: [
+                  fieldPath,
+                  parseValueForComparison(
+                    value[0],
+                    customVariables,
+                    customSwitchCases,
+                    customListVariables,
+                    fieldOptions,
+                  ),
+                ],
+              },
+              {
+                $gt: [
+                  fieldPath,
+                  parseValueForComparison(
+                    value[1],
+                    customVariables,
+                    customSwitchCases,
+                    customListVariables,
+                    fieldOptions,
+                  ),
+                ],
+              },
             ],
           };
         }
@@ -2143,7 +2336,18 @@ const convertConditionToMongoExpr = (
         return { $eq: [fieldPath, null] };
 
       default:
-        return { $eq: [fieldPath, parseNumberIfNeeded(value)] };
+        return {
+          $eq: [
+            fieldPath,
+            parseValueForComparison(
+              value,
+              customVariables,
+              customSwitchCases,
+              customListVariables,
+              fieldOptions,
+            ),
+          ],
+        };
     }
   }
 
@@ -2157,6 +2361,10 @@ const convertConditionToMongoExpr = (
         value,
         isBooleanField,
         isBooleanValue,
+        customVariables,
+        customSwitchCases,
+        customListVariables,
+        fieldOptions,
       );
 
     case "$ne":
@@ -2168,6 +2376,10 @@ const convertConditionToMongoExpr = (
         value,
         isBooleanField,
         isBooleanValue,
+        customVariables,
+        customSwitchCases,
+        customListVariables,
+        fieldOptions,
       );
 
     case "$gt":
@@ -2188,6 +2400,10 @@ const convertConditionToMongoExpr = (
         value,
         isBooleanField,
         isBooleanValue,
+        customVariables,
+        customSwitchCases,
+        customListVariables,
+        fieldOptions,
       );
 
     case "$in":
@@ -2198,6 +2414,10 @@ const convertConditionToMongoExpr = (
         value,
         isBooleanField,
         isBooleanValue,
+        customVariables,
+        customSwitchCases,
+        customListVariables,
+        fieldOptions,
       );
 
     case "$nin":
@@ -2208,6 +2428,10 @@ const convertConditionToMongoExpr = (
         value,
         isBooleanField,
         isBooleanValue,
+        customVariables,
+        customSwitchCases,
+        customListVariables,
+        fieldOptions,
       );
 
     case "$isNumber":
@@ -2253,8 +2477,30 @@ const convertConditionToMongoExpr = (
       if (Array.isArray(value) && value.length === 2) {
         return {
           $and: [
-            { $gte: [fieldPath, parseNumberIfNeeded(value[0])] },
-            { $lte: [fieldPath, parseNumberIfNeeded(value[1])] },
+            {
+              $gte: [
+                fieldPath,
+                parseValueForComparison(
+                  value[0],
+                  customVariables,
+                  customSwitchCases,
+                  customListVariables,
+                  fieldOptions,
+                ),
+              ],
+            },
+            {
+              $lte: [
+                fieldPath,
+                parseValueForComparison(
+                  value[1],
+                  customVariables,
+                  customSwitchCases,
+                  customListVariables,
+                  fieldOptions,
+                ),
+              ],
+            },
           ],
         };
       }
@@ -2264,8 +2510,30 @@ const convertConditionToMongoExpr = (
       if (Array.isArray(value) && value.length === 2) {
         return {
           $or: [
-            { $lt: [fieldPath, parseNumberIfNeeded(value[0])] },
-            { $gt: [fieldPath, parseNumberIfNeeded(value[1])] },
+            {
+              $lt: [
+                fieldPath,
+                parseValueForComparison(
+                  value[0],
+                  customVariables,
+                  customSwitchCases,
+                  customListVariables,
+                  fieldOptions,
+                ),
+              ],
+            },
+            {
+              $gt: [
+                fieldPath,
+                parseValueForComparison(
+                  value[1],
+                  customVariables,
+                  customSwitchCases,
+                  customListVariables,
+                  fieldOptions,
+                ),
+              ],
+            },
           ],
         };
       }
@@ -2450,7 +2718,18 @@ const convertConditionToMongoExpr = (
     }
 
     default:
-      return { $eq: [fieldPath, parseNumberIfNeeded(value)] };
+      return {
+        $eq: [
+          fieldPath,
+          parseValueForComparison(
+            value,
+            customVariables,
+            customSwitchCases,
+            customListVariables,
+            fieldOptions,
+          ),
+        ],
+      };
   }
 };
 
@@ -2460,51 +2739,91 @@ const createComparison = (
   value,
   isBooleanField,
   isBooleanValue,
+  customVariables = [],
+  customSwitchCases = [],
+  customListVariables = [],
+  fieldOptions = [],
 ) => {
   const isBoolean = isBooleanField || isBooleanValue;
   const mongoOp = getNumericComparison(operator);
 
+  // Parse value to check if it's a field reference
+  const compareValue = parseValueForComparison(
+    value,
+    customVariables,
+    customSwitchCases,
+    customListVariables,
+    fieldOptions,
+  );
+
   if (mongoOp) {
-    return { [mongoOp]: [fieldPath, parseNumberIfNeeded(value)] };
+    return { [mongoOp]: [fieldPath, compareValue] };
   }
 
   switch (operator) {
     case "$eq":
-      if (isBoolean && Array.isArray(value)) {
-        return { $in: [fieldPath, value] };
+      if (isBoolean && Array.isArray(compareValue)) {
+        return { $in: [fieldPath, compareValue] };
       }
       return {
         $eq: [
           fieldPath,
-          typeof value === "string" ? value : parseNumberIfNeeded(value),
+          typeof compareValue === "string" && !compareValue.startsWith("$")
+            ? compareValue
+            : compareValue,
         ],
       };
 
     case "$ne":
-      if (isBoolean && Array.isArray(value)) {
-        return { $nin: [fieldPath, value] };
+      if (isBoolean && Array.isArray(compareValue)) {
+        return { $nin: [fieldPath, compareValue] };
       }
       return {
         $ne: [
           fieldPath,
-          typeof value === "string" ? value : parseNumberIfNeeded(value),
+          typeof compareValue === "string" && !compareValue.startsWith("$")
+            ? compareValue
+            : compareValue,
         ],
       };
 
     case "$in":
-      return { $in: [fieldPath, Array.isArray(value) ? value : [value]] };
+      // If compareValue is a field reference (like $myListVar), use it directly
+      // Otherwise treat it as an array of values
+      if (typeof compareValue === "string" && compareValue.startsWith("$")) {
+        return { $in: [fieldPath, compareValue] };
+      }
+      return {
+        $in: [
+          fieldPath,
+          Array.isArray(compareValue) ? compareValue : [compareValue],
+        ],
+      };
 
     case "$nin":
+      // If compareValue is a field reference (like $myListVar), use it directly
+      // Otherwise treat it as an array of values
+      if (typeof compareValue === "string" && compareValue.startsWith("$")) {
+        return { $not: { $in: [fieldPath, compareValue] } };
+      }
       return isBoolean
-        ? { $nin: [fieldPath, Array.isArray(value) ? value : [value]] }
+        ? {
+            $nin: [
+              fieldPath,
+              Array.isArray(compareValue) ? compareValue : [compareValue],
+            ],
+          }
         : {
             $not: {
-              $in: [fieldPath, Array.isArray(value) ? value : [value]],
+              $in: [
+                fieldPath,
+                Array.isArray(compareValue) ? compareValue : [compareValue],
+              ],
             },
           };
 
     default:
-      return { [operator]: [fieldPath, parseNumberIfNeeded(value)] };
+      return { [operator]: [fieldPath, compareValue] };
   }
 };
 
@@ -2563,6 +2882,66 @@ const parseNumberIfNeeded = (value) => {
   if (typeof value === "string" && !isNaN(value) && !isNaN(parseFloat(value))) {
     return parseFloat(value);
   }
+  return value;
+};
+
+/**
+ * Processes a comparison value, converting it to the appropriate MongoDB format.
+ * - If the value is a reference to a custom variable, switch case, list variable, or schema field, prefix it with $ to make it a field reference
+ * - If the value is a numeric string, convert it to a number
+ * - Otherwise, return it as-is
+ *
+ * @param {*} value - The value to process
+ * @param {Array} customVariables - Array of custom arithmetic variables
+ * @param {Array} customSwitchCases - Array of custom switch cases
+ * @param {Array} customListVariables - Array of custom list variables
+ * @param {Array} fieldOptions - Array of available schema fields
+ * @returns {*} The processed value (either a field reference string starting with $, a number, or the original value)
+ */
+const parseValueForComparison = (
+  value,
+  customVariables = [],
+  customSwitchCases = [],
+  customListVariables = [],
+  fieldOptions = [],
+) => {
+  // If not a string, return as-is
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  // Check if it's a custom arithmetic variable
+  const isCustomVariable = customVariables.some((v) => v.name === value);
+  if (isCustomVariable) {
+    return `$${value}`;
+  }
+
+  // Check if it's a switch case variable
+  const isSwitchCase = customSwitchCases.some((sc) => sc.name === value);
+  if (isSwitchCase) {
+    return `$${value}`;
+  }
+
+  // Check if it's a list variable
+  const isListVariable = customListVariables.some((lv) => lv.name === value);
+  if (isListVariable) {
+    return `$${value}`;
+  }
+
+  // Check if it's a schema field (check both label and value properties)
+  const isSchemaField = fieldOptions.some(
+    (field) => field.value === value || field.label === value,
+  );
+  if (isSchemaField) {
+    return `$${value}`;
+  }
+
+  // If it's a numeric string, convert to number
+  if (!isNaN(value) && !isNaN(parseFloat(value))) {
+    return parseFloat(value);
+  }
+
+  // Otherwise return as-is (literal string value)
   return value;
 };
 
@@ -3383,63 +3762,110 @@ const convertToArrayContext = (mongoExpression, arrayFieldName = null) => {
   }
 };
 
-const handleInlinedVariableCondition = (mongoExpression, operator, value) => {
+const handleInlinedVariableCondition = (
+  mongoExpression,
+  operator,
+  value,
+  customVariables = [],
+  customSwitchCases = [],
+  customListVariables = [],
+  fieldOptions = [],
+) => {
+  // Parse value to check if it's a field reference
+  const compareValue = parseValueForComparison(
+    value,
+    customVariables,
+    customSwitchCases,
+    customListVariables,
+    fieldOptions,
+  );
+
   switch (operator) {
     case "$eq":
     case "equals":
     case "=":
-      return { $expr: { $eq: [mongoExpression, parseNumberIfNeeded(value)] } };
+      return { $expr: { $eq: [mongoExpression, compareValue] } };
 
     case "$ne":
     case "not equals":
     case "!=":
-      return { $expr: { $ne: [mongoExpression, parseNumberIfNeeded(value)] } };
+      return { $expr: { $ne: [mongoExpression, compareValue] } };
 
     case "$gt":
     case "greater than":
     case ">":
-      return { $expr: { $gt: [mongoExpression, parseNumberIfNeeded(value)] } };
+      return { $expr: { $gt: [mongoExpression, compareValue] } };
 
     case "$gte":
     case "greater than or equal":
     case ">=":
-      return { $expr: { $gte: [mongoExpression, parseNumberIfNeeded(value)] } };
+      return { $expr: { $gte: [mongoExpression, compareValue] } };
 
     case "$lt":
     case "less than":
     case "<":
-      return { $expr: { $lt: [mongoExpression, parseNumberIfNeeded(value)] } };
+      return { $expr: { $lt: [mongoExpression, compareValue] } };
 
     case "$lte":
     case "less than or equal":
     case "<=":
-      return { $expr: { $lte: [mongoExpression, parseNumberIfNeeded(value)] } };
+      return { $expr: { $lte: [mongoExpression, compareValue] } };
 
     case "$in":
     case "in":
+      // If compareValue is a field reference (like $myListVar), use it directly
+      // Otherwise treat it as an array of values
+      if (typeof compareValue === "string" && compareValue.startsWith("$")) {
+        return { $expr: { $in: [mongoExpression, compareValue] } };
+      }
       return {
         $expr: {
-          $in: [mongoExpression, Array.isArray(value) ? value : [value]],
+          $in: [
+            mongoExpression,
+            Array.isArray(compareValue) ? compareValue : [compareValue],
+          ],
         },
       };
 
     case "$nin":
     case "not in":
+      // If compareValue is a field reference (like $myListVar), use it directly
+      // Otherwise treat it as an array of values
+      if (typeof compareValue === "string" && compareValue.startsWith("$")) {
+        return { $expr: { $not: { $in: [mongoExpression, compareValue] } } };
+      }
       return {
         $expr: {
           $not: {
-            $in: [mongoExpression, Array.isArray(value) ? value : [value]],
+            $in: [
+              mongoExpression,
+              Array.isArray(compareValue) ? compareValue : [compareValue],
+            ],
           },
         },
       };
 
     case "between":
       if (Array.isArray(value) && value.length === 2) {
+        const val0 = parseValueForComparison(
+          value[0],
+          customVariables,
+          customSwitchCases,
+          customListVariables,
+          fieldOptions,
+        );
+        const val1 = parseValueForComparison(
+          value[1],
+          customVariables,
+          customSwitchCases,
+          customListVariables,
+          fieldOptions,
+        );
         return {
           $expr: {
             $and: [
-              { $gte: [mongoExpression, parseNumberIfNeeded(value[0])] },
-              { $lte: [mongoExpression, parseNumberIfNeeded(value[1])] },
+              { $gte: [mongoExpression, val0] },
+              { $lte: [mongoExpression, val1] },
             ],
           },
         };
@@ -3448,11 +3874,25 @@ const handleInlinedVariableCondition = (mongoExpression, operator, value) => {
 
     case "not between":
       if (Array.isArray(value) && value.length === 2) {
+        const val0 = parseValueForComparison(
+          value[0],
+          customVariables,
+          customSwitchCases,
+          customListVariables,
+          fieldOptions,
+        );
+        const val1 = parseValueForComparison(
+          value[1],
+          customVariables,
+          customSwitchCases,
+          customListVariables,
+          fieldOptions,
+        );
         return {
           $expr: {
             $or: [
-              { $lt: [mongoExpression, parseNumberIfNeeded(value[0])] },
-              { $gt: [mongoExpression, parseNumberIfNeeded(value[1])] },
+              { $lt: [mongoExpression, val0] },
+              { $gt: [mongoExpression, val1] },
             ],
           },
         };
@@ -3460,7 +3900,7 @@ const handleInlinedVariableCondition = (mongoExpression, operator, value) => {
       return {};
 
     default:
-      return { $expr: { $eq: [mongoExpression, parseNumberIfNeeded(value)] } };
+      return { $expr: { $eq: [mongoExpression, compareValue] } };
   }
 };
 
@@ -3859,16 +4299,37 @@ const getVariablesUsedInBlock = (
   const processBlock = (b) => {
     if (!b) return;
 
-    if ((b.type === "condition" || b.category === "condition") && b.field) {
-      // const fieldName = getFieldName(b.field);
-      const fieldName = b.field;
-      const isCustomVariable = customVariables.some(
-        (v) => v.name === fieldName,
-      );
-      const isSwitchCase = customSwitchCases.some((v) => v.name === fieldName);
+    if (b.type === "condition" || b.category === "condition") {
+      // Check the field (left side)
+      if (b.field) {
+        const fieldName = b.field;
+        const isCustomVariable = customVariables.some(
+          (v) => v.name === fieldName,
+        );
+        const isSwitchCase = customSwitchCases.some(
+          (v) => v.name === fieldName,
+        );
 
-      if (isCustomVariable || isSwitchCase) {
-        usedVariables.add(fieldName);
+        if (isCustomVariable || isSwitchCase) {
+          usedVariables.add(fieldName);
+        }
+      }
+
+      // Also check the value (right side)
+      if (b.value && typeof b.value === "string") {
+        const isValueCustomVariable = customVariables.some(
+          (v) => v.name === b.value,
+        );
+        const isValueSwitchCase = customSwitchCases.some(
+          (v) => v.name === b.value,
+        );
+        const isValueListVariable = customListVariables.some(
+          (lv) => lv.name === b.value,
+        );
+
+        if (isValueCustomVariable || isValueSwitchCase || isValueListVariable) {
+          usedVariables.add(b.value);
+        }
       }
     }
 
@@ -4366,6 +4827,57 @@ const collectUsedFieldsInCondition = (
       customListVariables,
     );
   }
+
+  // Also check if the value (right side) is a simple string that references a variable
+  if (condition.value && typeof condition.value === "string") {
+    const isValueCustomVariable = customVariables.some(
+      (v) => v.name === condition.value,
+    );
+    const isValueListVariable = customListVariables.some(
+      (lv) => lv.name === condition.value,
+    );
+
+    if (isValueCustomVariable) {
+      usedFields.customVariables.add(condition.value);
+      // Also collect dependencies of this variable
+      const customVar = customVariables.find((v) => v.name === condition.value);
+      if (customVar && customVar.variable) {
+        const eqParts = customVar.variable.split("=");
+        if (eqParts.length === 2) {
+          const latexExpression = eqParts[1].trim();
+          const fieldDependencies =
+            latexToMongoConverter.extractFieldDependencies(latexExpression);
+          fieldDependencies.forEach((depField) => {
+            const isDepListVariable = customListVariables.some(
+              (lv) => lv.name === depField,
+            );
+            const isDepCustomVariable = customVariables.some(
+              (v) => v.name === depField,
+            );
+            if (isDepListVariable) {
+              usedFields.listVariables.add(depField);
+              collectListVariableDependencies(
+                depField,
+                usedFields,
+                customListVariables,
+              );
+            } else if (isDepCustomVariable) {
+              usedFields.customVariables.add(depField);
+            } else {
+              usedFields.baseFields.add(depField);
+            }
+          });
+        }
+      }
+    } else if (isValueListVariable) {
+      usedFields.listVariables.add(condition.value);
+      collectListVariableDependencies(
+        condition.value,
+        usedFields,
+        customListVariables,
+      );
+    }
+  }
 };
 
 const countVariableUsageInBlock = (
@@ -4735,6 +5247,19 @@ const isSimpleCondition = (
     }
   }
 
+  // Check if the value is a variable - if so, it's not simple because we need to define the variable first
+  if (condition.value && typeof condition.value === "string") {
+    if (customVariables.some((v) => v.name === condition.value)) {
+      return false;
+    }
+    if (customListVariables.some((lv) => lv.name === condition.value)) {
+      return false;
+    }
+    if (customSwitchCases.some((sc) => sc.name === condition.value)) {
+      return false;
+    }
+  }
+
   // NEED TO EXCLUDE MEDIAN, MIN, MAX, AVG, SUM OPERATORS?
   if (
     condition.operator &&
@@ -4818,7 +5343,14 @@ const isBlockEntirelySimple = (
   return false;
 };
 
-const convertSimpleBlockToMongo = (block, schema = {}, fieldOptions = []) => {
+const convertSimpleBlockToMongo = (
+  block,
+  schema = {},
+  fieldOptions = [],
+  customVariables = [],
+  customListVariables = [],
+  customSwitchCases = [],
+) => {
   if (!block) {
     return {};
   }
@@ -4829,11 +5361,12 @@ const convertSimpleBlockToMongo = (block, schema = {}, fieldOptions = []) => {
         block,
         schema,
         fieldOptions,
-        [],
-        [],
+        customVariables,
+        customListVariables,
         false,
         {},
         null,
+        customSwitchCases,
       ) || {}
     );
   }
@@ -4850,6 +5383,9 @@ const convertSimpleBlockToMongo = (block, schema = {}, fieldOptions = []) => {
         child,
         schema,
         fieldOptions,
+        customVariables,
+        customListVariables,
+        customSwitchCases,
       );
       if (nestedCondition && Object.keys(nestedCondition).length > 0) {
         conditions.push(nestedCondition);
@@ -4859,10 +5395,12 @@ const convertSimpleBlockToMongo = (block, schema = {}, fieldOptions = []) => {
         child,
         schema,
         fieldOptions,
-        [],
-        [],
+        customVariables,
+        customListVariables,
+        false,
         {},
         null,
+        customSwitchCases,
       );
       if (condition && Object.keys(condition).length > 0) {
         conditions.push(condition);
@@ -4909,6 +5447,9 @@ const separateSimpleAndComplexConditions = (
       filters[0],
       schema,
       fieldOptions,
+      customVariables,
+      customListVariables,
+      customSwitchCases,
     );
     if (mongoCondition && Object.keys(mongoCondition).length > 0) {
       Object.assign(simpleConditions, mongoCondition);

@@ -133,8 +133,16 @@ class BoomFilterModulesHandler(BaseHandler):
                         f"{boom_url}/filters/schemas/{name}",
                         headers={"Authorization": f"Bearer {boom_token}"},
                     )
-                    print("Boom schema response:", result)
-                    result = result.json()["data"]
+                    if result.status_code != 200:
+                        return self.error(
+                            f"Boom API error: {result.status_code} - {result.text}"
+                        )
+                    try:
+                        result = result.json()["data"]
+                    except (KeyError, ValueError) as e:
+                        return self.error(
+                            f"Invalid JSON response from Boom API: {result.text}"
+                        )
                 else:
                     result = collection.find_one({"name": name})
             except Exception as e:
