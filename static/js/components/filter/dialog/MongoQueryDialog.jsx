@@ -25,6 +25,7 @@ import {
   Tabs,
   Tab,
   Stack,
+  Link,
 } from "@mui/material";
 import {
   ContentCopy as CopyIcon,
@@ -1038,6 +1039,9 @@ const MongoQueryDialog = () => {
                                         expandedCells.has(cellKey);
                                       const hasJsonContent =
                                         typeof value === "object";
+                                      const isObjectId =
+                                        key === "objectId" &&
+                                        typeof value === "string";
 
                                       return (
                                         <TableCell
@@ -1106,6 +1110,22 @@ const MongoQueryDialog = () => {
                                                 }}
                                               />
                                             </Box>
+                                          ) : isObjectId ? (
+                                            <Link
+                                              href={`https://babamul.caltech.edu/objects/${filter_stream.toUpperCase()}/${value}`}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                            >
+                                              <Typography
+                                                variant="body2"
+                                                sx={{
+                                                  fontFamily: "monospace",
+                                                  wordBreak: "break-word",
+                                                }}
+                                              >
+                                                {String(value)}
+                                              </Typography>
+                                            </Link>
                                           ) : (
                                             <Typography
                                               variant="body2"
