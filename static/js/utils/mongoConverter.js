@@ -4350,7 +4350,7 @@ const getAllVariableDependencies = (
   visited = new Set(),
 ) => {
   if (visited.has(varName)) {
-    return { baseFields: [], variables: [] };
+    return { baseFields: [], variables: [], listVariables: [] };
   }
 
   visited.add(varName);
