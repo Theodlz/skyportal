@@ -389,7 +389,7 @@ const FilterBuilderContent = ({
               },
             }}
           >
-            Preview MongoDB Query
+            Test/Preview filter output
           </Button>
         </Box>
       </Box>

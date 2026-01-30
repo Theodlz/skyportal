@@ -781,7 +781,7 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
             },
           }}
         >
-          Preview MongoDB Query
+          Test/Preview filter output
         </Button>
       </Box>
 
