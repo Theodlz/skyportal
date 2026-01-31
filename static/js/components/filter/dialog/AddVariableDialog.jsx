@@ -58,36 +58,48 @@ const AddVariableDialog = () => {
 
   // Helper to resolve named types in the schema
   const resolveNamedType = (typeName, schema) => {
-    if (typeof typeName !== "string" || !schema || !schema.fields) return null;
+    if (typeof typeName !== "string" || !schema) return null;
 
-    for (const field of schema.fields) {
-      const fieldType = Array.isArray(field.type)
-        ? field.type.find((t) => t !== "null")
-        : field.type;
+    // Look in fields
+    if (schema.fields && Array.isArray(schema.fields)) {
+      for (const field of schema.fields) {
+        const fieldType = Array.isArray(field.type)
+          ? field.type.find((t) => t !== "null")
+          : field.type;
 
-      // Direct match in field type
-      if (typeof fieldType === "object" && fieldType.name === typeName) {
-        return fieldType;
+        // Direct match in field type
+        if (typeof fieldType === "object" && fieldType.name === typeName) {
+          return fieldType;
+        }
+
+        // Search in nested records
+        if (
+          typeof fieldType === "object" &&
+          fieldType.type === "record" &&
+          fieldType.fields &&
+          fieldType.name === typeName
+        ) {
+          return fieldType;
+        }
+
+        // Search in array items
+        if (
+          typeof fieldType === "object" &&
+          fieldType.type === "array" &&
+          typeof fieldType.items === "object" &&
+          fieldType.items.name === typeName
+        ) {
+          return fieldType.items;
+        }
       }
+    }
 
-      // Search in nested records
-      if (
-        typeof fieldType === "object" &&
-        fieldType.type === "record" &&
-        fieldType.fields &&
-        fieldType.name === typeName
-      ) {
-        return fieldType;
-      }
-
-      // Search in array items
-      if (
-        typeof fieldType === "object" &&
-        fieldType.type === "array" &&
-        typeof fieldType.items === "object" &&
-        fieldType.items.name === typeName
-      ) {
-        return fieldType.items;
+    // Look in types
+    if (schema.types && Array.isArray(schema.types)) {
+      for (const type of schema.types) {
+        if (type.name === typeName && type.type === "record") {
+          return type;
+        }
       }
     }
 
@@ -351,25 +363,93 @@ const AddVariableDialog = () => {
                     );
 
                   // Exclude booleans, arrays, and catalog structures from suggestions
-                  const isExcluded =
-                    ["boolean", "array"].includes(itemFieldType) ||
-                    isCatalogStructure;
+                  const isExcluded = ["boolean", "array"].includes(
+                    itemFieldType,
+                  );
 
-                  if (!isExcluded) {
-                    const itemPath = `${field.name}.${itemField.name}`;
+                  if (
+                    !isExcluded &&
+                    (isNumericField || itemFieldType === "record")
+                  ) {
+                    if (itemFieldType === "record") {
+                      // For records (catalogs), don't add the catalog itself, just recurse into subfields
+                      const processArrayNestedRecord = (
+                        recField,
+                        parPath,
+                        dep = 0,
+                      ) => {
+                        if (dep > 5) return;
+                        let recType = null;
+                        if (
+                          recField.type &&
+                          typeof recField.type === "object" &&
+                          recField.type.type === "record"
+                        ) {
+                          recType = recField.type;
+                        } else if (Array.isArray(recField.type)) {
+                          recType = recField.type.find(
+                            (t) => typeof t === "object" && t.type === "record",
+                          );
+                        }
+                        if (recType && recType.fields) {
+                          recType.fields.forEach((nestField) => {
+                            let nestFieldType = extractFieldType(
+                              nestField.type,
+                            );
+                            const nestPath = `${parPath}.${nestField.name}`;
+                            const numTypes = ["double", "float", "int", "long"];
+                            const isNumField = numTypes.includes(nestFieldType);
+                            if (isNumField) {
+                              if (
+                                nestPath
+                                  .toLowerCase()
+                                  .includes(lastWord.toLowerCase()) &&
+                                wouldChangeMeaningfully(nestPath)
+                              ) {
+                                thisFieldSuggestions.push({
+                                  type: "field",
+                                  display: nestField.name,
+                                  fullPath: nestPath,
+                                  collection: field.name,
+                                  description: `${parPath.replace(
+                                    /^[^.]+\.?/,
+                                    "",
+                                  )} → ${nestField.name} (${nestFieldType})`,
+                                });
+                              }
+                            }
+                            if (nestFieldType === "record") {
+                              processArrayNestedRecord(
+                                nestField,
+                                nestPath,
+                                dep + 1,
+                              );
+                            }
+                          });
+                        }
+                      };
+                      const itemPath = `${field.name}.${itemField.name}`;
+                      processArrayNestedRecord(itemField, itemPath);
+                    } else {
+                      // For numeric/string fields, add the suggestion
+                      const itemPath = `${field.name}.${itemField.name}`;
 
-                    // Show suggestions if it matches the search or if lastWord is empty/very short
-                    if (
-                      itemPath.toLowerCase().includes(lastWord.toLowerCase()) &&
-                      (wouldChangeMeaningfully(itemPath) || lastWord.length < 2)
-                    ) {
-                      thisFieldSuggestions.push({
-                        type: "field",
-                        display: itemField.name,
-                        fullPath: itemPath,
-                        collection: field.name,
-                        description: `${field.name} → ${itemField.name}`,
-                      });
+                      // Show suggestions if it matches the search or if lastWord is empty/very short
+                      if (
+                        itemPath
+                          .toLowerCase()
+                          .includes(lastWord.toLowerCase()) &&
+                        (wouldChangeMeaningfully(itemPath) ||
+                          lastWord.length < 2)
+                      ) {
+                        thisFieldSuggestions.push({
+                          type: "field",
+                          display: itemField.name,
+                          fullPath: itemPath,
+                          collection: field.name,
+                          description: `${field.name} → ${itemField.name}`,
+                        });
+                      }
                     }
                   }
                 });
@@ -385,8 +465,8 @@ const AddVariableDialog = () => {
           const numericTypes = ["double", "float", "int", "long"];
           const isNumericField = numericTypes.includes(fieldType);
 
-          // Include numeric fields and strings (but exclude booleans and arrays)
-          if (isNumericField || (fieldType === "string" && !isExcluded)) {
+          // Include numeric fields (but exclude booleans and arrays)
+          if (isNumericField && !isExcluded) {
             const fullPath = field.name;
 
             if (
@@ -526,12 +606,8 @@ const AddVariableDialog = () => {
                   const numericTypes = ["double", "float", "int", "long"];
                   const isNumericField = numericTypes.includes(nestedFieldType);
 
-                  // If it's a numeric or string field (not boolean, not array), suggest it
-                  if (
-                    isNumericField ||
-                    (nestedFieldType === "string" &&
-                      !["boolean", "array"].includes(nestedFieldType))
-                  ) {
+                  // If it's a numeric field (not boolean, not array), suggest it
+                  if (isNumericField) {
                     if (
                       nestedPath
                         .toLowerCase()
