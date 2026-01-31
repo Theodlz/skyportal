@@ -633,6 +633,8 @@ const SaveBlockComponent = ({
   isCollapsed,
   block,
 }) => {
+  const [localSaveError, setLocalSaveError] = useState("");
+
   // TODO: Implement robust validation logic for the block
   const validateBlock = (b) => {
     if (b.category === "condition") {
@@ -641,7 +643,12 @@ const SaveBlockComponent = ({
       }
 
       // Operators that don't require a value or accept boolean/special values
-      const operatorsWithOptionalValue = ["$exists", "$isNumber"];
+      const operatorsWithOptionalValue = [
+        "$exists",
+        "$isNumber",
+        "$anyElementTrue",
+        "$allElementsTrue",
+      ];
       if (operatorsWithOptionalValue.includes(b.operator)) {
         return true; // Value is optional or can be any type (including false)
       }
@@ -662,30 +669,37 @@ const SaveBlockComponent = ({
 
   const handleSaveBlock = () => {
     if (!validateBlock(block)) {
-      setSaveError("Please fill all fields before saving.");
-      setTimeout(() => setSaveError(""), 2000);
+      setLocalSaveError("Please fill all fields before saving.");
+      setTimeout(() => setLocalSaveError(""), 3000);
       return;
     }
-    setFilters((prevFilters) => {
-      const updateBlock = (b) => {
-        if (b.id !== block.id) {
-          return {
-            ...b,
-            children: b.children
-              ? b.children.map((child) =>
-                  child.category === "block" ? updateBlock(child) : child,
-                )
-              : [],
-          };
-        }
-        return { ...b, isTrue: true };
-      };
-      return prevFilters.map(updateBlock);
-    });
-    block = { ...block, isTrue: true };
-    setSaveDialog({ open: true, block });
-    setSaveName("");
-    setSaveError("");
+
+    try {
+      setFilters((prevFilters) => {
+        const updateBlock = (b) => {
+          if (b.id !== block.id) {
+            return {
+              ...b,
+              children: b.children
+                ? b.children.map((child) =>
+                    child.category === "block" ? updateBlock(child) : child,
+                  )
+                : [],
+            };
+          }
+          return { ...b, isTrue: true };
+        };
+        return prevFilters.map(updateBlock);
+      });
+      const updatedBlock = { ...block, isTrue: true };
+      setSaveDialog({ open: true, block: updatedBlock });
+      setSaveName("");
+      setSaveError("");
+    } catch (error) {
+      console.error("Error saving block:", error);
+      setLocalSaveError("An error occurred while saving. Please try again.");
+      setTimeout(() => setLocalSaveError(""), 3000);
+    }
   };
 
   return (
@@ -705,6 +719,15 @@ const SaveBlockComponent = ({
           Save Block
         </Button>
       ) : null}
+      {localSaveError && (
+        <Typography
+          variant="caption"
+          color="error"
+          sx={{ mt: 1, display: "block" }}
+        >
+          {localSaveError}
+        </Typography>
+      )}
     </>
   );
 };
