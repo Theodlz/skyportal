@@ -3539,7 +3539,7 @@ const convertArrayValueToMongo = (
             $anyElementTrue: {
               $map: {
                 input: { $ifNull: [`$${arrayField}`, []] },
-                in: conditionsForMap,
+                in: convertToArrayContext(conditionsForMap, arrayField),
               },
             },
           },
@@ -3565,7 +3565,7 @@ const convertArrayValueToMongo = (
             $allElementsTrue: {
               $map: {
                 input: { $ifNull: [`$${arrayField}`, []] },
-                in: conditionsForMap,
+                in: convertToArrayContext(conditionsForMap, arrayField),
               },
             },
           },
@@ -3593,7 +3593,7 @@ const convertArrayValueToMongo = (
                 $size: {
                   $filter: {
                     input: { $ifNull: [`$${arrayField}`, []] },
-                    cond: filterCondition,
+                    cond: convertToArrayContext(filterCondition, arrayField),
                   },
                 },
               },
@@ -3726,13 +3726,12 @@ const convertToArrayContext = (mongoExpression, arrayFieldName = null) => {
         if (obj.startsWith("$")) {
           const fieldName = obj.substring(1);
 
-          if (arrayFieldName && fieldName.includes(".")) {
-            const parts = fieldName.split(".");
-            const firstPart = parts[0];
-
-            if (firstPart === arrayFieldName) {
-              const subPath = parts.slice(1).join(".");
-              return `$$this.${subPath}`;
+          if (arrayFieldName && fieldName.startsWith(arrayFieldName)) {
+            const remaining = fieldName.substring(arrayFieldName.length);
+            if (remaining.startsWith(".")) {
+              return `$$this${remaining}`;
+            } else if (remaining === "") {
+              return "$$this";
             }
           }
 
