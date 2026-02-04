@@ -15,6 +15,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Alert,
 } from "@mui/material";
 import {
   useListConditionDialog,
@@ -95,6 +96,7 @@ const SubFieldSelector = ({
       <Autocomplete
         fullWidth
         options={numericFields}
+        groupBy={(option) => option.group || "Other Fields"}
         getOptionLabel={(option) => option.label || ""}
         value={selectedOption}
         onChange={(_, newValue) => {
@@ -251,7 +253,7 @@ const ListOperatorSelector = ({
       $max: "Returns the maximum value from the array elements",
       $avg: "Returns the average value from the array elements",
       $sum: "Returns the sum of all array elements",
-      $count: "Returns the number of elements in the array",
+      $size: "Returns the number of elements in the array",
       $stdDevPop:
         "Returns the population standard deviation of the array elements",
       $median: "Returns the median value from the array elements",
@@ -275,7 +277,7 @@ const ListOperatorSelector = ({
         "$max",
         "$avg",
         "$sum",
-        "$count",
+        "$size",
         "$stdDevPop",
         "$median",
       ].includes(operator)
@@ -541,6 +543,7 @@ const AddListConditionDialog = () => {
     setCustomListVariables,
     customListVariables,
     customVariables,
+    customBlocks,
     customSwitchCases,
     localFiltersUpdater,
     fieldOptions, // Get fieldOptions from context instead of computing it here
@@ -550,6 +553,9 @@ const AddListConditionDialog = () => {
   const [mapFields, setMapFields] = useState([
     { fieldName: "", expression: "" },
   ]);
+
+  // Error state for better error display
+  const [error, setError] = useState("");
 
   // Use our custom hooks
   const form = useListConditionForm(
@@ -640,6 +646,8 @@ const AddListConditionDialog = () => {
   };
 
   const handleSave = async () => {
+    setError(""); // Clear any previous error
+
     const validationError = save.validateSaveConditions(
       dialog.listFieldName,
       form.selectedOperator,
@@ -651,7 +659,7 @@ const AddListConditionDialog = () => {
     );
 
     if (validationError) {
-      alert(validationError);
+      setError(validationError);
       return;
     }
 
@@ -664,7 +672,7 @@ const AddListConditionDialog = () => {
         (lv) => lv.name === dialog.listFieldName,
       );
       if (!baseListVariable || !baseListVariable.listCondition) {
-        alert(
+        setError(
           `The list variable "${dialog.listFieldName}" must be defined before it can be used. Please save it first.`,
         );
         return;
@@ -673,8 +681,8 @@ const AddListConditionDialog = () => {
 
     // Check if an arithmetic variable with the same name already exists
     if (customVariables?.some((v) => v.name === form.conditionName.trim())) {
-      alert(
-        `An arithmetic variable with the name "${form.conditionName.trim()}" already exists. Please choose a different name.`,
+      setError(
+        `A variable with the name "${form.conditionName.trim()}" already exists. Please choose a different name.`,
       );
       return;
     }
@@ -683,8 +691,20 @@ const AddListConditionDialog = () => {
     if (
       customListVariables?.some((lv) => lv.name === form.conditionName.trim())
     ) {
-      alert(
-        `A list variable with the name "${form.conditionName.trim()}" already exists. Please choose a different name.`,
+      setError(
+        `A variable with the name "${form.conditionName.trim()}" already exists. Please choose a different name.`,
+      );
+      return;
+    }
+
+    // Check if a block with the same name already exists
+    if (
+      customBlocks?.some(
+        (b) => b.name === `Custom.${form.conditionName.trim()}`,
+      )
+    ) {
+      setError(
+        `A variable with the name "${form.conditionName.trim()}" already exists. Please choose a different name.`,
       );
       return;
     }
@@ -718,7 +738,21 @@ const AddListConditionDialog = () => {
       }
       // Build the map expression structure: { field1: expression1, field2: expression2, ... }
       mapExpressionObj = validFields.reduce((acc, field) => {
-        acc[field.fieldName] = field.expression;
+        let expressionValue = field.expression;
+
+        // Check if the expression is a variable and add $ prefix
+        const isVariable = customVariables.some(
+          (v) => v.name === expressionValue,
+        );
+        const isListVariable = customListVariables.some(
+          (lv) => lv.name === expressionValue,
+        );
+
+        if (isVariable || isListVariable) {
+          expressionValue = `$${expressionValue}`;
+        }
+
+        acc[field.fieldName] = expressionValue;
         return acc;
       }, {});
     }
@@ -735,6 +769,15 @@ const AddListConditionDialog = () => {
           : null,
       subField: operatorNeedsSubField ? form.selectedSubField : null,
       subFieldOptions: (() => {
+        // For map operators, generate subFieldOptions from mapExpression only
+        if (isMapOperator && mapExpressionObj) {
+          return Object.keys(mapExpressionObj).map((subfieldName) => ({
+            label: subfieldName,
+            type: "number", // Could be inferred from expression
+            group: `${form.conditionName.trim()} Fields`,
+          }));
+        }
+
         // First check if the array field is a list variable
         const existingListVar = customListVariables.find(
           (lv) => lv.name === dialog.listFieldName,
@@ -750,7 +793,11 @@ const AddListConditionDialog = () => {
 
             return {
               ...opt,
-              group: undefined, // Don't group by list variable name
+              // Preserve group for map operators, otherwise remove grouping
+              group:
+                existingListVar.listCondition.operator === "$map"
+                  ? opt.group
+                  : undefined,
               label: subfieldName, // Use just the subfield name, relative to this list
             };
           });
@@ -868,6 +915,11 @@ const AddListConditionDialog = () => {
         Add List Condition
       </DialogTitle>
       <DialogContent>
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
         <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <ArrayFieldSelector
             selectedArrayField={form.selectedArrayField}

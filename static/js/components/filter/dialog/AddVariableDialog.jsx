@@ -18,6 +18,7 @@ import {
   InputLabel,
   Autocomplete,
   IconButton,
+  Alert,
 } from "@mui/material";
 import { Info, Close as CloseIcon, ContentCopy } from "@mui/icons-material";
 import { v4 as uuidv4 } from "uuid";
@@ -35,6 +36,7 @@ const AddVariableDialog = () => {
     schema,
     customVariables,
     customListVariables,
+    customBlocks,
   } = useCurrentBuilder() || {};
 
   const dispatch = useDispatch();
@@ -48,6 +50,7 @@ const AddVariableDialog = () => {
   const [preventNextSuggestions, setPreventNextSuggestions] = useState(false);
   const [lastInsertedValue, setLastInsertedValue] = useState("");
   const [copySuccess, setCopySuccess] = useState(false);
+  const [error, setError] = useState("");
   const inputRef = useRef(null);
   const inputElementRef = useRef(null);
   const suggestionsRef = useRef(null);
@@ -692,7 +695,7 @@ const AddVariableDialog = () => {
         "$max",
         "$avg",
         "$sum",
-        "$count",
+        "$size",
         "$stdDevPop",
         "$median",
       ];
@@ -854,23 +857,33 @@ const AddVariableDialog = () => {
   };
 
   const handleAddVariable = () => {
+    setError(""); // Clear any previous error
+
     if (!variableName.trim() || !expression.trim()) {
-      alert("Please enter both a variable name and an expression");
+      setError("Please enter both a variable name and an expression");
       return;
     }
 
     // Check if a list variable with the same name already exists
     if (customListVariables?.some((lv) => lv.name === variableName)) {
-      alert(
-        `A list variable with the name "${variableName}" already exists. Please choose a different name.`,
+      setError(
+        `A variable with the name "${variableName}" already exists. Please choose a different name.`,
       );
       return;
     }
 
     // Check if an arithmetic variable with the same name already exists
     if (customVariables?.some((v) => v.name === variableName)) {
-      alert(
-        `An arithmetic variable with the name "${variableName}" already exists. Please choose a different name.`,
+      setError(
+        `A variable with the name "${variableName}" already exists. Please choose a different name.`,
+      );
+      return;
+    }
+
+    // Check if a block with the same name already exists
+    if (customBlocks?.some((b) => b.name === `Custom.${variableName}`)) {
+      setError(
+        `A variable with the name "${variableName}" already exists. Please choose a different name.`,
       );
       return;
     }
@@ -1071,6 +1084,11 @@ const AddVariableDialog = () => {
       </DialogTitle>
 
       <DialogContent dividers>
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
         {/* Context Selector */}
         {/* Variable Name */}
         <Box sx={{ mb: 3 }}>

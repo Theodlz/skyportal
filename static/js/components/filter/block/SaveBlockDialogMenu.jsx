@@ -23,6 +23,8 @@ const SaveBlockDialogMenu = () => {
     setCollapsedBlocks,
     setFilters,
     localFiltersUpdater,
+    customVariables,
+    customListVariables,
   } = useCurrentBuilder();
 
   const dispatch = useDispatch();
@@ -34,6 +36,22 @@ const SaveBlockDialogMenu = () => {
     }
 
     const nameValue = saveName.trim();
+
+    // Check if an arithmetic variable with the same name already exists
+    if (customVariables?.some((v) => v.name === nameValue)) {
+      setSaveError(
+        "A variable with this name already exists. Please choose another.",
+      );
+      return;
+    }
+
+    // Check if a list variable with the same name already exists
+    if (customListVariables?.some((lv) => lv.name === nameValue)) {
+      setSaveError(
+        "A variable with this name already exists. Please choose another.",
+      );
+      return;
+    }
 
     // Check for duplicate name
     const notAvailable = await dispatch(
