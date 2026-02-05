@@ -463,6 +463,8 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
       filterContext.customListVariables || [],
       filterContext.customSwitchCases || [],
       [], // Empty array to avoid duplication since fieldOptions already contains schema fields
+      null, // No time filtering needed here
+      filter_stream,
     )
       .map((field) => {
         const fieldName = field.label || field.name;

@@ -169,6 +169,7 @@ class BoomFilterModulesHandler(BaseHandler):
                         {
                             "name": name,
                             "block": data["data"]["block"],
+                            "stream": data["data"]["stream"].split(" ")[0],
                             "created_at": datetime.utcnow(),
                         }
                     )
@@ -178,6 +179,7 @@ class BoomFilterModulesHandler(BaseHandler):
                             "name": name,
                             "variable": data["data"]["variable"],
                             "type": data["data"]["type"],
+                            "stream": data["data"]["stream"].split(" ")[0],
                             "created_at": datetime.utcnow(),
                         }
                     )
@@ -187,6 +189,7 @@ class BoomFilterModulesHandler(BaseHandler):
                             "name": name,
                             "listCondition": data["data"]["listCondition"],
                             "type": data["data"]["type"],
+                            "stream": data["data"]["stream"].split(" ")[0],
                             "created_at": datetime.utcnow(),
                         }
                     )
@@ -196,6 +199,7 @@ class BoomFilterModulesHandler(BaseHandler):
                             "name": name,
                             "switchCondition": data["data"]["switchCondition"],
                             "type": data["data"]["type"],
+                            "stream": data["data"]["stream"].split(" ")[0],
                             "created_at": datetime.utcnow(),
                         }
                     )

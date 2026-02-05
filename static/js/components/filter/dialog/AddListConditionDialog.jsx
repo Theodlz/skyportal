@@ -27,7 +27,7 @@ import BlockComponent from "../block/BlockComponent";
 import FilterBuilder from "../FilterBuilder";
 import MapExpressionEditor from "./MapExpressionEditor";
 import { postElement } from "../../../ducks/boom_filter_modules";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 
 // Import utility function for type mapping
 const getSimpleType = (avroType) => {
@@ -572,6 +572,7 @@ const AddListConditionDialog = () => {
   );
   const save = useListConditionSave();
   const dispatch = useDispatch();
+  const stream = useSelector((state) => state.filter_v.stream?.name);
 
   // Auto-populate form when opening inline with condition data
   useEffect(() => {
@@ -835,7 +836,7 @@ const AddListConditionDialog = () => {
     const apiResult = await dispatch(
       postElement({
         name: form.conditionName.trim(),
-        data: { listCondition: listCondition, type: "array" },
+        data: { listCondition: listCondition, type: "array", stream },
         elements: "listVariables",
       }),
     );

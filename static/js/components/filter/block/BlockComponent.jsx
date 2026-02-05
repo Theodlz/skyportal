@@ -63,6 +63,7 @@ const escapeLatexForDisplay = (text) => {
 
 const useBlockState = (block, isRoot) => {
   const { collapsedBlocks, customBlocks } = useCurrentBuilder();
+  const currentStream = useSelector((state) => state.filter_v.stream?.name);
 
   // Memoize custom block name resolution to avoid recalculation
   const customBlockName = useMemo(() => {
@@ -1083,6 +1084,7 @@ const ListVariableInput = ({
     isListDialogOpen,
     setListConditionDialog,
   } = useConditionContext();
+  const currentStream = useSelector((state) => state.filter_v.stream?.name);
   const operator =
     listVariable.listCondition?.operator || listVariable.operator;
   const selectedOperator = conditionOrBlock.operator;
@@ -1099,6 +1101,7 @@ const ListVariableInput = ({
           customSwitchCases || [],
           [],
           conditionOrBlock.createdAt,
+          currentStream,
         )}
         value={conditionOrBlock.value ? String(conditionOrBlock.value) : ""}
         onChange={(newValue) =>
@@ -1160,6 +1163,7 @@ const ListVariableInput = ({
           customSwitchCases || [],
           [],
           conditionOrBlock.createdAt,
+          currentStream,
         )}
         value={conditionOrBlock.value ? String(conditionOrBlock.value) : ""}
         onChange={(newValue) =>
@@ -1326,6 +1330,7 @@ const RegularValueInput = ({
     fieldOptionsList,
     isListDialogOpen,
   } = useConditionContext();
+  const currentStream = useSelector((state) => state.filter_v.stream?.name);
 
   return (
     <AutocompleteFields
@@ -1337,6 +1342,7 @@ const RegularValueInput = ({
         customSwitchCases || [],
         [],
         conditionOrBlock.createdAt,
+        currentStream,
       )}
       value={(() => {
         // Check if this is an aggregation operator that should be shown on the left
@@ -2404,6 +2410,7 @@ const ConditionComponentInner = ({
   const [switchPopoverAnchor, setSwitchPopoverAnchor] = useState(null);
   const [equationAnchor, setEquationAnchor] = useState(null);
   const schema = useSelector((state) => state.filter_modules?.schema);
+  const currentStream = useSelector((state) => state.filter_v.stream?.name);
   const final_schema = schema?.versions?.find(
     (v) => v.vid === schema.active_id,
   )?.schema;
@@ -2441,6 +2448,7 @@ const ConditionComponentInner = ({
     customSwitchCases || [],
     fieldOptions,
     contextTime,
+    currentStream,
   );
 
   const operatorOptions = conditionOrBlock.field

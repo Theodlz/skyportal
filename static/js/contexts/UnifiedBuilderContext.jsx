@@ -9,7 +9,6 @@ import {
   formatMongoAggregation,
   isValidPipeline,
 } from "../utils/mongoConverter";
-import { schemaParser } from "@rjsf/utils";
 import { flattenFieldOptions } from "../constants/filterConstants";
 
 export const UnifiedBuilderContext = createContext();
@@ -52,6 +51,7 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
   }, [store_schema]);
 
   // const schema = useSelector((state) => state.filter_modules?.schema);
+  const currentStream = useSelector((state) => state.filter_v.stream?.name);
 
   // Load saved data on mount (similar to useFilterBuilderData)
   useEffect(() => {
@@ -68,10 +68,21 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
         const switchCases = await dispatch(
           fetchAllElements({ elements: "switchCases" }),
         );
-        setCustomBlocks(blocks.data.blocks || []);
-        setCustomVariables(variables.data.variables || []);
-        setCustomListVariables(listVariables.data.listVariables || []);
-        setCustomSwitchCases(switchCases.data.switchCases || []);
+
+        // Filter variables by stream - only show variables matching current stream or with no stream set
+        const filterByStream = (items) => {
+          if (!items) return [];
+          return items.filter(
+            (item) => !item.stream || item.stream === currentStream,
+          );
+        };
+
+        setCustomBlocks(filterByStream(blocks.data.blocks));
+        setCustomVariables(filterByStream(variables.data.variables));
+        setCustomListVariables(
+          filterByStream(listVariables.data.listVariables),
+        );
+        setCustomSwitchCases(filterByStream(switchCases.data.switchCases));
       } catch (error) {
         console.error("Error loading unified builder data:", error);
         // Set empty arrays as fallback
@@ -83,7 +94,7 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
     };
 
     loadData();
-  }, [dispatch, mode]);
+  }, [dispatch, mode, currentStream]);
 
   // Determine which data to use based on mode
   const currentData = mode === "annotation" ? annotations : filters;

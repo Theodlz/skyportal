@@ -24,7 +24,7 @@ import { Info, Close as CloseIcon, ContentCopy } from "@mui/icons-material";
 import { v4 as uuidv4 } from "uuid";
 import { useCurrentBuilder } from "../../../hooks/useContexts";
 import { postElement } from "../../../ducks/boom_filter_modules";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import EquationEditor from "equation-editor-react";
 
 const AddVariableDialog = () => {
@@ -40,6 +40,7 @@ const AddVariableDialog = () => {
   } = useCurrentBuilder() || {};
 
   const dispatch = useDispatch();
+  const stream = useSelector((state) => state.filter_v.stream?.name);
 
   const [variableName, setVariableName] = useState("");
   const [expression, setExpression] = useState("");
@@ -896,6 +897,7 @@ const AddVariableDialog = () => {
         data: {
           variable: eq,
           type: "number",
+          stream,
         },
         elements: "variables",
       }),

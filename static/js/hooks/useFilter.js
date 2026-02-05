@@ -50,6 +50,7 @@ export const useFilterBuilderData = () => {
   ]);
 
   const dispatch = useDispatch();
+  const currentStream = useSelector((state) => state.filter_v.stream?.name);
 
   // Load saved data on mount
   useEffect(() => {
@@ -64,9 +65,19 @@ export const useFilterBuilderData = () => {
           fetchAllElements({ elements: "listVariables" }),
         );
 
-        setCustomBlocks(blocks.data.blocks);
-        setCustomVariables(variables.data.variables);
-        setCustomListVariables(listVariables.data.listVariables);
+        // Filter variables by stream - only show variables matching current stream or with no stream set
+        const filterByStream = (items) => {
+          if (!items) return [];
+          return items.filter(
+            (item) => !item.stream || item.stream === currentStream,
+          );
+        };
+
+        setCustomBlocks(filterByStream(blocks.data.blocks));
+        setCustomVariables(filterByStream(variables.data.variables));
+        setCustomListVariables(
+          filterByStream(listVariables.data.listVariables),
+        );
       } catch (error) {
         console.error("Error loading filter builder data:", error);
         // Set empty arrays as fallback
@@ -77,7 +88,13 @@ export const useFilterBuilderData = () => {
     };
 
     loadData();
-  }, [setCustomBlocks, setCustomVariables, setCustomListVariables, dispatch]);
+  }, [
+    setCustomBlocks,
+    setCustomVariables,
+    setCustomListVariables,
+    dispatch,
+    currentStream,
+  ]);
 
   return {
     // This hook doesn't return anything directly, but loads data into context

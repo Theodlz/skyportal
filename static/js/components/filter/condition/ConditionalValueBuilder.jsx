@@ -13,7 +13,12 @@ import {
   FormControl,
   Popover,
 } from "@mui/material";
-import { Add as AddIcon, Delete as DeleteIcon, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from "@mui/icons-material";
+import {
+  Add as AddIcon,
+  Delete as DeleteIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
+} from "@mui/icons-material";
 import BlockComponent from "../block/BlockComponent";
 import AutocompleteFields from "./AutocompleteFields";
 import { useCurrentBuilder } from "../../../hooks/useContexts";
@@ -27,46 +32,47 @@ const escapeLatexForDisplay = (text) => {
   if (!text) return text;
   // Escape underscores to prevent subscript rendering
   // Replace _ with \_ to show it as literal underscore
-  return text.replace(/_/g, '\\_');
+  return text.replace(/_/g, "\\_");
 };
 
 /**
  * ConditionalValueBuilder - Builds a $switch expression using CASE/WHEN/THEN/DEFAULT logic
  * Each case contains a full block that can have conditions and nested blocks
- * 
+ *
  * Example output structure:
  * {
  *   cases: [
- *     { 
+ *     {
  *       block: {
  *         id: "...",
  *         category: "block",
  *         operator: "$and",
  *         children: [...]
  *       },
- *       then: "High" 
+ *       then: "High"
  *     }
  *   ],
  *   default: "Med"
  * }
  */
-const ConditionalValueBuilder = ({ 
-  value, 
-  onChange, 
-  defaultCondition, 
+const ConditionalValueBuilder = ({
+  value,
+  onChange,
+  defaultCondition,
   defaultBlock,
   fieldOptionsList = [],
 }) => {
   // Get schema from Redux and flatten to field options
   const schema = useSelector((state) => state.filter_modules?.schema);
+  const currentStream = useSelector((state) => state.filter_v.stream?.name);
   const final_schema = schema?.versions?.find(
     (v) => v.vid === schema.active_id,
   )?.schema;
   const schemaFieldOptions = flattenFieldOptions(final_schema) || [];
-  
+
   // Get builder context to access all necessary data
-  const { 
-    filters: contextFilters, 
+  const {
+    filters: contextFilters,
     setFilters: contextSetFilters,
     customVariables,
     customListVariables,
@@ -75,18 +81,19 @@ const ConditionalValueBuilder = ({
     setListConditionDialog,
     fieldOptionsList: contextFieldOptionsList,
   } = useCurrentBuilder();
-  
+
   // Combine: use passed fieldOptionsList, or contextFieldOptionsList, or schema fields
   // The main builder passes schema fields through contextFieldOptionsList, but if that's empty,
   // we get them directly from Redux
-  const baseFieldOptions = fieldOptionsList.length > 0 
-    ? fieldOptionsList 
-    : (contextFieldOptionsList && contextFieldOptionsList.length > 0 
-      ? contextFieldOptionsList 
-      : schemaFieldOptions);
-  
+  const baseFieldOptions =
+    fieldOptionsList.length > 0
+      ? fieldOptionsList
+      : contextFieldOptionsList && contextFieldOptionsList.length > 0
+        ? contextFieldOptionsList
+        : schemaFieldOptions;
+
   const effectiveFieldOptionsList = baseFieldOptions;
-  
+
   // Combine all field options including variables for THEN value autocomplete
   const allFieldOptions = getFieldOptionsWithVariable(
     effectiveFieldOptionsList,
@@ -95,8 +102,9 @@ const ConditionalValueBuilder = ({
     customSwitchCases || [],
     [],
     conditionOrBlock.createdAt,
+    currentStream,
   );
-  
+
   // Helper to create a default empty block
   const createDefaultCaseBlock = () => ({
     ...defaultBlock(),
@@ -106,21 +114,23 @@ const ConditionalValueBuilder = ({
   // Parse existing value or initialize empty
   const normalizeData = (data) => {
     if (!data || !data.cases || data.cases.length === 0) {
-      return { 
-        cases: [{ 
-          block: createDefaultCaseBlock(),
-          then: "" 
-        }], 
-        default: "" 
+      return {
+        cases: [
+          {
+            block: createDefaultCaseBlock(),
+            then: "",
+          },
+        ],
+        default: "",
       };
     }
-    
-    const normalizedCases = data.cases.map(caseItem => {
+
+    const normalizedCases = data.cases.map((caseItem) => {
       // If old format with conditions array, convert to block format
       if (caseItem.conditions) {
         const block = createDefaultCaseBlock();
         block.operator = caseItem.logicalOperator || "$and";
-        block.children = caseItem.conditions.map(cond => {
+        block.children = caseItem.conditions.map((cond) => {
           if (cond === null) {
             return defaultCondition();
           }
@@ -131,24 +141,24 @@ const ConditionalValueBuilder = ({
         });
         return {
           block,
-          then: caseItem.then || ""
+          then: caseItem.then || "",
         };
       }
-      
+
       // Already new format or needs initialization
       if (!caseItem.block) {
         return {
           block: createDefaultCaseBlock(),
-          then: caseItem.then || ""
+          then: caseItem.then || "",
         };
       }
-      
+
       return caseItem;
     });
-    
+
     return {
       cases: normalizedCases,
-      default: data.default || ""
+      default: data.default || "",
     };
   };
 
@@ -161,10 +171,12 @@ const ConditionalValueBuilder = ({
   const handleBlockChange = (caseIndex, newBlock) => {
     // Safety check: ensure newBlock is valid
     if (!newBlock) {
-      console.warn("ConditionalValueBuilder: newBlock is undefined, skipping update");
+      console.warn(
+        "ConditionalValueBuilder: newBlock is undefined, skipping update",
+      );
       return;
     }
-    
+
     const updated = { ...switchData };
     updated.cases[caseIndex].block = newBlock;
     setSwitchData(updated);
@@ -185,7 +197,7 @@ const ConditionalValueBuilder = ({
   };
 
   const toggleCaseCollapse = (caseIndex) => {
-    setCollapsedCases(prev => {
+    setCollapsedCases((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(caseIndex)) {
         newSet.delete(caseIndex);
@@ -198,9 +210,9 @@ const ConditionalValueBuilder = ({
 
   const addCase = () => {
     const updated = { ...switchData };
-    updated.cases.push({ 
+    updated.cases.push({
       block: createDefaultCaseBlock(),
-      then: "" 
+      then: "",
     });
     setSwitchData(updated);
     if (onChange) onChange(updated);
@@ -236,111 +248,145 @@ const ConditionalValueBuilder = ({
         },
       }}
     >
-
       {/* CASE rows */}
       {switchData.cases.map((caseItem, caseIndex) => {
         // Safety check: ensure block exists
         if (!caseItem.block) {
-          console.warn(`ConditionalValueBuilder: Case ${caseIndex} has no block, initializing`);
+          console.warn(
+            `ConditionalValueBuilder: Case ${caseIndex} has no block, initializing`,
+          );
           caseItem.block = createDefaultCaseBlock();
         }
-        
-        return (
-        <Paper key={caseIndex} sx={{ p: 2, mb: 2, border: 1, borderColor: "divider" }} elevation={1}>
-          {/* Case Header */}
-          <Box sx={{ display: "flex", alignItems: "center", mb: 1, py: 0.5, borderBottom: 1, borderColor: "divider" }}>
-            {/* Collapse/Expand Icon */}
-            <IconButton
-              size="small"
-              onClick={() => toggleCaseCollapse(caseIndex)}
-              sx={{ mr: 1 }}
-            >
-              {collapsedCases.has(caseIndex) ? <ExpandMoreIcon fontSize="small" /> : <ExpandLessIcon fontSize="small" />}
-            </IconButton>
 
-            <Typography
-              variant="subtitle2"
+        return (
+          <Paper
+            key={caseIndex}
+            sx={{ p: 2, mb: 2, border: 1, borderColor: "divider" }}
+            elevation={1}
+          >
+            {/* Case Header */}
+            <Box
               sx={{
-                fontWeight: "bold",
-                color: "#424242",
-                minWidth: 80,
+                display: "flex",
+                alignItems: "center",
+                mb: 1,
+                py: 0.5,
+                borderBottom: 1,
+                borderColor: "divider",
               }}
             >
-              CASE {caseIndex + 1}
-            </Typography>
-
-            <Box sx={{ flex: 1 }} />
-
-            {/* Delete Case Button (only show if more than 1 case) */}
-            {switchData.cases.length > 1 && (
+              {/* Collapse/Expand Icon */}
               <IconButton
                 size="small"
-                onClick={() => removeCase(caseIndex)}
-                sx={{ color: "#d32f2f" }}
+                onClick={() => toggleCaseCollapse(caseIndex)}
+                sx={{ mr: 1 }}
               >
-                <DeleteIcon fontSize="small" />
-              </IconButton>
-            )}
-          </Box>
-
-          {/* Embedded Block Component - only show when not collapsed */}
-          {!collapsedCases.has(caseIndex) && (
-            <>
-              <Box sx={{ ml: 2 }}>
-                {caseItem.block && (
-                  <BlockComponent
-                    block={caseItem.block}
-                    parentBlockId={null}
-                    isRoot={true}
-                    fieldOptionsList={effectiveFieldOptionsList}
-                    localFilters={[caseItem.block]}
-                    setLocalFilters={(updatedFiltersOrUpdater) => {
-                      // Handle both direct value and updater function
-                      let updatedFilters;
-                      if (typeof updatedFiltersOrUpdater === 'function') {
-                        // It's an updater function - call it with current block
-                        updatedFilters = updatedFiltersOrUpdater([caseItem.block]);
-                      } else {
-                        updatedFilters = updatedFiltersOrUpdater;
-                      }
-                      
-                      // The updated block should be the first (and only) item in the array
-                      if (updatedFilters && Array.isArray(updatedFilters) && updatedFilters.length > 0) {
-                        handleBlockChange(caseIndex, updatedFilters[0]);
-                      }
-                    }}
-                    disableSwitchOption={true}
-                  />
+                {collapsedCases.has(caseIndex) ? (
+                  <ExpandMoreIcon fontSize="small" />
+                ) : (
+                  <ExpandLessIcon fontSize="small" />
                 )}
-              </Box>
+              </IconButton>
 
-              {/* THEN Value */}
-              <Box sx={{ display: "flex", alignItems: "center", gap: 2, ml: 2, mt: 2 }}>
-                <Typography
-                  variant="body2"
+              <Typography
+                variant="subtitle2"
+                sx={{
+                  fontWeight: "bold",
+                  color: "#424242",
+                  minWidth: 80,
+                }}
+              >
+                CASE {caseIndex + 1}
+              </Typography>
+
+              <Box sx={{ flex: 1 }} />
+
+              {/* Delete Case Button (only show if more than 1 case) */}
+              {switchData.cases.length > 1 && (
+                <IconButton
+                  size="small"
+                  onClick={() => removeCase(caseIndex)}
+                  sx={{ color: "#d32f2f" }}
+                >
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              )}
+            </Box>
+
+            {/* Embedded Block Component - only show when not collapsed */}
+            {!collapsedCases.has(caseIndex) && (
+              <>
+                <Box sx={{ ml: 2 }}>
+                  {caseItem.block && (
+                    <BlockComponent
+                      block={caseItem.block}
+                      parentBlockId={null}
+                      isRoot={true}
+                      fieldOptionsList={effectiveFieldOptionsList}
+                      localFilters={[caseItem.block]}
+                      setLocalFilters={(updatedFiltersOrUpdater) => {
+                        // Handle both direct value and updater function
+                        let updatedFilters;
+                        if (typeof updatedFiltersOrUpdater === "function") {
+                          // It's an updater function - call it with current block
+                          updatedFilters = updatedFiltersOrUpdater([
+                            caseItem.block,
+                          ]);
+                        } else {
+                          updatedFilters = updatedFiltersOrUpdater;
+                        }
+
+                        // The updated block should be the first (and only) item in the array
+                        if (
+                          updatedFilters &&
+                          Array.isArray(updatedFilters) &&
+                          updatedFilters.length > 0
+                        ) {
+                          handleBlockChange(caseIndex, updatedFilters[0]);
+                        }
+                      }}
+                      disableSwitchOption={true}
+                    />
+                  )}
+                </Box>
+
+                {/* THEN Value */}
+                <Box
                   sx={{
-                    fontWeight: 600,
-                    color: "#555",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 2,
+                    ml: 2,
+                    mt: 2,
                   }}
                 >
-                  THEN:
-                </Typography>
-                <AutocompleteFields
-                  fieldOptions={allFieldOptions}
-                  value={caseItem.then || ""}
-                  onChange={(newValue) => handleCaseThenChange(caseIndex, newValue)}
-                  conditionOrBlock={{ id: `switch-case-${caseIndex}-then` }}
-                  side="right"
-                  customVariables={customVariables || []}
-                  customListVariables={customListVariables || []}
-                  setOpenEquationIds={setOpenEquationIds}
-                  setSelectedChip={setSelectedChip}
-                  setEquationAnchor={setEquationAnchor}
-                />
-              </Box>
-            </>
-          )}
-        </Paper>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      fontWeight: 600,
+                      color: "#555",
+                    }}
+                  >
+                    THEN:
+                  </Typography>
+                  <AutocompleteFields
+                    fieldOptions={allFieldOptions}
+                    value={caseItem.then || ""}
+                    onChange={(newValue) =>
+                      handleCaseThenChange(caseIndex, newValue)
+                    }
+                    conditionOrBlock={{ id: `switch-case-${caseIndex}-then` }}
+                    side="right"
+                    customVariables={customVariables || []}
+                    customListVariables={customListVariables || []}
+                    setOpenEquationIds={setOpenEquationIds}
+                    setSelectedChip={setSelectedChip}
+                    setEquationAnchor={setEquationAnchor}
+                  />
+                </Box>
+              </>
+            )}
+          </Paper>
         );
       })}
 
@@ -440,7 +486,7 @@ const ConditionalValueBuilder = ({
               // We need to extract which case and get its THEN value
               const conditionId = openEquationIds[0];
               let variableName = null;
-              
+
               if (conditionId === "switch-default-then") {
                 variableName = switchData.default;
               } else {
@@ -451,16 +497,18 @@ const ConditionalValueBuilder = ({
                   variableName = switchData.cases[caseIndex]?.then;
                 }
               }
-              
+
               const variableOption = allFieldOptions.find(
-                (opt) => opt.label === variableName && opt.isVariable
+                (opt) => opt.label === variableName && opt.isVariable,
               );
-              
+
               if (variableOption) {
                 const eqObj = customVariables?.find(
-                  (eq) => eq.name === variableOption.label
+                  (eq) => eq.name === variableOption.label,
                 );
-                const equation = eqObj ? eqObj.variable : variableOption.equation;
+                const equation = eqObj
+                  ? eqObj.variable
+                  : variableOption.equation;
                 if (equation) {
                   const displayEquation = escapeLatexForDisplay(equation);
                   return <Latex>{`$$${displayEquation}$$`}</Latex>;

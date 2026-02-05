@@ -9,7 +9,7 @@ import {
 } from "@mui/material";
 import { fetchElement, postElement } from "../../../ducks/boom_filter_modules";
 import { useCurrentBuilder } from "../../../hooks/useContexts";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 
 const SaveBlockDialogMenu = () => {
   const {
@@ -28,6 +28,7 @@ const SaveBlockDialogMenu = () => {
   } = useCurrentBuilder();
 
   const dispatch = useDispatch();
+  const stream = useSelector((state) => state.filter_v.stream?.name);
 
   const handleSaveDialogConfirm = async () => {
     if (!saveName || !saveName.trim()) {
@@ -65,7 +66,7 @@ const SaveBlockDialogMenu = () => {
     const saved = await dispatch(
       postElement({
         name: nameValue,
-        data: { block: saveDialog.block },
+        data: { block: saveDialog.block, stream },
         elements: "blocks",
       }),
     );

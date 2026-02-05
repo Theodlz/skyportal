@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import {
   Dialog,
   DialogTitle,
@@ -48,6 +48,7 @@ const defaultBlock = () => ({
 
 const AddSwitchDialog = () => {
   const dispatch = useDispatch();
+  const stream = useSelector((state) => state.filter_v.stream?.name);
   const {
     switchDialog,
     closeSwitchDialog,
@@ -77,8 +78,15 @@ const AddSwitchDialog = () => {
         customSwitchCases || [],
         [],
         Date.now(), // Switch dialog shows all switch cases since we're creating a new one
+        stream,
       ),
-    [fieldOptionsList, customVariables, customListVariables, customSwitchCases],
+    [
+      fieldOptionsList,
+      customVariables,
+      customListVariables,
+      customSwitchCases,
+      stream,
+    ],
   );
 
   useEffect(() => {
@@ -181,7 +189,7 @@ const AddSwitchDialog = () => {
     dispatch(
       postElement({
         name: switchName.trim(),
-        data: { switchCondition, type: "switch_variable" },
+        data: { switchCondition, type: "switch_variable", stream },
         elements: "switchCases",
       }),
     );

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useSelector } from "react-redux";
 import PropTypes from "prop-types";
 import { Box, MenuItem, Select, FormControl } from "@mui/material";
 import AutocompleteFields from "./AutocompleteFields";
@@ -10,8 +11,14 @@ import { useConditionContext } from "../../../hooks/useContexts";
  * Used inside ConditionalValueBuilder to prevent UI inception
  */
 const SimpleConditionRow = ({ condition, onChange }) => {
-  const { customVariables, customListVariables, customSwitchCases, fieldOptionsList } = useConditionContext();
-  
+  const {
+    customVariables,
+    customListVariables,
+    customSwitchCases,
+    fieldOptionsList,
+  } = useConditionContext();
+  const currentStream = useSelector((state) => state.filter_v.stream?.name);
+
   const [field, setField] = useState(condition?.field || "");
   const [operator, setOperator] = useState(condition?.operator || "$eq");
   const [value, setValue] = useState(condition?.value || "");
@@ -24,6 +31,7 @@ const SimpleConditionRow = ({ condition, onChange }) => {
     customSwitchCases || [],
     [],
     condition?.createdAt,
+    currentStream,
   );
 
   // Common operators
@@ -44,7 +52,7 @@ const SimpleConditionRow = ({ condition, onChange }) => {
         value,
       });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [field, operator, value]);
 
   return (

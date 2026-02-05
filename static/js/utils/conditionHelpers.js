@@ -252,6 +252,10 @@ export const getFieldType = (
     return undefined;
   }
 
+  if (typeof field !== "string") {
+    return undefined;
+  }
+
   // First check custom variables and list variables - ensure they are arrays
   const safeCustomVariables = Array.isArray(customVariables)
     ? customVariables
@@ -272,6 +276,10 @@ export const getFieldType = (
 
   if (fieldVar?.type) {
     return fieldVar.type;
+  }
+  // If it's a custom variable but no type specified, assume number (for arithmetic variables)
+  if (fieldVar) {
+    return "number";
   }
   if (listVar?.type) {
     return listVar.type;
@@ -301,7 +309,7 @@ export const getFieldType = (
     return exactMatch.type;
   }
   // Handle nested field paths (e.g., "Candidate.isdiffpos", "cross_matches.NED_BetaV3.z")
-  const fieldParts = field.split(".");
+  const fieldParts = field?.split(".");
 
   if (fieldParts.length >= 2) {
     const rootField = fieldParts[0];
@@ -529,9 +537,22 @@ export const getFieldOptionsWithVariable = (
   customSwitchCases = [],
   schemaFieldOptions = [], // Add schema field options parameter
   currentContextTime = null, // Optional: filter switches created after this time
+  currentStream = null, // Optional: filter by stream
 ) => {
+  // Helper to filter by stream - include items with no stream or matching stream
+  const filterByStream = (items) => {
+    if (!currentStream || !items) return items;
+    return items.filter(
+      (item) => !item.stream || item.stream === currentStream,
+    );
+  };
+
+  const filteredListVariables = filterByStream(customListVariables);
+  const filteredCustomVariables = filterByStream(customVariables);
+  const filteredSwitchCases = filterByStream(customSwitchCases);
+
   const listVariableOptions =
-    customListVariables?.map((lv) => {
+    filteredListVariables?.map((lv) => {
       // If the list operator is anyElementTrue or allElementsTrue, set type to array_variable_boolean
       const operator = lv.listCondition?.operator;
       const isBooleanArray =
@@ -547,14 +568,14 @@ export const getFieldOptionsWithVariable = (
     }) || [];
 
   // Filter switch cases to only show those created before current context
-  const filteredSwitchCases = currentContextTime
-    ? customSwitchCases?.filter(
+  const timeFilteredSwitchCases = currentContextTime
+    ? filteredSwitchCases?.filter(
         (sc) => !sc.createdAt || sc.createdAt < currentContextTime,
       )
-    : customSwitchCases;
+    : filteredSwitchCases;
 
   const switchCaseOptions =
-    filteredSwitchCases?.map((sc) => {
+    timeFilteredSwitchCases?.map((sc) => {
       // Always infer type from switch case outcomes (the "then" values)
       // regardless of whether it has a targetField or not
       const inferredType =
@@ -578,7 +599,7 @@ export const getFieldOptionsWithVariable = (
     }) || [];
 
   const variableOptions =
-    customVariables?.map((eq) => ({
+    filteredCustomVariables?.map((eq) => ({
       label: eq.name,
       type: "number",
       isVariable: true,
