@@ -1,4 +1,5 @@
-__all__ = ["Obj"]
+__all__ = ["Obj", "MetaObj", "ObjToMetaObj"]
+# __all__ = ["Obj", "MetaObj"]
 
 import os
 import re
@@ -10,6 +11,8 @@ import dustmaps.sfd
 import healpix_alchemy
 import numpy as np
 import requests
+from sqlalchemy import func, select
+from sqlalchemy.orm import column_property
 import sqlalchemy as sa
 from astropy import coordinates as ap_coord
 from astropy import units as u
@@ -551,8 +554,7 @@ class Obj(Base, conesearch_alchemy.Point):
             log(f"Unexpected error in getting thumbnail for {self.id}: {other_err}")
         except Exception as e:
             log(f"Unexpected error in getting thumbnail for {self.id}: {e}")
-        finally:
-            return cutout_url
+        return cutout_url
 
     @property
     def target(self):
@@ -767,3 +769,75 @@ def delete_obj_thumbnails_from_disk(mapper, connection, target):
                 os.remove(thumb.file_uri)
             except (FileNotFoundError, OSError) as e:
                 log(f"Error deleting thumbnail file {thumb.file_uri}: {e}")
+
+class MetaObj(Base):
+    """While we can have multiple Obj entries for the same astrophysical
+    object (e.g., from different surveys), we may want to link them
+    together as being the same object. This table represents such
+    'meta-objects' that can be linked to multiple Objs.
+    """
+    __tablename__ = "meta_objs"
+    name = sa.Column(
+        sa.String,
+        nullable=True,
+        doc="Name of the meta-object (e.g., its AT name from the Transient Name Server).",
+    )
+    is_roid = sa.Column(
+        sa.Boolean,
+        default=False,
+        doc="Boolean indicating whether the meta-object is a moving object.",
+    )
+    objs = relationship(
+        "ObjToMetaObj",
+        secondary="obj_to_meta_obj",
+        cascade="delete",
+        passive_deletes=True,
+        doc="Links to Objs associated with this MetaObj.",
+    )
+
+class ObjToMetaObj(Base):
+    """Association table linking Objs and MetaObjs in a many-to-many relationship
+    (i.e., a MetaObj can have multiple Objs, and each Obj can link to multiple MetaObjs).
+    """
+    __tablename__ = "obj_to_meta_obj"
+    obj_id = sa.Column(
+        sa.String,
+        sa.ForeignKey("objs.id", ondelete="CASCADE"),
+        primary_key=True,
+        doc="ID of the associated Obj.",
+    )
+    meta_obj_id = sa.Column(
+        sa.Integer,
+        sa.ForeignKey("meta_objs.id", ondelete="CASCADE"),
+        primary_key=True,
+        doc="ID of the associated MetaObj.",
+    )
+
+# # Let's now add the reverse relationship to Obj
+# Obj.meta_objects = relationship(
+#     "ObjToMetaObj",
+#     back_populates="obj",
+#     cascade="delete",
+#     passive_deletes=True,
+#     doc="Links to MetaObjs associated with this Obj.",
+# )
+
+MetaObj.obj_ids = column_property(select(func.array_agg(ObjToMetaObj.obj_id)).where(
+    ObjToMetaObj.meta_obj_id == MetaObj.id
+).scalar_subquery(), deferred=True)
+
+# add a similar thing to Obj model, to get the object ids, of all linked MetaObjs
+Obj.meta_obj_ids = column_property(select(func.array_agg(ObjToMetaObj.meta_obj_id)).where(
+    ObjToMetaObj.obj_id == Obj.id
+).scalar_subquery(), deferred=True)
+
+Obj.associated_obj_ids = column_property(
+    select(func.array_agg(ObjToMetaObj.obj_id))
+    .where(ObjToMetaObj.meta_obj_id.in_(
+        select(ObjToMetaObj.meta_obj_id).where(ObjToMetaObj.obj_id == Obj.id)
+    ))
+    .correlate_except(ObjToMetaObj)
+    .scalar_subquery(),
+    deferred=True
+)
+
