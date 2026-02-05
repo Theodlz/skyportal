@@ -543,7 +543,7 @@ export const getFieldOptionsWithVariable = (
   const filterByStream = (items) => {
     if (!currentStream || !items) return items;
     return items.filter(
-      (item) => !item.stream || item.stream === currentStream,
+      (item) => !item.stream || item.stream === currentStream.split(" ")[0],
     );
   };
 

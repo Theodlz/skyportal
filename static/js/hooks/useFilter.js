@@ -68,8 +68,10 @@ export const useFilterBuilderData = () => {
         // Filter variables by stream - only show variables matching current stream or with no stream set
         const filterByStream = (items) => {
           if (!items) return [];
+          if (!currentStream) return items; // Show all variables if no current stream
           return items.filter(
-            (item) => !item.stream || item.stream === currentStream,
+            (item) =>
+              !item.stream || item.stream === currentStream.split(" ")[0], // Compare just the stream name (first part before space)
           );
         };
 

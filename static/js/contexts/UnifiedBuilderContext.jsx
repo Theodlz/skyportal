@@ -70,11 +70,13 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
         );
 
         // Filter variables by stream - only show variables matching current stream or with no stream set
+        // If no current stream is set, show all variables
         const filterByStream = (items) => {
           if (!items) return [];
-          return items.filter(
-            (item) => !item.stream || item.stream === currentStream,
-          );
+          if (!currentStream) return items; // Show all variables if no current stream
+          return items.filter((item) => {
+            return !item.stream || item.stream === currentStream.split(" ")[0]; // Compare just the stream name (first part before space)
+          });
         };
 
         setCustomBlocks(filterByStream(blocks.data.blocks));
