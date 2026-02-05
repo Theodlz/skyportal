@@ -121,7 +121,7 @@ export const useListConditionDialog = (
     { value: "$max", label: "Maximum Value" },
     { value: "$avg", label: "Average Value" },
     { value: "$sum", label: "Sum of Values" },
-    { value: "$count", label: "Count Elements" },
+    { value: "$size", label: "Count Elements" },
     { value: "$stdDevPop", label: "Standard Deviation" },
     { value: "$median", label: "Median Value" },
   ];
@@ -209,9 +209,15 @@ export const useListConditionDialog = (
             ? opt.label.split(".").pop()
             : opt.label;
 
+          // For map operators, set a specific group name
+          const groupName =
+            listVariable.listCondition.operator === "$map"
+              ? opt.group || `${listVariable.name} Fields`
+              : undefined;
+
           return {
             ...opt,
-            group: undefined, // Don't group by list variable name
+            group: groupName,
             label: subfieldName, // Use just the subfield name, relative to this list
           };
         });

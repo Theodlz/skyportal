@@ -174,7 +174,9 @@ const OperatorSelector = ({
     <AutocompleteOperators
       operators={operatorOptions}
       value={conditionOrBlock.operator}
-      onChange={(op) => updateCondition(block.id, conditionOrBlock.id, "operator", op)}
+      onChange={(op) =>
+        updateCondition(block.id, conditionOrBlock.id, "operator", op)
+      }
       mongoOperatorLabels={mongoOperatorLabels}
       style={{ minWidth: 60, maxWidth: 80 }}
     />
@@ -218,14 +220,14 @@ const ListVariableOperator = ({
     const baseOperators = ["$exists", "$isNumber"];
     const lengthOperators = ["$lengthGt", "$lengthLt"];
 
-    // If the list variable was created with $min, $max, $avg, $sum, $count, $stdDevPop, or $median (all return numbers)
+    // If the list variable was created with $min, $max, $avg, $sum, $size, $stdDevPop, or $median (all return numbers)
     if (
       [
         "$min",
         "$max",
         "$avg",
         "$sum",
-        "$count",
+        "$size",
         "$stdDevPop",
         "$median",
       ].includes(listOperator)

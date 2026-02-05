@@ -82,7 +82,7 @@ const getStageDescription = (stageName) => {
     $replaceRoot: "Replaces the input document with the specified document",
     $facet: "Processes multiple aggregation pipelines within a single stage",
     $bucket: "Categorizes documents into groups based on specified boundaries",
-    $count: "Returns a count of the number of documents at this stage",
+    $size: "Returns a count of the number of documents at this stage",
     $out: "Writes the resulting documents to a collection",
     $merge:
       "Writes the results of the aggregation pipeline to a specified collection",
@@ -106,7 +106,7 @@ const combineWithPipeline = (
   // Add user pipeline stages
   finalPipeline.push(...userPipeline);
 
-  // Add any additional stages (like $limit, $count) before the final project stage
+  // Add any additional stages (like $limit, $size) before the final project stage
   if (additionalStages && additionalStages.length > 0) {
     finalPipeline.unshift(...additionalStages);
   }

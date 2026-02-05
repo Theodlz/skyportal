@@ -889,7 +889,7 @@ const ValueInput = ({
       "$max",
       "$avg",
       "$sum",
-      "$count",
+      "$size",
       "$stdDevPop",
       "$median",
       "$anyElementTrue",
