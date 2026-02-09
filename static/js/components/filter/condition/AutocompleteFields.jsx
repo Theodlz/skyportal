@@ -72,14 +72,26 @@ const AutocompleteFields = ({
     if (typeof val === "string") return { name: val, meta: {} };
     if (typeof val === "object" && val.type === "array") {
       // List condition objects are handled separately
+      // Ensure name is a string
+      const nameValue = val.name || val.field || "";
       return {
-        name: val.name || val.field || "",
+        name: typeof nameValue === "string" ? nameValue : String(nameValue),
         meta: { isListCondition: true },
       };
     }
     // New format: object with name and _meta
     if (typeof val === "object" && val.name) {
-      return { name: val.name, meta: val._meta || {} };
+      // Recursively handle nested name objects
+      const extractName = (nameVal) => {
+        if (!nameVal) return "";
+        if (typeof nameVal === "string") return nameVal;
+        if (typeof nameVal === "object" && nameVal.name) {
+          return extractName(nameVal.name);
+        }
+        return String(nameVal);
+      };
+      const extracted = extractName(val.name);
+      return { name: extracted, meta: val._meta || {} };
     }
     return { name: "", meta: {} };
   };
@@ -335,9 +347,11 @@ const AutocompleteFields = ({
             if (typeof option === "string") return option;
             // Handle option objects
             if (option && option.label) {
-              return typeof option.label === "string"
-                ? option.label
-                : String(option.label);
+              const result =
+                typeof option.label === "string"
+                  ? option.label
+                  : String(option.label);
+              return result;
             }
             // Handle unexpected objects
             return "";

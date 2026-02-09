@@ -1107,7 +1107,13 @@ const ListVariableInput = ({
           conditionOrBlock.createdAt,
           currentStream,
         )}
-        value={conditionOrBlock.value ? String(conditionOrBlock.value) : ""}
+        value={(() => {
+          const val = conditionOrBlock.value;
+          if (!val) return "";
+          if (typeof val === "string") return val;
+          if (typeof val === "object" && val.name) return val.name;
+          return String(val);
+        })()}
         onChange={(newValue) =>
           updateCondition(block.id, conditionOrBlock.id, "value", newValue)
         }
@@ -1169,7 +1175,13 @@ const ListVariableInput = ({
           conditionOrBlock.createdAt,
           currentStream,
         )}
-        value={conditionOrBlock.value ? String(conditionOrBlock.value) : ""}
+        value={(() => {
+          const val = conditionOrBlock.value;
+          if (!val) return "";
+          if (typeof val === "string") return val;
+          if (typeof val === "object" && val.name) return val.name;
+          return String(val);
+        })()}
         onChange={(newValue) =>
           updateCondition(block.id, conditionOrBlock.id, "value", newValue)
         }
@@ -1359,10 +1371,12 @@ const RegularValueInput = ({
 
         const rawValue = isAggregationOnLeft ? "" : conditionOrBlock.value;
 
-        // Ensure value is always a string for AutocompleteFields
+        // Normalize value to handle both string and object formats
         if (rawValue === null || rawValue === undefined) {
           return "";
         }
+        if (typeof rawValue === "string") return rawValue;
+        if (typeof rawValue === "object" && rawValue.name) return rawValue.name;
         return String(rawValue);
       })()}
       onChange={(newValue) => {
@@ -2431,8 +2445,29 @@ const ConditionComponentInner = ({
   const { isYoungestHovered, handleMouseEnter, handleMouseLeave } =
     useHoverState(conditionOrBlock.id, filters);
 
+  // Helper to normalize values that might contain metadata objects
+  const normalizeFieldOrValue = (val) => {
+    if (!val) return val;
+    if (typeof val === "string") return val;
+    if (typeof val === "object" && val.name) {
+      return val.name;
+    }
+    return val;
+  };
+
   // Helper functions
-  const updateCondition = createUpdateConditionFunction(filters, setFilters);
+  const baseUpdateCondition = createUpdateConditionFunction(
+    filters,
+    setFilters,
+  );
+
+  // Wrapper that normalizes field and value before updating
+  const updateCondition = (blockId, conditionId, key, value) => {
+    const normalizedValue =
+      key === "field" || key === "value" ? normalizeFieldOrValue(value) : value;
+    baseUpdateCondition(blockId, conditionId, key, normalizedValue);
+  };
+
   const removeItem = createRemoveItemFunction(
     filters,
     setFilters,
@@ -2468,8 +2503,24 @@ const ConditionComponentInner = ({
     : [];
 
   const handleFieldChange = (newField) => {
+    // Extract string value from newField if it's an object with metadata
+    const normalizeField = (field) => {
+      if (!field) return "";
+      if (typeof field === "string") return field;
+      if (typeof field === "object" && field.name) {
+        return field.name;
+      }
+      console.warn(
+        "[BlockComponent handleFieldChange] Unexpected field format:",
+        field,
+      );
+      return String(field);
+    };
+
+    const fieldValue = normalizeField(newField);
+
     // If field is being explicitly cleared (empty/null/undefined), just update the field without changing operator/value
-    if (newField === "" || newField === null || newField === undefined) {
+    if (fieldValue === "" || fieldValue === null || fieldValue === undefined) {
       setFilters((prevFilters) => {
         const updateBlockTree = (currentBlock) => {
           if (currentBlock.id !== block.id) {
@@ -2500,7 +2551,7 @@ const ConditionComponentInner = ({
     }
 
     const ops = getOperatorsForField(
-      newField,
+      fieldValue,
       customVariables,
       schema,
       fieldOptions,
@@ -2509,7 +2560,7 @@ const ConditionComponentInner = ({
       customSwitchCases,
     );
     const isBooleanField = isFieldType(
-      newField,
+      fieldValue,
       "boolean",
       customVariables,
       schema,
@@ -2521,7 +2572,7 @@ const ConditionComponentInner = ({
 
     // Check if this is a list variable and get its operator
     const listVariable = customListVariables?.find(
-      (lv) => lv.name === newField,
+      (lv) => lv.name === fieldValue,
     );
     const defaultOperator = listVariable
       ? listVariable.listCondition?.operator
@@ -2545,7 +2596,7 @@ const ConditionComponentInner = ({
             child.id === conditionOrBlock.id
               ? {
                   ...child,
-                  field: newField,
+                  field: fieldValue,
                   variableName: undefined,
                   operator:
                     child.operator && ops.includes(child.operator)

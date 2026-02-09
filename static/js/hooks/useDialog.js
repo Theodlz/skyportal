@@ -295,6 +295,14 @@ export const useListConditionForm = (
   const [conditionName, setConditionName] = useState("");
   const [nameError, setNameError] = useState("");
 
+  // Helper to normalize name values (handle both string and object formats)
+  const normalizeName = (name) => {
+    if (!name) return "";
+    if (typeof name === "string") return name;
+    if (typeof name === "object" && name.name) return name.name;
+    return String(name);
+  };
+
   // Get all available array fields (including list variables and switch cases with array outcomes)
   const availableArrayFields = [
     // Include schema array fields - check for both type "array" and isExpandableArray
@@ -306,7 +314,7 @@ export const useListConditionForm = (
     ...customListVariables
       .filter((lv) => lv.name && lv.listCondition) // Only include properly defined list variables
       .map((lv) => ({
-        label: lv.name,
+        label: normalizeName(lv.name),
         type: "array_variable",
         isListVariable: true,
         isDbVariable: true, // All list variables from customListVariables are database variables
@@ -366,7 +374,7 @@ export const useListConditionForm = (
         });
       })
       .map((sc) => ({
-        label: sc.name,
+        label: normalizeName(sc.name),
         type: "array_switch",
         isSwitchCase: true,
         isDbVariable: false,

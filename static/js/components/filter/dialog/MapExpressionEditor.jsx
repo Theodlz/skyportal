@@ -35,11 +35,19 @@ const MapExpressionEditor = ({
   const [selectedChip, setSelectedChip] = useState(null);
   const [equationAnchor, setEquationAnchor] = useState(null);
 
+  // Helper to normalize name values (handle both string and object formats)
+  const normalizeName = (name) => {
+    if (!name) return "";
+    if (typeof name === "string") return name;
+    if (typeof name === "object" && name.name) return name.name;
+    return String(name);
+  };
+
   // Convert customVariables to fieldOptions format
   const fieldOptions = useMemo(() => {
     return customVariables.map((v) => ({
-      label: v.name,
-      value: v.name,
+      label: normalizeName(v.name),
+      value: normalizeName(v.name),
       group: "Arithmetic Variables",
       isVariable: true,
     }));

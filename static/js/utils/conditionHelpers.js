@@ -630,14 +630,27 @@ export const getFieldOptionsWithVariable = (
   const filteredCustomVariables = filterByStream(customVariables);
   const filteredSwitchCases = filterByStream(customSwitchCases);
 
+  // Helper to normalize name values (handle both string and object formats)
+  const normalizeName = (name) => {
+    if (!name) return "";
+    if (typeof name === "string") return name;
+    if (typeof name === "object") {
+      if (name.name) {
+        return name.name;
+      }
+    }
+    return String(name);
+  };
+
   const listVariableOptions =
     filteredListVariables?.map((lv) => {
       // If the list operator is anyElementTrue or allElementsTrue, set type to array_variable_boolean
       const operator = lv.listCondition?.operator;
       const isBooleanArray =
         operator === "$anyElementTrue" || operator === "$allElementsTrue";
+      const normalized = normalizeName(lv.name);
       return {
-        label: lv.name,
+        label: normalized,
         type: isBooleanArray ? "array_variable_boolean" : "array_variable",
         isListVariable: true,
         isVariable: false,
@@ -666,8 +679,9 @@ export const getFieldOptionsWithVariable = (
           schemaFieldOptions,
         ) || "string";
 
+      const normalized = normalizeName(sc.name);
       return {
-        label: sc.name,
+        label: normalized,
         type: inferredType,
         isSwitchCase: true,
         isVariable: false,
@@ -678,14 +692,17 @@ export const getFieldOptionsWithVariable = (
     }) || [];
 
   const variableOptions =
-    filteredCustomVariables?.map((eq) => ({
-      label: eq.name,
-      type: "number",
-      isVariable: true,
-      isListVariable: false,
-      equation: eq.variable,
-      group: "Arithmetic Variables",
-    })) || [];
+    filteredCustomVariables?.map((eq) => {
+      const normalized = normalizeName(eq.name);
+      return {
+        label: normalized,
+        type: "number",
+        isVariable: true,
+        isListVariable: false,
+        equation: eq.variable,
+        group: "Arithmetic Variables",
+      };
+    }) || [];
 
   const baseOptions = fieldOptionsList;
 
