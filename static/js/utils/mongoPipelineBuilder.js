@@ -867,6 +867,9 @@ const analyzeBlockForDeps = (
         }
       } else if (meta.isSchemaField) {
         deps.add(fieldName);
+      } else if (meta.isVariable) {
+        // Arithmetic variables need to be defined as fields when used in list variable contexts
+        deps.add(fieldName);
       } else {
         // Fallback: metadata exists but no flags are set to true
         // Check if it's actually a schema field (the metadata might be incorrect)
@@ -874,14 +877,14 @@ const analyzeBlockForDeps = (
           deps.add(fieldName);
         }
       }
-      // Note: Arithmetic variables (meta.isVariable) are not added as dependencies since they are inlined
     }
     // Fallback: legacy string-based checking (may add multiple if names collide)
     else {
       // Normalize field to handle both string and object formats
       const fieldName = normalizeFieldName(block.field);
-      // Don't add arithmetic variables as dependencies since they are inlined
-      // if (customVariables.some(v => v.name === fieldName)) deps.add(fieldName);
+      // Add arithmetic variables as dependencies when used in list variable filters
+      if (customVariables.some((v) => v.name === fieldName))
+        deps.add(fieldName);
       if (customListVariables.some((v) => v.name === fieldName))
         deps.add(fieldName);
       // For switch cases, don't add self-references as dependencies...
@@ -925,6 +928,9 @@ const analyzeBlockForDeps = (
         }
       } else if (meta.isSchemaField) {
         deps.add(valueName);
+      } else if (meta.isVariable) {
+        // Arithmetic variables need to be defined as fields when used in list variable contexts
+        deps.add(valueName);
       } else {
         // Fallback: metadata exists but no flags are set to true
         // Check if it's actually a schema field (the metadata might be incorrect)
@@ -932,7 +938,6 @@ const analyzeBlockForDeps = (
           deps.add(valueName);
         }
       }
-      // Note: Arithmetic variables (meta.isVariable) are not added as dependencies since they are inlined
     }
     // Fallback: legacy string-based checking
     else {
@@ -940,8 +945,8 @@ const analyzeBlockForDeps = (
       const normalizedVal = normalizeValue(block.value);
       if (typeof normalizedVal === "string") {
         const value = normalizedVal;
-        // Don't add arithmetic variables as dependencies since they are inlined
-        // if (customVariables.some(v => v.name === value)) deps.add(value);
+        // Add arithmetic variables as dependencies when used in list variable filters
+        if (customVariables.some((v) => v.name === value)) deps.add(value);
         if (customListVariables.some((v) => v.name === value)) deps.add(value);
         // For switch cases, don't add self-references as dependencies...
         // UNLESS it's also a schema field (meaning we're reading from the original field)
@@ -1030,7 +1035,17 @@ const buildInitialProjectStage = (
   const project = { objectId: 1, "candidate.jd": 1 };
 
   // Add base fields only - computed variables will be added in separate $addFields stages
-  dependencyGraph.usedFields.baseFields.forEach((field) => {
+  // Filter out redundant parent paths when children are projected (e.g., exclude "prv_candidates" if "prv_candidates.isdiffpos" is projected)
+  const baseFieldsArray = Array.from(dependencyGraph.usedFields.baseFields);
+  const fieldsToProject = baseFieldsArray.filter((field) => {
+    // Check if any other field is a child of this field
+    // If this field has children being projected, exclude this parent path
+    return !baseFieldsArray.some((otherField) => {
+      return otherField !== field && otherField.startsWith(`${field}.`);
+    });
+  });
+
+  fieldsToProject.forEach((field) => {
     project[field] = 1;
   });
 
@@ -1076,7 +1091,24 @@ const buildInitialProjectStage = (
   // Note: Level 0 list variables and switch cases are now added via $addFields
   // in buildVariableStagesByLevel to ensure proper stage separation
 
-  return { $project: project };
+  // Final pass: Remove parent paths if any of their children are in the project
+  // This handles cases where dependencies might conflict with already projected fields
+  const allProjectedFields = Object.keys(project);
+  const filteredProject = {};
+
+  allProjectedFields.forEach((field) => {
+    // Check if any other projected field is a child of this field
+    const hasChildProjected = allProjectedFields.some((otherField) => {
+      return otherField !== field && otherField.startsWith(`${field}.`);
+    });
+
+    // Only add this field if it doesn't have children being projected
+    if (!hasChildProjected) {
+      filteredProject[field] = project[field];
+    }
+  });
+
+  return { $project: filteredProject };
 };
 
 /**
@@ -1593,7 +1625,17 @@ const buildFinalProjectStage = (
   const project = { objectId: 1, "candidate.jd": 1 }; // Always include objectId and candidate.jd for reference
 
   // Add all used fields
-  dependencyGraph.usedFields.baseFields.forEach((field) => {
+  // Filter out redundant child paths when parent is already projected (e.g., exclude "prv_candidates.isdiffpos" if "prv_candidates" is projected)
+  const baseFieldsArray = Array.from(dependencyGraph.usedFields.baseFields);
+  const fieldsToProject = baseFieldsArray.filter((field) => {
+    // Check if any other field is a parent of this field
+    // A parent would be a prefix followed by a dot (e.g., "prv_candidates" is parent of "prv_candidates.isdiffpos")
+    return !baseFieldsArray.some((otherField) => {
+      return otherField !== field && field.startsWith(`${otherField}.`);
+    });
+  });
+
+  fieldsToProject.forEach((field) => {
     project[field] = 1;
   });
 
@@ -1615,7 +1657,24 @@ const buildFinalProjectStage = (
     project[field] = 1;
   });
 
-  return { $project: project };
+  // Final pass: Remove parent paths if any of their children are in the project
+  // This handles cases where additionalFieldsToProject might conflict with already projected fields
+  const allProjectedFields = Object.keys(project);
+  const filteredProject = {};
+
+  allProjectedFields.forEach((field) => {
+    // Check if any other projected field is a child of this field
+    const hasChildProjected = allProjectedFields.some((otherField) => {
+      return otherField !== field && otherField.startsWith(`${field}.`);
+    });
+
+    // Only add this field if it doesn't have children being projected
+    if (!hasChildProjected) {
+      filteredProject[field] = project[field];
+    }
+  });
+
+  return { $project: filteredProject };
 };
 
 /**
