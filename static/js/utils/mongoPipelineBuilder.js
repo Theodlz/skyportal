@@ -3001,33 +3001,41 @@ const convertSchemaFieldCondition = (
 
   // If arrayField is provided, we're in a $filter/$map context and need expression format with $$this
   if (arrayField) {
+    // Strip the arrayField prefix from the field name if present
+    // e.g., if field is "prv_candidates.isdiffpos" and arrayField is "prv_candidates"
+    // we want "isdiffpos", not "prv_candidates.isdiffpos"
+    let fieldReference = field;
+    if (field.startsWith(`${arrayField}.`)) {
+      fieldReference = field.substring(arrayField.length + 1);
+    }
+
     switch (operator) {
       case "$eq":
       case "equals":
-        return { $eq: [`$$this.${field}`, processedValue] };
+        return { $eq: [`$$this.${fieldReference}`, processedValue] };
       case "$ne":
       case "not equals":
-        return { $ne: [`$$this.${field}`, processedValue] };
+        return { $ne: [`$$this.${fieldReference}`, processedValue] };
       case "$gt":
-        return { $gt: [`$$this.${field}`, processedValue] };
+        return { $gt: [`$$this.${fieldReference}`, processedValue] };
       case "$gte":
-        return { $gte: [`$$this.${field}`, processedValue] };
+        return { $gte: [`$$this.${fieldReference}`, processedValue] };
       case "$lt":
-        return { $lt: [`$$this.${field}`, processedValue] };
+        return { $lt: [`$$this.${fieldReference}`, processedValue] };
       case "$lte":
-        return { $lte: [`$$this.${field}`, processedValue] };
+        return { $lte: [`$$this.${fieldReference}`, processedValue] };
       case "$exists":
-        return { $ne: [`$$this.${field}`, null] };
+        return { $ne: [`$$this.${fieldReference}`, null] };
       case "$isNumber":
-        return { $isNumber: `$$this.${field}` };
+        return { $isNumber: `$$this.${fieldReference}` };
       case "$lengthGt":
       case "length >":
-        return { $gt: [{ $size: `$$this.${field}` }, processedValue] };
+        return { $gt: [{ $size: `$$this.${fieldReference}` }, processedValue] };
       case "$lengthLt":
       case "length <":
-        return { $lt: [{ $size: `$$this.${field}` }, processedValue] };
+        return { $lt: [{ $size: `$$this.${fieldReference}` }, processedValue] };
       default:
-        return { $eq: [`$$this.${field}`, processedValue] };
+        return { $eq: [`$$this.${fieldReference}`, processedValue] };
     }
   }
 
@@ -3170,7 +3178,15 @@ const parseValueForComparison = (
 
     if (meta.isSchemaField) {
       // In array context ($filter/$map), use $$this for field references
-      return arrayField ? `$$this.${valueName}` : `$${valueName}`;
+      if (arrayField) {
+        // Strip the arrayField prefix from valueName if present
+        let fieldReference = valueName;
+        if (valueName.startsWith(`${arrayField}.`)) {
+          fieldReference = valueName.substring(arrayField.length + 1);
+        }
+        return `$$this.${fieldReference}`;
+      }
+      return `$${valueName}`;
     }
 
     // If metadata doesn't match any known type, treat as literal
@@ -3189,7 +3205,15 @@ const parseValueForComparison = (
   );
   if (fieldRef) {
     // In array context ($filter/$map), use $$this for field references
-    return arrayField ? `$$this.${value}` : `$${value}`;
+    if (arrayField) {
+      // Strip the arrayField prefix from value if present
+      let fieldReference = value;
+      if (value.startsWith(`${arrayField}.`)) {
+        fieldReference = value.substring(arrayField.length + 1);
+      }
+      return `$$this.${fieldReference}`;
+    }
+    return `$${value}`;
   }
 
   // Check for arithmetic variables - these need to be inlined, not referenced as fields
