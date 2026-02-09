@@ -28,6 +28,17 @@ import AutocompleteFields from "../condition/AutocompleteFields";
 import { getFieldOptionsWithVariable } from "../../../utils/conditionHelpers";
 import { postElement } from "../../../ducks/boom_filter_modules";
 
+/**
+ * Helper function to extract string value from AutocompleteFields output
+ * Handles both legacy string format and new object format with metadata
+ */
+const normalizeFieldValue = (value) => {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value.name) return value.name;
+  return String(value);
+};
+
 const defaultBlock = () => ({
   id: uuidv4(),
   category: "block",
@@ -102,11 +113,15 @@ const AddSwitchDialog = () => {
   }, [switchDialog.open]);
 
   const validateName = (name) => {
-    if (!name.trim()) {
+    // Normalize the value to handle both string and object formats
+    const normalizedName = normalizeFieldValue(name);
+    if (!normalizedName.trim()) {
       return "Name is required";
     }
     // Check if name already exists in custom switch cases
-    const exists = customSwitchCases?.some((v) => v.name === name.trim());
+    const exists = customSwitchCases?.some(
+      (v) => v.name === normalizedName.trim(),
+    );
     if (exists) {
       return "A switch case with this name already exists";
     }
@@ -182,7 +197,7 @@ const AddSwitchDialog = () => {
         })),
         default: defaultValue,
       },
-      targetField: targetField || null, // Store target field if specified
+      targetField: targetField ? normalizeFieldValue(targetField) : null, // Store normalized target field if specified
     };
 
     // Save to database
@@ -213,12 +228,12 @@ const AddSwitchDialog = () => {
     const newCondition = {
       id: uuidv4(),
       category: "condition",
-      field: targetField || switchName.trim(), // Use target field if specified, otherwise use switch name
+      field: targetField ? normalizeFieldValue(targetField) : switchName.trim(), // Use normalized target field if specified, otherwise use switch name
       operator: "$switch",
       value: switchCondition.value,
       createdAt: Date.now(),
       isSwitchVariable: true,
-      targetField: targetField || null,
+      targetField: targetField ? normalizeFieldValue(targetField) : null,
     };
 
     // Helper function to add condition to block
@@ -264,9 +279,11 @@ const AddSwitchDialog = () => {
               fieldOptions={allFieldOptions}
               value={targetField || ""}
               onChange={(newValue) => {
+                // Extract string value from AutocompleteFields (handles both string and object formats)
+                const normalizedValue = normalizeFieldValue(newValue);
                 setTargetField(newValue);
-                setSwitchName(newValue);
-                setNameError(validateName(newValue));
+                setSwitchName(normalizedValue);
+                setNameError(validateName(normalizedValue));
               }}
               conditionOrBlock={{ id: "switch-dialog-target-field" }}
               side="right"

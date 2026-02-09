@@ -29,6 +29,17 @@ import MapExpressionEditor from "./MapExpressionEditor";
 import { postElement } from "../../../ducks/boom_filter_modules";
 import { useDispatch, useSelector } from "react-redux";
 
+/**
+ * Helper function to extract string value from AutocompleteFields output
+ * Handles both legacy string format and new object format with metadata
+ */
+const normalizeFieldValue = (value) => {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value.name) return value.name;
+  return String(value);
+};
+
 // Import utility function for type mapping
 const getSimpleType = (avroType) => {
   if (typeof avroType === "string") {
@@ -891,7 +902,11 @@ const AddListConditionDialog = () => {
         (dialog.localFilters.length > 0 &&
           dialog.localFilters[0].children.length > 0)) &&
       (!isMapOperator ||
-        mapFields.some((f) => f.fieldName.trim() && f.expression.trim()))
+        mapFields.some((f) => {
+          const fieldName = typeof f.fieldName === "string" ? f.fieldName : "";
+          const expression = normalizeFieldValue(f.expression);
+          return fieldName.trim() && expression.trim();
+        }))
     );
   };
 

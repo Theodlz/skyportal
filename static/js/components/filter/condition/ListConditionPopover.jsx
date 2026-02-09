@@ -21,6 +21,17 @@ import {
 import { useDispatch } from "react-redux";
 import { putElement } from "../../../ducks/boom_filter_modules";
 
+// Helper function to normalize field values that may be objects or strings
+// Supports:
+// - String values (legacy): "fieldName"
+// - Object with metadata (new): { name: "fieldName", _meta: {...} }
+const normalizeFieldValue = (field) => {
+  if (!field) return "";
+  if (typeof field === "string") return field;
+  if (typeof field === "object" && field.name) return field.name;
+  return "";
+};
+
 const ListConditionPopover = ({
   listPopoverAnchor,
   setListPopoverAnchor,
@@ -333,7 +344,7 @@ const ListConditionPopover = ({
           >
             <span style={{ color: "#059669" }}>{listVar.name}</span>
             <span style={{ fontSize: 14, color: "#6b7280", marginLeft: 8 }}>
-              ({listVar.listCondition.field})
+              ({normalizeFieldValue(listVar.listCondition.field)})
             </span>
           </div>
 
@@ -540,7 +551,10 @@ const ListConditionPopover = ({
                         sx={{ display: "block", mb: 0.5 }}
                       >
                         For each element in{" "}
-                        <strong>{listVar.listCondition.field}</strong>, create:
+                        <strong>
+                          {normalizeFieldValue(listVar.listCondition.field)}
+                        </strong>
+                        , create:
                       </Typography>
                     </Box>
 
@@ -869,14 +883,14 @@ const ListConditionPopover = ({
                 {conditionOrBlock.value.name}
               </span>
               <span style={{ fontSize: 14, color: "#6b7280", marginLeft: 8 }}>
-                ({conditionOrBlock.value.field})
+                ({normalizeFieldValue(conditionOrBlock.value.field)})
               </span>
             </>
           ) : (
             <>
               List Condition:{" "}
               <span style={{ color: "#059669" }}>
-                {conditionOrBlock.value.field}
+                {normalizeFieldValue(conditionOrBlock.value.field)}
               </span>
             </>
           )}

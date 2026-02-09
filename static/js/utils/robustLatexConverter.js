@@ -1,6 +1,7 @@
 export class RobustLatexToMongoConverter {
   constructor() {
-    this.fieldPattern = /([a-zA-Z_][a-zA-Z0-9_.]*)/g;
+    // Updated pattern to allow fields starting with numbers (e.g., "10days", "10magpsf")
+    this.fieldPattern = /([a-zA-Z0-9_][a-zA-Z0-9_.]*)/g;
     this.numberPattern = /^-?\d+\.?\d*$/;
   }
 
@@ -386,10 +387,20 @@ export class RobustLatexToMongoConverter {
    * @private
    */
   _findMainOperator(expression) {
+    /**
+     * Array of operator definitions for parsing mathematical expressions.
+     * Each object contains an array of operator symbols and their precedence level.
+     * Precedence determines the order of operations: higher numbers indicate higher precedence,
+     * meaning those operators are evaluated before lower precedence ones (e.g., multiplication before addition).
+     * Higher precedence operators come first in the list to ensure multi-character operators
+     * like '**' are matched before single-character ones like '*' during parsing,
+     * preventing incorrect tokenization (e.g., '**' being split into '*' and '*').
+     * @type {Array<{ops: string[], precedence: number}>}
+     */
     const operators = [
-      { ops: ["+", "-"], precedence: 1 },
+      { ops: ["**", "^"], precedence: 3 },
       { ops: ["*", "/"], precedence: 2 },
-      { ops: ["**", "^"], precedence: 3 }, // ** must come before * in the list
+      { ops: ["+", "-"], precedence: 1 },
     ];
 
     let parenLevel = 0;
@@ -603,13 +614,11 @@ export class RobustLatexToMongoConverter {
       // Field conversion with array context awareness:
       // In array filter context: absolute document references stay as $field,
       // array-relative fields would be $$this.field (but we're processing absolute refs here)
-      // Use $ifNull to convert undefined to null (ensures proper null propagation without errors)
-      // If field is missing/undefined, becomes null. If null, stays null. Arithmetic with null = null.
-      return { $ifNull: [`$${trimmed}`, null] };
+      return `$${trimmed}`;
     }
 
-    // Fallback for unknown patterns - ensure undefined becomes null
-    return { $ifNull: [`$${trimmed}`, null] };
+    // Fallback for unknown patterns - return as field reference
+    return `$${trimmed}`;
   }
 
   /**

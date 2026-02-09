@@ -3,6 +3,17 @@ import PropTypes from "prop-types";
 import { Popover, Box, Typography, Paper, Divider, Chip } from "@mui/material";
 import BlockComponent from "../block/BlockComponent";
 
+// Helper function to normalize field/value objects to strings
+// Supports:
+// - String values (legacy): "fieldName"
+// - Object with metadata (new): { name: "fieldName", _meta: {...} }
+const normalizeValue = (val) => {
+  if (!val) return "";
+  if (typeof val === "string") return val;
+  if (typeof val === "object" && val.name) return val.name;
+  return String(val);
+};
+
 // Helper component to render a chip for field/variable values
 const ValueChip = ({
   value,
@@ -11,18 +22,21 @@ const ValueChip = ({
   customSwitchCases = [],
   fieldOptionsList = [],
 }) => {
-  if (!value || value === "") {
+  // Normalize value to handle both string and object formats
+  const normalizedValue = normalizeValue(value);
+
+  if (!normalizedValue || normalizedValue === "") {
     return (
       <span style={{ fontStyle: "italic", color: "#9ca3af" }}>(empty)</span>
     );
   }
 
   // Check if it's an arithmetic variable (yellow)
-  const variable = customVariables.find((v) => v.name === value);
+  const variable = customVariables.find((v) => v.name === normalizedValue);
   if (variable) {
     return (
       <Chip
-        label={value}
+        label={normalizedValue}
         size="small"
         sx={{
           background: "#fde68a",
@@ -36,11 +50,13 @@ const ValueChip = ({
   }
 
   // Check if it's a list variable (green)
-  const listVariable = customListVariables.find((lv) => lv.name === value);
+  const listVariable = customListVariables.find(
+    (lv) => lv.name === normalizedValue,
+  );
   if (listVariable) {
     return (
       <Chip
-        label={value}
+        label={normalizedValue}
         size="small"
         sx={{
           background: "#bbf7d0",
@@ -54,11 +70,13 @@ const ValueChip = ({
   }
 
   // Check if it's a switch case (grey)
-  const switchCase = customSwitchCases.find((sc) => sc.name === value);
+  const switchCase = customSwitchCases.find(
+    (sc) => sc.name === normalizedValue,
+  );
   if (switchCase) {
     return (
       <Chip
-        label={value}
+        label={normalizedValue}
         size="small"
         sx={{
           background: "#e5e7eb",
@@ -72,11 +90,11 @@ const ValueChip = ({
   }
 
   // Check if it's a field (blue)
-  const field = fieldOptionsList.find((f) => f.label === value);
+  const field = fieldOptionsList.find((f) => f.label === normalizedValue);
   if (field) {
     return (
       <Chip
-        label={value}
+        label={normalizedValue}
         size="small"
         sx={{
           background: "#dbeafe",
@@ -105,7 +123,7 @@ const ValueChip = ({
         display: "inline-block",
       }}
     >
-      {value}
+      {normalizedValue}
     </Typography>
   );
 };

@@ -8,7 +8,7 @@ import {
   convertToMongoAggregation,
   formatMongoAggregation,
   isValidPipeline,
-} from "../utils/mongoConverter";
+} from "../utils/mongoPipelineBuilder";
 import { flattenFieldOptions } from "../constants/filterConstants";
 
 export const UnifiedBuilderContext = createContext();
@@ -144,7 +144,7 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
         }
 
         // Build annotations object
-        const annotations = {};
+        const annotations_object = {};
 
         projectionFields.forEach((field) => {
           if (!field.fieldName || field.fieldName === "objectId") return;
@@ -153,24 +153,24 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
           // Handle different projection types
           switch (field.type) {
             case "include":
-              annotations[outputName] = `$${field.fieldName}`;
+              annotations_object[outputName] = `$${field.fieldName}`;
               break;
             case "exclude":
-              annotations[outputName] = 0;
+              annotations_object[outputName] = 0;
               break;
             case "round":
-              annotations[outputName] = {
+              annotations_object[outputName] = {
                 $round: [`$${field.fieldName}`, field.roundDecimals || 4],
               };
               break;
             default:
-              annotations[outputName] = `$${field.fieldName}`;
+              annotations_object[outputName] = `$${field.fieldName}`;
           }
         });
 
-        // Add annotations to projection if there are any
-        if (Object.keys(annotations).length > 0) {
-          enhancedProjection.annotations = annotations;
+        // Add annotations_object to projection if there are any
+        if (Object.keys(annotations_object).length > 0) {
+          enhancedProjection.annotations = annotations_object;
         }
 
         // Replace the last stage with the enhanced projection

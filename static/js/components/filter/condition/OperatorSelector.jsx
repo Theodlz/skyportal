@@ -39,12 +39,12 @@ const AutocompleteOperators = ({
   operators = [],
   value,
   onChange,
-  mongoOperatorLabels = {},
+  mongoOperatorLabels_ = {},
 }) => {
   // Prepare options with label
   const options = (operators || []).map((op) => ({
     value: op,
-    label: mongoOperatorLabels[op] || op,
+    label: mongoOperatorLabels_[op] || op,
     group: "Operators",
   }));
 
@@ -89,14 +89,15 @@ AutocompleteOperators.propTypes = {
   operators: PropTypes.arrayOf(PropTypes.string),
   value: PropTypes.string,
   onChange: PropTypes.func,
-  mongoOperatorLabels: PropTypes.object,
+  mongoOperatorLabels_: PropTypes.object,
+  key: PropTypes.string,
 };
 
 AutocompleteOperators.defaultProps = {
   operators: [],
   value: "",
   onChange: null,
-  mongoOperatorLabels: {},
+  mongoOperatorLabels_: {},
 };
 
 // Helper function to check if a field is boolean (same logic as ValueInput)
@@ -105,10 +106,9 @@ const isBooleanField = (
   customVariables,
   fieldOptionsList,
   customSwitchCases = [],
+  schema = null,
+  fieldOptions = [],
 ) => {
-  const schema = useSelector((state) => state.filter_modules?.schema);
-  const fieldOptions = flattenFieldOptions(schema);
-
   // Use getFieldType to properly check the type, including for switch cases
   const fieldType = getFieldType(
     conditionOrBlock.field,
@@ -136,10 +136,17 @@ const OperatorSelector = ({
     customSwitchCases,
   } = useConditionContext();
 
+  const schema = useSelector((state) => state.filter_modules?.schema);
+  const fieldOptions = flattenFieldOptions(schema);
+
   // Check if this is a list variable
-  const listVariable = customListVariables.find(
-    (lv) => lv.name === conditionOrBlock.field,
-  );
+  const fieldName =
+    typeof conditionOrBlock.field === "string"
+      ? conditionOrBlock.field
+      : conditionOrBlock.field?.name || conditionOrBlock.field;
+
+  const listVariable = customListVariables.find((lv) => lv.name === fieldName);
+
   if (listVariable) {
     return (
       <ListVariableOperator
@@ -158,6 +165,8 @@ const OperatorSelector = ({
       customVariables,
       fieldOptionsList,
       customSwitchCases,
+      schema,
+      fieldOptions,
     )
   ) {
     return (
@@ -177,7 +186,7 @@ const OperatorSelector = ({
       onChange={(op) =>
         updateCondition(block.id, conditionOrBlock.id, "operator", op)
       }
-      mongoOperatorLabels={mongoOperatorLabels}
+      mongoOperatorLabels_={mongoOperatorLabels}
       style={{ minWidth: 60, maxWidth: 80 }}
     />
   );
@@ -186,7 +195,7 @@ const OperatorSelector = ({
 OperatorSelector.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
-    field: PropTypes.string,
+    field: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
     operator: PropTypes.string,
     value: PropTypes.any,
   }).isRequired,
@@ -195,6 +204,47 @@ OperatorSelector.propTypes = {
   }).isRequired,
   operatorOptions: PropTypes.arrayOf(PropTypes.string).isRequired,
   updateCondition: PropTypes.func.isRequired,
+};
+
+// Helper function to determine the output type of a list variable based on its creation operator
+const getListVariableOutputType = (listOperator) => {
+  // Boolean-returning operators
+  if (["$anyElementTrue", "$allElementsTrue"].includes(listOperator)) {
+    return "boolean";
+  }
+  // Array-returning operators
+  if (["$filter", "$map"].includes(listOperator)) {
+    return "array";
+  }
+  // Number-returning operators
+  if (
+    ["$min", "$max", "$avg", "$sum", "$size", "$stdDevPop", "$median"].includes(
+      listOperator,
+    )
+  ) {
+    return "number";
+  }
+  // Default to array for unknown operators
+  return "array";
+};
+
+// Helper function to get default operator based on output type and list operator
+const getDefaultOperatorForType = (outputType, listOperator = null) => {
+  // For arrays, prefer the operator used to create the list variable
+  if (outputType === "array" && listOperator) {
+    return listOperator;
+  }
+
+  switch (outputType) {
+    case "number":
+      return "$eq"; // Most common comparison for numbers
+    case "boolean":
+      return "$eq"; // Check if true/false
+    case "array":
+      return "$lengthGt"; // Fallback for arrays without a list operator
+    default:
+      return "$exists";
+  }
 };
 
 const ListVariableOperator = ({
@@ -215,77 +265,13 @@ const ListVariableOperator = ({
     [updateCondition, block.id, conditionOrBlock.id],
   );
 
-  // Get available operators based on the list variable's creation operator
+  // Determine the output type of this list variable
+  const outputType = getListVariableOutputType(listOperator);
+
+  // Get available operators based on the list variable's OUTPUT type
   const getAvailableOperatorsForListVariable = () => {
-    const baseOperators = ["$exists", "$isNumber"];
-    const lengthOperators = ["$lengthGt", "$lengthLt"];
-
-    // If the list variable was created with $min, $max, $avg, $sum, $size, $stdDevPop, or $median (all return numbers)
-    if (
-      [
-        "$min",
-        "$max",
-        "$avg",
-        "$sum",
-        "$size",
-        "$stdDevPop",
-        "$median",
-      ].includes(listOperator)
-    ) {
-      return [
-        "$eq",
-        "$ne",
-        "$lt",
-        "$lte",
-        "$gt",
-        "$gte",
-        ...lengthOperators,
-        ...baseOperators,
-      ];
-    }
-
-    // If the list variable was created with $anyElementTrue or $allElementsTrue
-    if (
-      listOperator === "$anyElementTrue" ||
-      listOperator === "$allElementsTrue"
-    ) {
-      return [
-        // "$in",
-        // "$nin",
-        listOperator,
-        // Length operators are not applicable for boolean array operations
-        ...baseOperators,
-      ];
-    }
-
-    // If the list variable was created with $filter or $map
-    if (listOperator === "$filter" || listOperator === "$map") {
-      return [
-        // "$in",
-        // "$nin",
-        "$filter",
-        "$map",
-        ...lengthOperators,
-        ...baseOperators,
-      ];
-    }
-
-    // For length operators
-    if (["$lengthGt", "$lengthLt"].includes(listOperator)) {
-      return [
-        "$eq",
-        "$ne",
-        "$lt",
-        "$lte",
-        "$gt",
-        "$gte",
-        ...lengthOperators,
-        ...baseOperators,
-      ];
-    }
-
-    // For other list variable types, get all available operators including length operators
-    const standardOperators = getOperatorsForField(
+    // Use getOperatorsForField with the output type to get the appropriate operators
+    const operators = getOperatorsForField(
       conditionOrBlock.field,
       customVariables,
       schema,
@@ -295,34 +281,76 @@ const ListVariableOperator = ({
       [], // customSwitchCases - empty array since list variables can't be switch cases
     );
 
-    // Always include length operators for list variables
-    return [
-      ...new Set([...standardOperators, ...lengthOperators, ...baseOperators]),
-    ];
+    // For number output types, we should use number operators, not array operators
+    if (outputType === "number") {
+      const baseOperators = ["$exists", "$isNumber"];
+      return [
+        "$eq",
+        "$ne",
+        "$gt",
+        "$gte",
+        "$lt",
+        "$lte",
+        "$round",
+        ...baseOperators,
+      ];
+    }
+
+    // For boolean output types, use boolean operators
+    if (outputType === "boolean") {
+      const baseOperators = ["$exists", "$isNumber"];
+      return ["$eq", "$ne", ...baseOperators];
+    }
+
+    // For array output types, use the standard array operators
+    return operators;
   };
 
   const availableOperators = getAvailableOperatorsForListVariable();
-
-  // Set the default operator to the first available operator if none is currently set
+  // Set the default operator based on output type if none is currently set
   // OR if the current operator is not valid for this list variable type
+  // OR if it looks like a generic default that should be replaced with the list operator
   useEffect(() => {
+    // Get the preferred default operator (the operator used to create the list variable)
+    const preferredOperator = getDefaultOperatorForType(
+      outputType,
+      listOperator,
+    );
+
+    // Check if we should update the operator
+    const hasNoOperator = !conditionOrBlock.operator;
+    const hasInvalidOperator =
+      conditionOrBlock.operator &&
+      !availableOperators.includes(conditionOrBlock.operator);
+
+    // For arrays: also replace if current is a "generic" array operator but preferred is available
+    // This handles cases where the operator was auto-set to $anyElementTrue but should be $filter
+    const shouldReplaceWithPreferred =
+      outputType === "array" &&
+      availableOperators.includes(preferredOperator) &&
+      ["$anyElementTrue", "$allElementsTrue"].includes(
+        conditionOrBlock.operator,
+      ) &&
+      preferredOperator !== conditionOrBlock.operator;
+
     if (
-      (!conditionOrBlock.operator ||
-        !availableOperators.includes(conditionOrBlock.operator)) &&
+      (hasNoOperator || hasInvalidOperator || shouldReplaceWithPreferred) &&
       availableOperators.length > 0
     ) {
-      updateCondition(
-        block.id,
-        conditionOrBlock.id,
-        "operator",
-        availableOperators[0],
-      );
+      // Use the preferred operator if it's available, otherwise fall back to the first available
+      const operatorToSet = availableOperators.includes(preferredOperator)
+        ? preferredOperator
+        : availableOperators[0];
+
+      updateCondition(block.id, conditionOrBlock.id, "operator", operatorToSet);
     }
   }, [
     block.id,
     conditionOrBlock.id,
     conditionOrBlock.operator,
     availableOperators,
+    outputType,
+    listOperator,
     updateCondition,
   ]);
 
@@ -340,7 +368,7 @@ const ListVariableOperator = ({
       operators={availableOperators}
       value={currentOperator}
       onChange={handleOperatorChange}
-      mongoOperatorLabels={mongoOperatorLabels}
+      mongoOperatorLabels_={mongoOperatorLabels}
       style={{ minWidth: 60, maxWidth: 80 }}
     />
   );
@@ -349,7 +377,7 @@ const ListVariableOperator = ({
 ListVariableOperator.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
-    field: PropTypes.string,
+    field: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
     operator: PropTypes.string,
   }).isRequired,
   block: PropTypes.shape({

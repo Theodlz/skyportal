@@ -53,6 +53,17 @@ import {
   flattenFieldOptions,
 } from "../../../constants/filterConstants";
 
+// Helper function to normalize field values that may be objects or strings
+// Supports:
+// - String values (legacy): "fieldName"
+// - Object with metadata (new): { name: "fieldName", _meta: {...} }
+const normalizeFieldValue = (field) => {
+  if (!field) return "";
+  if (typeof field === "string") return field;
+  if (typeof field === "object" && field.name) return field.name;
+  return "";
+};
+
 // Helper function to escape LaTeX special characters for display
 const escapeLatexForDisplay = (text) => {
   if (!text) return text;
@@ -744,7 +755,7 @@ SaveBlockComponent.propTypes = {
     id: PropTypes.string.isRequired,
     category: PropTypes.string,
     children: PropTypes.array,
-    field: PropTypes.string,
+    field: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
     operator: PropTypes.string,
     value: PropTypes.any,
     isListVariable: PropTypes.bool,
@@ -829,7 +840,7 @@ EquationPopover.propTypes = {
   selectedChip: PropTypes.string.isRequired,
   fieldOptionsWithVariable: PropTypes.array.isRequired,
   conditionOrBlock: PropTypes.shape({
-    field: PropTypes.string,
+    field: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
     variableName: PropTypes.string,
     value: PropTypes.any,
     fieldType: PropTypes.string,
@@ -866,15 +877,12 @@ const ValueInput = ({
   }
 
   const isArrayFieldWithArrayOperator = () => {
-    const fieldVar = customVariables?.find(
-      (v) => v.name === conditionOrBlock.field,
-    );
+    const fieldName = normalizeFieldValue(conditionOrBlock.field);
+    const fieldVar = customVariables?.find((v) => v.name === fieldName);
     const fieldObjList = fieldOptionsList
-      ? fieldOptionsList.find((f) => f.label === conditionOrBlock.field)
+      ? fieldOptionsList.find((f) => f.label === fieldName)
       : null;
-    const baseFieldOption = fieldOptions.find(
-      (f) => f.label === conditionOrBlock.field,
-    );
+    const baseFieldOption = fieldOptions.find((f) => f.label === fieldName);
 
     const isArrayField =
       fieldVar?.type === "array" ||
@@ -907,15 +915,12 @@ const ValueInput = ({
   );
 
   const isBooleanField = () => {
-    const fieldVar = customVariables?.find(
-      (v) => v.name === conditionOrBlock.field,
-    );
+    const fieldName = normalizeFieldValue(conditionOrBlock.field);
+    const fieldVar = customVariables?.find((v) => v.name === fieldName);
     const fieldObjList = fieldOptionsList
-      ? fieldOptionsList.find((f) => f.label === conditionOrBlock.field)
+      ? fieldOptionsList.find((f) => f.label === fieldName)
       : null;
-    const baseFieldOption = fieldOptions.find(
-      (f) => f.label === conditionOrBlock.field,
-    );
+    const baseFieldOption = fieldOptions.find((f) => f.label === fieldName);
 
     return (
       fieldVar?.type === "boolean" ||
@@ -942,9 +947,8 @@ const ValueInput = ({
   }
 
   // Check if this is a list variable
-  const listVariable = customListVariables.find(
-    (lv) => lv.name === conditionOrBlock.field,
-  );
+  const fieldName = normalizeFieldValue(conditionOrBlock.field);
+  const listVariable = customListVariables.find((lv) => lv.name === fieldName);
   if (listVariable) {
     return (
       <ListVariableInput
@@ -990,7 +994,7 @@ ValueInput.propTypes = {
     id: PropTypes.string.isRequired,
     operator: PropTypes.string,
     value: PropTypes.any,
-    field: PropTypes.string,
+    field: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
   }).isRequired,
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
@@ -2757,7 +2761,7 @@ ConditionComponentInner.propTypes = {
     id: PropTypes.string.isRequired,
     operator: PropTypes.string,
     value: PropTypes.any,
-    field: PropTypes.string,
+    field: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
   }).isRequired,
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
@@ -2828,7 +2832,7 @@ const FieldSelector = ({
 FieldSelector.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
-    field: PropTypes.string,
+    field: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
     variableName: PropTypes.string,
   }).isRequired,
   fieldOptionsWithVariable: PropTypes.array.isRequired,

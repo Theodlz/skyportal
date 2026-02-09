@@ -65,6 +65,90 @@ const AutocompleteFields = ({
   // Initialize collapsed groups as empty Set, will be populated when groups are computed
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
 
+  // Helper function to normalize value to a searchable format
+  // Supports both string values (legacy) and object values with metadata
+  const normalizeValue = (val) => {
+    if (!val) return { name: "", meta: {} };
+    if (typeof val === "string") return { name: val, meta: {} };
+    if (typeof val === "object" && val.type === "array") {
+      // List condition objects are handled separately
+      return {
+        name: val.name || val.field || "",
+        meta: { isListCondition: true },
+      };
+    }
+    // New format: object with name and _meta
+    if (typeof val === "object" && val.name) {
+      return { name: val.name, meta: val._meta || {} };
+    }
+    return { name: "", meta: {} };
+  };
+
+  // Helper function to find exact matching option using metadata
+  const findExactOption = (options, normalizedValue) => {
+    const { name, meta } = normalizedValue;
+    if (!name) return null;
+
+    // If no metadata, find first match (backward compatibility)
+    if (!meta || Object.keys(meta).length === 0) {
+      const result = options.find((opt) => opt.label === name);
+      return result;
+    }
+
+    // Find exact match using metadata
+    const candidates = options.filter((opt) => opt.label === name);
+    if (candidates.length === 0) {
+      return null;
+    }
+    if (candidates.length === 1) {
+      return candidates[0];
+    }
+
+    // Multiple candidates with same name - use metadata to disambiguate
+    const exactMatch = candidates.find((opt) => {
+      // Match based on type flags - treat undefined as false for comparison
+      const normalizeFlag = (flag) => !!flag;
+      if (
+        meta.isVariable !== undefined &&
+        normalizeFlag(opt.isVariable) !== normalizeFlag(meta.isVariable)
+      )
+        return false;
+      if (
+        meta.isListVariable !== undefined &&
+        normalizeFlag(opt.isListVariable) !== normalizeFlag(meta.isListVariable)
+      )
+        return false;
+      if (
+        meta.isSwitchCase !== undefined &&
+        normalizeFlag(opt.isSwitchCase) !== normalizeFlag(meta.isSwitchCase)
+      )
+        return false;
+      if (
+        meta.isSchemaField !== undefined &&
+        normalizeFlag(opt.isSchemaField) !== normalizeFlag(meta.isSchemaField)
+      )
+        return false;
+      // Match based on type if specified
+      if (meta.type !== undefined && opt.type !== meta.type) return false;
+      return true;
+    });
+
+    // Fall back to first match if no exact match found
+    return exactMatch || candidates[0];
+  };
+
+  // Helper function to create metadata object from an option
+  const createMetadata = (option) => {
+    if (!option) return {};
+    return {
+      isVariable: option.isVariable || false,
+      isListVariable: option.isListVariable || false,
+      isSwitchCase: option.isSwitchCase || false,
+      isSchemaField: option.isSchemaField || false,
+      type: option.type,
+    };
+  };
+
   // Helper function to get operator display label
   const getOperatorDisplayLabel = (operator) => {
     return mongoOperatorLabels[operator] || operator;
@@ -295,22 +379,36 @@ const AutocompleteFields = ({
             if (value && typeof value === "object" && value.type === "array") {
               return null; // Don't show in autocomplete dropdown, let chip handle display
             }
-            // Handle regular options
+            // Handle regular options using exact matching
+            const normalized = normalizeValue(value);
+            const exactOption = findExactOption(options, normalized);
             return (
-              options.find((opt) => opt.label === value) ||
-              (value ? { label: value } : null)
+              exactOption ||
+              (normalized.name ? { label: normalized.name } : null)
             );
           })()}
-          onChange={(_, newValue) =>
-            onChange &&
-            onChange(
-              newValue
-                ? typeof newValue === "string"
-                  ? newValue
-                  : newValue.label
-                : "",
-            )
-          }
+          onChange={(_, newValue) => {
+            if (!onChange) return;
+
+            if (!newValue) {
+              onChange("");
+              return;
+            }
+
+            // If it's a string, pass it as-is (shouldn't happen with Autocomplete)
+            if (typeof newValue === "string") {
+              onChange(newValue);
+              return;
+            }
+
+            // If it's an option object, pass back object with name and metadata
+            const metadata = createMetadata(newValue);
+            const resultObject = {
+              name: newValue.label,
+              _meta: metadata,
+            };
+            onChange(resultObject);
+          }}
           onInputChange={(_, newInputValue, reason) => {
             if (reason === "input" || reason === "clear") {
               setSearchInput(newInputValue || "");
@@ -318,27 +416,28 @@ const AutocompleteFields = ({
             }
           }}
           renderInput={(params) => {
-            const variableOption = options.find(
-              (opt) => opt.label === value && opt.isVariable,
-            );
-            const fieldOption = options.find(
-              (opt) =>
-                opt.label === value &&
-                !opt.isVariable &&
-                !opt.isListVariable &&
-                !opt.isSwitchCase,
-            );
-            const listOption = options.find(
-              (opt) => opt.label === value && opt.type === "array",
-            );
-            const listVariableOption = options.find(
-              (opt) => opt.label === value && opt.isListVariable,
-            );
-            const switchCaseOption = options.find(
-              (opt) => opt.label === value && opt.isSwitchCase,
-            );
-            const isListCondition =
-              value && typeof value === "object" && value.type === "array";
+            const normalized = normalizeValue(value);
+            const exactOption = findExactOption(options, normalized);
+
+            const variableOption = exactOption?.isVariable ? exactOption : null;
+            const fieldOption =
+              exactOption &&
+              !exactOption.isVariable &&
+              !exactOption.isListVariable &&
+              !exactOption.isSwitchCase
+                ? exactOption
+                : null;
+            const listOption =
+              exactOption?.type === "array" && !exactOption.isListVariable
+                ? exactOption
+                : null;
+            const listVariableOption = exactOption?.isListVariable
+              ? exactOption
+              : null;
+            const switchCaseOption = exactOption?.isSwitchCase
+              ? exactOption
+              : null;
+            const isListCondition = normalized.meta.isListCondition;
             const hasChip =
               variableOption ||
               fieldOption ||
@@ -411,26 +510,26 @@ const AutocompleteFields = ({
         {/* Chip for variable field, clickable to show equation */}
         {(() => {
           // Don't render chips for empty values
-          if (!value || value === "") {
+          const normalized = normalizeValue(value);
+          if (!normalized.name) {
             return null;
           }
 
-          const variableOption = options.find(
-            (opt) => opt.label === value && opt.isVariable,
-          );
-          const fieldOption = options.find(
-            (opt) =>
-              opt.label === value &&
-              !opt.isVariable &&
-              !opt.isListVariable &&
-              !opt.isSwitchCase,
-          );
-          const listVariableOption = options.find(
-            (opt) => opt.label === value && opt.isListVariable,
-          );
-          const switchCaseOption = options.find(
-            (opt) => opt.label === value && opt.isSwitchCase,
-          );
+          const exactOption = findExactOption(options, normalized);
+          const variableOption = exactOption?.isVariable ? exactOption : null;
+          const fieldOption =
+            exactOption &&
+            !exactOption.isVariable &&
+            !exactOption.isListVariable &&
+            !exactOption.isSwitchCase
+              ? exactOption
+              : null;
+          const listVariableOption = exactOption?.isListVariable
+            ? exactOption
+            : null;
+          const switchCaseOption = exactOption?.isSwitchCase
+            ? exactOption
+            : null;
 
           // Check for switch case variable
           if (switchCaseOption) {
@@ -606,9 +705,10 @@ const AutocompleteFields = ({
           }
 
           // Check for array field (used in list conditions)
-          const arrayFieldOption = options.find(
-            (opt) => opt.label === value && opt.type === "array",
-          );
+          const arrayFieldOption =
+            exactOption?.type === "array" && !exactOption.isListVariable
+              ? exactOption
+              : null;
           if (arrayFieldOption) {
             const hasCategory =
               arrayFieldOption.group &&
@@ -823,9 +923,10 @@ const AutocompleteFields = ({
             );
           }
           // Show chip for list/array type options
-          const listOption = (fieldOptions || []).find(
-            (opt) => opt.label === value && opt.type === "array",
-          );
+          const listOption =
+            exactOption?.type === "array" && !exactOption.isListVariable
+              ? exactOption
+              : null;
           if (listOption) {
             const hasCategory =
               listOption.group && listOption.group !== "Other Fields";
@@ -891,11 +992,12 @@ AutocompleteFields.propTypes = {
     PropTypes.string,
     PropTypes.number,
     PropTypes.bool,
+    PropTypes.object, // Supports metadata format: {name: "field", _meta: {...}}
   ]),
   onChange: PropTypes.func.isRequired,
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
-    field: PropTypes.string,
+    field: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
     operator: PropTypes.string,
     value: PropTypes.any,
   }).isRequired,

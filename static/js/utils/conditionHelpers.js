@@ -252,7 +252,21 @@ export const getFieldType = (
     return undefined;
   }
 
-  if (typeof field !== "string") {
+  // Normalize field to handle both string and object formats
+  // New format: {name: "fieldName", _meta: {...}}
+  // Legacy format: "fieldName"
+  let fieldName = field;
+  let fieldMeta = null;
+  if (typeof field === "object" && field !== null) {
+    if (field.name) {
+      fieldName = field.name;
+      fieldMeta = field._meta || null;
+    } else {
+      return undefined;
+    }
+  }
+
+  if (typeof fieldName !== "string") {
     return undefined;
   }
 
@@ -267,12 +281,77 @@ export const getFieldType = (
     ? customSwitchCases
     : [];
 
-  const fieldVar = safeCustomVariables.find((v) => v.name === field);
-  const listVar = safeCustomListVariables.find((lv) => lv.name === field);
-  const switchCase = safeSwitchCases.find((sc) => sc.name === field);
+  // If metadata is present, use it to determine the exact field type (solves name collisions)
+  if (fieldMeta) {
+    if (fieldMeta.isSwitchCase) {
+      const switchCase = safeSwitchCases.find((sc) => sc.name === fieldName);
+      if (switchCase) {
+        const type = inferSwitchCaseType(
+          switchCase.switchCondition,
+          safeCustomVariables,
+          fieldOptionsList,
+          schema,
+          fallbackFieldOptions,
+        );
+        return type;
+      }
+    }
+
+    if (fieldMeta.isListVariable) {
+      const listVar = safeCustomListVariables.find(
+        (lv) => lv.name === fieldName,
+      );
+      if (listVar?.type) {
+        return listVar.type;
+      }
+    }
+
+    if (fieldMeta.isVariable) {
+      const fieldVar = safeCustomVariables.find((v) => v.name === fieldName);
+      if (fieldVar?.type) {
+        return fieldVar.type;
+      }
+      // If it's a custom variable but no type specified, assume number (for arithmetic variables)
+      if (fieldVar) {
+        return "number";
+      }
+    }
+
+    if (fieldMeta.isSchemaField) {
+      const fieldObjList = fieldOptionsList
+        ? fieldOptionsList.find((f) => f.label === fieldName)
+        : null;
+      if (fieldObjList?.type) {
+        return fieldObjList.type;
+      }
+      // Check fallback field options
+      const safeFieldOptions = fallbackFieldOptions || [];
+      const exactMatch = safeFieldOptions.find((f) => f.label === fieldName);
+      if (exactMatch?.type) {
+        return exactMatch.type;
+      }
+    }
+  }
+
+  // Fallback: legacy precedence-based lookup (may be incorrect if names collide)
+  const fieldVar = safeCustomVariables.find((v) => v.name === fieldName);
+  const listVar = safeCustomListVariables.find((lv) => lv.name === fieldName);
+  const switchCase = safeSwitchCases.find((sc) => sc.name === fieldName);
   const fieldObjList = fieldOptionsList
-    ? fieldOptionsList.find((f) => f.label === field)
+    ? fieldOptionsList.find((f) => f.label === fieldName)
     : null;
+
+  const detectedType = fieldVar?.type
+    ? fieldVar.type
+    : fieldVar
+      ? "number"
+      : listVar?.type
+        ? listVar.type
+        : switchCase
+          ? "inferred"
+          : fieldObjList?.type
+            ? fieldObjList.type
+            : "unknown";
 
   if (fieldVar?.type) {
     return fieldVar.type;
@@ -304,12 +383,12 @@ export const getFieldType = (
 
   // Check for exact match first (backward compatibility)
   const safeFieldOptions = fallbackFieldOptions || [];
-  const exactMatch = safeFieldOptions.find((f) => f.label === field);
+  const exactMatch = safeFieldOptions.find((f) => f.label === fieldName);
   if (exactMatch?.type) {
     return exactMatch.type;
   }
   // Handle nested field paths (e.g., "Candidate.isdiffpos", "cross_matches.NED_BetaV3.z")
-  const fieldParts = field?.split(".");
+  const fieldParts = fieldName?.split(".");
 
   if (fieldParts.length >= 2) {
     const rootField = fieldParts[0];
