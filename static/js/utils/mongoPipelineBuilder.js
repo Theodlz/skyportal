@@ -197,6 +197,7 @@ const buildDependencyGraph = (
       switchCases: new Set(),
     },
     customBlockUsage: new Map(), // custom block name -> { count, block }
+    listVariableUsage: new Map(), // list variable name -> { count, variable }
   };
 
   // Initialize all variables in graph
@@ -388,6 +389,18 @@ const analyzeFiltersForUsage = (
           graph.usedFields.switchCases.add(fieldName);
         } else if (meta.isListVariable) {
           graph.usedFields.listVariables.add(fieldName);
+          // Track list variable usage count
+          const listVar = customListVariables.find((v) => v.name === fieldName);
+          if (listVar) {
+            const current = graph.listVariableUsage.get(fieldName) || {
+              count: 0,
+              variable: listVar,
+            };
+            graph.listVariableUsage.set(fieldName, {
+              count: current.count + 1,
+              variable: listVar,
+            });
+          }
         } else if (meta.isVariable) {
           graph.usedFields.customVariables.add(fieldName);
         } else if (meta.isSchemaField) {
@@ -406,6 +419,18 @@ const analyzeFiltersForUsage = (
             graph.usedFields.customVariables.add(fieldName);
           } else if (customListVariables.some((v) => v.name === fieldName)) {
             graph.usedFields.listVariables.add(fieldName);
+            // Track list variable usage count
+            const listVar = customListVariables.find((v) => v.name === fieldName);
+            if (listVar) {
+              const current = graph.listVariableUsage.get(fieldName) || {
+                count: 0,
+                variable: listVar,
+              };
+              graph.listVariableUsage.set(fieldName, {
+                count: current.count + 1,
+                variable: listVar,
+              });
+            }
           } else if (customSwitchCases.some((v) => v.name === fieldName)) {
             graph.usedFields.switchCases.add(fieldName);
           }
@@ -428,6 +453,18 @@ const analyzeFiltersForUsage = (
         // Check if it's a list variable
         else if (customListVariables.some((v) => v.name === fieldName)) {
           graph.usedFields.listVariables.add(fieldName);
+          // Track list variable usage count
+          const listVar = customListVariables.find((v) => v.name === fieldName);
+          if (listVar) {
+            const current = graph.listVariableUsage.get(fieldName) || {
+              count: 0,
+              variable: listVar,
+            };
+            graph.listVariableUsage.set(fieldName, {
+              count: current.count + 1,
+              variable: listVar,
+            });
+          }
         }
         // Check if it's a switch case
         else if (customSwitchCases.some((v) => v.name === fieldName)) {
@@ -453,6 +490,18 @@ const analyzeFiltersForUsage = (
           graph.usedFields.switchCases.add(valueName);
         } else if (meta.isListVariable) {
           graph.usedFields.listVariables.add(valueName);
+          // Track list variable usage count
+          const listVar = customListVariables.find((v) => v.name === valueName);
+          if (listVar) {
+            const current = graph.listVariableUsage.get(valueName) || {
+              count: 0,
+              variable: listVar,
+            };
+            graph.listVariableUsage.set(valueName, {
+              count: current.count + 1,
+              variable: listVar,
+            });
+          }
         } else if (meta.isVariable) {
           graph.usedFields.customVariables.add(valueName);
         } else if (meta.isSchemaField) {
@@ -475,6 +524,18 @@ const analyzeFiltersForUsage = (
             graph.usedFields.customVariables.add(value);
           } else if (customListVariables.some((v) => v.name === value)) {
             graph.usedFields.listVariables.add(value);
+            // Track list variable usage count
+            const listVar = customListVariables.find((v) => v.name === value);
+            if (listVar) {
+              const current = graph.listVariableUsage.get(value) || {
+                count: 0,
+                variable: listVar,
+              };
+              graph.listVariableUsage.set(value, {
+                count: current.count + 1,
+                variable: listVar,
+              });
+            }
           } else if (customSwitchCases.some((v) => v.name === value)) {
             graph.usedFields.switchCases.add(value);
           }
@@ -1182,11 +1243,14 @@ const buildVariableStagesByLevel = (
     }
 
     // Then, build list variables at this level (use $addFields)
-    const levelListVars = customListVariables.filter(
-      (varDef) =>
-        (dependencyGraph.levels.get(varDef.name) || 0) === level &&
-        dependencyGraph.usedFields.listVariables.has(varDef.name),
-    );
+    // Only define list variables that are used 2+ times
+    const levelListVars = customListVariables.filter((varDef) => {
+      const varLevel = dependencyGraph.levels.get(varDef.name) || 0;
+      const isUsed = dependencyGraph.usedFields.listVariables.has(varDef.name);
+      const usage = dependencyGraph.listVariableUsage.get(varDef.name);
+      const usageCount = usage ? usage.count : 0;
+      return varLevel === level && isUsed && usageCount >= 2;
+    });
 
     if (levelListVars.length > 0) {
       const addFields = { $addFields: {} };
@@ -2449,6 +2513,7 @@ const convertBlockToMongoExpr = (
   if (block.type === "condition" || block.category === "condition") {
     return convertConditionToMongoExpr(
       block,
+      dependencyGraph,
       fieldOptions,
       customVariables,
       customListVariables,
@@ -2484,6 +2549,7 @@ const convertBlockToMongoExpr = (
     } else {
       const condition = convertConditionToMongoExpr(
         child,
+        dependencyGraph,
         fieldOptions,
         customVariables,
         customListVariables,
@@ -2533,6 +2599,7 @@ const convertBlockToMongoExpr = (
  */
 const convertConditionToMongoExpr = (
   condition,
+  dependencyGraph,
   fieldOptions,
   customVariables,
   customListVariables,
@@ -2570,6 +2637,7 @@ const convertConditionToMongoExpr = (
             field,
             subFieldOptions,
             condition,
+            dependencyGraph,
           );
         }
         break;
@@ -2639,6 +2707,7 @@ const convertConditionToMongoExpr = (
           field,
           subFieldOptions,
           condition,
+          dependencyGraph,
         );
       }
     }
@@ -2687,6 +2756,7 @@ const convertConditionToMongoExpr = (
       field,
       null,
       condition,
+      dependencyGraph,
     );
   }
 
@@ -2756,6 +2826,7 @@ const convertListVariableCondition = (
   field,
   subFieldOptions,
   condition,
+  dependencyGraph = null,
 ) => {
   let compareValue = parseValueForComparison(
     value,
@@ -2803,6 +2874,67 @@ const convertListVariableCondition = (
     return {};
   }
 
+  // Check if this list variable should be inlined (usage count < 2)
+  const usage = dependencyGraph?.listVariableUsage?.get(listVar.name);
+  const usageCount = usage ? usage.count : 0;
+  const shouldInline = usageCount < 2;
+
+  // If usage count < 2, inline the list variable expression directly
+  if (shouldInline && listVar.listCondition) {
+    const inlinedExpression = generateListVariableExpression(
+      listVar.listCondition,
+      customListVariables,
+      dependencyGraph,
+      fieldOptions,
+      customVariables,
+      [], // customSwitchCases - not needed for inline expressions
+    );
+
+    // For boolean list variables ($anyElementTrue, $allElementTrue), wrap in $expr
+    if (
+      listVar.listCondition.operator === "$anyElementTrue" ||
+      listVar.listCondition.operator === "$allElementTrue"
+    ) {
+      // Handle boolean comparison
+      if (operator === "$eq" || operator === "equals") {
+        if (compareValue === true) {
+          return { $expr: inlinedExpression };
+        } else if (compareValue === false) {
+          return { $expr: { $not: inlinedExpression } };
+        }
+      } else if (operator === "$ne" || operator === "not equals") {
+        if (compareValue === true) {
+          return { $expr: { $not: inlinedExpression } };
+        } else if (compareValue === false) {
+          return { $expr: inlinedExpression };
+        }
+      }
+      // Default to true for boolean variables
+      return { $expr: inlinedExpression };
+    }
+
+    // For non-boolean list variables (e.g., aggregations), wrap the whole comparison in $expr
+    switch (operator) {
+      case "$eq":
+      case "equals":
+        return { $expr: { $eq: [inlinedExpression, compareValue] } };
+      case "$ne":
+      case "not equals":
+        return { $expr: { $ne: [inlinedExpression, compareValue] } };
+      case "$gt":
+        return { $expr: { $gt: [inlinedExpression, compareValue] } };
+      case "$gte":
+        return { $expr: { $gte: [inlinedExpression, compareValue] } };
+      case "$lt":
+        return { $expr: { $lt: [inlinedExpression, compareValue] } };
+      case "$lte":
+        return { $expr: { $lte: [inlinedExpression, compareValue] } };
+      default:
+        return { $expr: { $eq: [inlinedExpression, compareValue] } };
+    }
+  }
+
+  // Otherwise, reference the field name (it should be defined in $addFields)
   switch (operator) {
     case "$eq":
     case "equals":
