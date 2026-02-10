@@ -474,6 +474,7 @@ const ConditionBuilderSection = ({
       ...subWithoutName,
       label: `${selectedArrayField}.${name}`,
       type: getSimpleType(sub.type), // Ensure proper type mapping for operator selection
+      isSchemaField: true, // Mark as schema field for proper metadata routing
     };
   });
 
@@ -832,6 +833,7 @@ const AddListConditionDialog = () => {
                   ...subWithoutName,
                   label: `${dialog.listFieldName}.${name}`,
                   type: getSimpleType(sub.type),
+                  isSchemaField: true, // Mark as schema field for proper metadata routing
                 };
               },
             );

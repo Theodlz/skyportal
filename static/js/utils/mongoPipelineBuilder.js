@@ -2744,6 +2744,7 @@ const convertListVariableCondition = (
     customListVariables,
     fieldOptions,
     null, // arrayField - not in array context for list variables
+    subFieldOptions, // Pass subFieldOptions so subfield references can be resolved
   );
 
   // If value is undefined AND this is a boolean-type variable, check for boolean switch properties
@@ -3033,6 +3034,7 @@ const convertSchemaFieldCondition = (
     customListVariables,
     fieldOptions,
     arrayField,
+    subFieldOptions, // Pass subFieldOptions so subfieldreferences can be resolved
   );
 
   // Type-aware value parsing
@@ -3198,6 +3200,7 @@ const parseValueForComparison = (
   customListVariables,
   fieldOptions,
   arrayField = null,
+  subFieldOptions = null,
 ) => {
   // Handle object with metadata format: {name: "...", _meta: {...}}
   if (value && typeof value === "object" && value._meta && value.name) {
@@ -3273,6 +3276,25 @@ const parseValueForComparison = (
       return `$$this.${fieldReference}`;
     }
     return `$${value}`;
+  }
+
+  // Check subFieldOptions (array element fields) - these are specific to list variable contexts
+  if (subFieldOptions && Array.isArray(subFieldOptions)) {
+    const subFieldRef = subFieldOptions.find(
+      (f) => f.value === value || f.label === value,
+    );
+    if (subFieldRef) {
+      // In array context ($filter/$map), use $$this for subfield references
+      if (arrayField) {
+        // Strip the arrayField prefix from value if present
+        let fieldReference = value;
+        if (value.startsWith(`${arrayField}.`)) {
+          fieldReference = value.substring(arrayField.length + 1);
+        }
+        return `$$this.${fieldReference}`;
+      }
+      return `$${value}`;
+    }
   }
 
   // Check for arithmetic variables - these need to be inlined, not referenced as fields
