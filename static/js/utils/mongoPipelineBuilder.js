@@ -1143,74 +1143,9 @@ const buildVariableStagesByLevel = (
 
   // Start from level 0 to include all variables (including those with no dependencies)
   for (let level = 0; level <= maxLevel; level++) {
-    // Build arithmetic variables at this level if they're used (typically by list variables)
-    // Arithmetic variables are usually inlined, but when used in list variable contexts,
-    // they need to be materialized as document fields first
-    // IMPORTANT: Skip variables that reference array fields - those can only be used inline
-    const levelArithVars = customVariables.filter(
-      (varDef) =>
-        (dependencyGraph.levels.get(varDef.name) || 0) === level &&
-        dependencyGraph.usedFields.customVariables.has(varDef.name),
-    );
-
-    if (levelArithVars.length > 0) {
-      const addFields = { $addFields: {} };
-
-      levelArithVars.forEach((varDef) => {
-        try {
-          // Check if this variable references any array fields
-          // If so, skip materializing it at document level
-          const deps = dependencyGraph.variables.get(varDef.name) || new Set();
-          const referencesArrayField = Array.from(deps).some((dep) => {
-            // Check if the field itself is an array
-            const fieldDef = fieldOptions.find(
-              (f) => f.value === dep || f.label === dep,
-            );
-            if (fieldDef && fieldDef.type === "array") {
-              return true;
-            }
-
-            // Check if any parent path is an array (e.g., "prv_candidates.jd" -> "prv_candidates")
-            const parts = dep.split(".");
-            for (let i = 1; i < parts.length; i++) {
-              const parentPath = parts.slice(0, i).join(".");
-              const parentDef = fieldOptions.find(
-                (f) => f.value === parentPath || f.label === parentPath,
-              );
-              if (parentDef && parentDef.type === "array") {
-                return true;
-              }
-            }
-
-            return false;
-          });
-
-          // Skip materializing variables that reference array fields
-          // They can only be used inline in appropriate contexts
-          if (referencesArrayField) {
-            return;
-          }
-
-          const expr = convertArithmeticExpression(
-            varDef.variable,
-            customVariables,
-            new Set(),
-          );
-          if (expr) {
-            addFields.$addFields[varDef.name] = expr;
-          }
-        } catch (error) {
-          console.error(
-            `Error converting arithmetic variable ${varDef.name}:`,
-            error,
-          );
-        }
-      });
-
-      if (Object.keys(addFields.$addFields).length > 0) {
-        stages.push(addFields);
-      }
-    }
+    // NOTE: Arithmetic variables are ALWAYS inlined, never materialized in $addFields
+    // This ensures full recursive expansion of nested variable references
+    // Skip arithmetic variable materialization entirely
 
     // Build switch variables at this level (use $addFields)
     const levelSwitchVars = customSwitchCases.filter(
