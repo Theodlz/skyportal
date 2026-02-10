@@ -2407,9 +2407,15 @@ const getBooleanSwitch = (condition, value) => {
               ? !condition.not
               : condition.negate !== undefined
                 ? !condition.negate
-                : true;
+                : true; // Default to true for boolean variables
   }
 
+  // Check for explicit booleanSwitch property on condition
+  if (condition && condition.booleanSwitch !== undefined) {
+    return condition.booleanSwitch;
+  }
+
+  // Default to true for boolean variables (backwards compatible behavior)
   return true;
 };
 
@@ -2448,7 +2454,7 @@ const generateListVariableExpression = (
           subFieldOptions, // array subFieldOptions
         );
         if (condition && Object.keys(condition).length > 0) {
-          const anyElementExpr = {
+          return {
             $anyElementTrue: {
               $map: {
                 input: { $ifNull: [`$${field}`, []] },
@@ -2456,9 +2462,6 @@ const generateListVariableExpression = (
               },
             },
           };
-          return getBooleanSwitch(condition, value)
-            ? anyElementExpr
-            : { $not: anyElementExpr };
         }
       }
       return { $anyElementTrue: { $ifNull: [`$${field}`, []] } };
@@ -2476,7 +2479,7 @@ const generateListVariableExpression = (
           subFieldOptions, // array subFieldOptions
         );
         if (condition && Object.keys(condition).length > 0) {
-          const allElementExpr = {
+          return {
             $allElementTrue: {
               $map: {
                 input: { $ifNull: [`$${field}`, []] },
@@ -2484,10 +2487,6 @@ const generateListVariableExpression = (
               },
             },
           };
-
-          return getBooleanSwitch(condition, value)
-            ? allElementExpr
-            : { $not: allElementExpr };
         }
       }
       return { $allElementTrue: { $ifNull: [`$${field}`, []] } };
@@ -3029,17 +3028,18 @@ const convertListVariableCondition = (
       compareValue = true;
     } else if (compareValue === "false") {
       compareValue = false;
-    } else if (compareValue === "" || compareValue === undefined) {
-      // Empty string or undefined defaults to true for boolean variables
-      compareValue = true;
     }
+    // If compareValue is already a boolean (from getBooleanSwitch), leave it as-is
   }
 
-  // Skip condition if value is empty or invalid for non-boolean variables
+  // Skip condition if value is null or empty string
+  // For boolean variables, compareValue should be a boolean at this point
   if (
     compareValue === null ||
-    compareValue === undefined ||
-    (typeof compareValue === "string" && compareValue.trim() === "")
+    (typeof compareValue === "string" && compareValue.trim() === "") ||
+    (compareValue === undefined &&
+      listVar?.listCondition?.operator !== "$anyElementTrue" &&
+      listVar?.listCondition?.operator !== "$allElementTrue")
   ) {
     return {};
   }
