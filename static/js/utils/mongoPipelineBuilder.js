@@ -2841,6 +2841,7 @@ const convertConditionToMongoExpr = (
           arrayField,
           subFieldOptions,
           expressionContext,
+          condition,
         );
     }
   }
@@ -2906,6 +2907,7 @@ const convertConditionToMongoExpr = (
         arrayField,
         subFieldOptions,
         expressionContext,
+        condition,
       );
     }
   }
@@ -2957,6 +2959,7 @@ const convertConditionToMongoExpr = (
       arrayField,
       subFieldOptions,
       expressionContext,
+      condition,
     );
   }
 
@@ -2978,6 +2981,7 @@ const convertConditionToMongoExpr = (
     arrayField,
     subFieldOptions,
     expressionContext,
+    condition,
   );
 };
 
@@ -3007,9 +3011,10 @@ const convertListVariableCondition = (
     subFieldOptions, // Pass subFieldOptions so subfield references can be resolved
   );
 
-  // If value is undefined AND this is a boolean-type variable, check for boolean switch properties
+  // If value is undefined or empty string AND this is a boolean-type variable, check for boolean switch properties
   if (
-    compareValue === undefined &&
+    (compareValue === undefined ||
+      (typeof compareValue === "string" && compareValue.trim() === "")) &&
     condition &&
     (listVar?.listCondition?.operator === "$anyElementTrue" ||
       listVar?.listCondition?.operator === "$allElementTrue")
@@ -3034,6 +3039,7 @@ const convertListVariableCondition = (
 
   // Skip condition if value is null or empty string
   // For boolean variables, compareValue should be a boolean at this point
+  // Don't skip if compareValue is a boolean (including false)
   if (
     compareValue === null ||
     (typeof compareValue === "string" && compareValue.trim() === "") ||
@@ -3041,7 +3047,10 @@ const convertListVariableCondition = (
       listVar?.listCondition?.operator !== "$anyElementTrue" &&
       listVar?.listCondition?.operator !== "$allElementTrue")
   ) {
-    return {};
+    // Allow boolean false values through
+    if (typeof compareValue !== "boolean") {
+      return {};
+    }
   }
 
   // Always reference the field name (it should be defined in $addFields)
@@ -3283,6 +3292,7 @@ const convertSchemaFieldCondition = (
   arrayField = null,
   subFieldOptions = null,
   expressionContext = false,
+  condition = null,
 ) => {
   const fieldDef = fieldOptions.find(
     (f) => f.value === field || f.label === field,
@@ -3447,6 +3457,22 @@ const convertSchemaFieldCondition = (
     case "isNumber":
       // $isNumber requires $expr, so we need to wrap it
       return { $expr: { $isNumber: `$${field}` } };
+    case "$anyElementTrue":
+    case "$allElementTrue":
+      // For boolean list variables treated as schema fields, use booleanSwitch to determine comparison value
+      // This happens when list variable fields are referenced without isListVariable flag
+      if (
+        value === undefined ||
+        value === null ||
+        (typeof value === "string" && value.trim() === "")
+      ) {
+        // Get the boolean value from booleanSwitch or default to true
+        const booleanValue = condition
+          ? getBooleanSwitch(condition, value)
+          : true;
+        return { [field]: { $eq: booleanValue } };
+      }
+      return { [field]: { $eq: processedValue } };
     default:
       return { [field]: processedValue };
   }
