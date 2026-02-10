@@ -118,6 +118,11 @@ const AddSwitchDialog = () => {
     if (!normalizedName.trim()) {
       return "Name is required";
     }
+    // Check if name contains invalid characters
+    const invalidChars = /[\s\-+*^\/%= ]/;
+    if (invalidChars.test(normalizedName)) {
+      return "Variable names cannot contain spaces or mathematical operators (-, +, *, ^, /, %, =)";
+    }
     // Check if name already exists in custom switch cases
     const exists = customSwitchCases?.some(
       (v) => v.name === normalizedName.trim(),

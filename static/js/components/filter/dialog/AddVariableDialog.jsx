@@ -865,6 +865,15 @@ const AddVariableDialog = () => {
       return;
     }
 
+    // Check if variable name contains invalid characters
+    const invalidChars = /[\s\-+*^\/%= ]/;
+    if (invalidChars.test(variableName)) {
+      setError(
+        "Variable names cannot contain spaces or mathematical operators (-, +, *, ^, /, %, =)",
+      );
+      return;
+    }
+
     // Check if a list variable with the same name already exists
     if (customListVariables?.some((lv) => lv.name === variableName)) {
       setError(

@@ -692,6 +692,15 @@ const AddListConditionDialog = () => {
       }
     }
 
+    // Check if variable name contains invalid characters
+    const invalidChars = /[\s\-+*^\/%= ]/;
+    if (invalidChars.test(form.conditionName.trim())) {
+      setError(
+        "Variable names cannot contain spaces or mathematical operators (-, +, *, ^, /, %, =)",
+      );
+      return;
+    }
+
     // Check if an arithmetic variable with the same name already exists
     if (customVariables?.some((v) => v.name === form.conditionName.trim())) {
       setError(
