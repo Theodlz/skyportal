@@ -235,6 +235,15 @@ const getDefaultOperatorForType = (outputType, listOperator = null) => {
     return listOperator;
   }
 
+  // For boolean output types with anyElementTrue/allElementsTrue, use the list operator
+  if (
+    outputType === "boolean" &&
+    listOperator &&
+    ["$anyElementTrue", "$allElementsTrue"].includes(listOperator)
+  ) {
+    return listOperator;
+  }
+
   switch (outputType) {
     case "number":
       return "$eq"; // Most common comparison for numbers
@@ -299,6 +308,10 @@ const ListVariableOperator = ({
     // For boolean output types, use boolean operators
     if (outputType === "boolean") {
       const baseOperators = ["$exists", "$isNumber"];
+      // Include the list operator if it's anyElementTrue or allElementsTrue
+      if (["$anyElementTrue", "$allElementsTrue"].includes(listOperator)) {
+        return [listOperator, "$eq", "$ne", ...baseOperators];
+      }
       return ["$eq", "$ne", ...baseOperators];
     }
 
