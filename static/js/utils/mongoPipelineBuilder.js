@@ -649,6 +649,23 @@ const buildListDependencies = (
         );
       }
 
+      // Check for dependencies in $anyElementTrue and $allElementsTrue conditions
+      if (
+        (condition.operator === "$anyElementTrue" ||
+          condition.operator === "$allElementTrue") &&
+        condition.value?.children
+      ) {
+        analyzeBlockForDeps(
+          { children: condition.value.children },
+          deps,
+          customVariables,
+          customListVariables,
+          customSwitchCases,
+          fieldOptions,
+          varDef.name,
+        );
+      }
+
       // Check for subfield dependencies in aggregations
       if (
         ["$min", "$max", "$avg", "$sum"].includes(condition.operator) &&
@@ -1126,8 +1143,42 @@ const buildVariableStagesByLevel = (
 
   // Start from level 0 to include all variables (including those with no dependencies)
   for (let level = 0; level <= maxLevel; level++) {
-    // Note: Arithmetic variables are inlined directly into $expr conditions, so we don't add them here
-    // Only build switch variables at this level (use $addFields)
+    // Build arithmetic variables at this level if they're used (typically by list variables)
+    // Arithmetic variables are usually inlined, but when used in list variable contexts,
+    // they need to be materialized as document fields first
+    const levelArithVars = customVariables.filter(
+      (varDef) =>
+        (dependencyGraph.levels.get(varDef.name) || 0) === level &&
+        dependencyGraph.usedFields.customVariables.has(varDef.name),
+    );
+
+    if (levelArithVars.length > 0) {
+      const addFields = { $addFields: {} };
+
+      levelArithVars.forEach((varDef) => {
+        try {
+          const expr = convertArithmeticExpression(
+            varDef.variable,
+            customVariables,
+            new Set(),
+          );
+          if (expr) {
+            addFields.$addFields[varDef.name] = expr;
+          }
+        } catch (error) {
+          console.error(
+            `Error converting arithmetic variable ${varDef.name}:`,
+            error,
+          );
+        }
+      });
+
+      if (Object.keys(addFields.$addFields).length > 0) {
+        stages.push(addFields);
+      }
+    }
+
+    // Build switch variables at this level (use $addFields)
     const levelSwitchVars = customSwitchCases.filter(
       (varDef) =>
         (dependencyGraph.levels.get(varDef.name) || 0) === level &&
