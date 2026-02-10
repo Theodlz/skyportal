@@ -842,6 +842,7 @@ const AddVariableDialog = () => {
     setSpecialConditionDialog({ open: false, blockId: null, equation: "" });
     setVariableName("");
     setExpression("");
+    setError(""); // Clear error on close
   };
 
   const handleCopyPreview = () => {
@@ -862,6 +863,12 @@ const AddVariableDialog = () => {
 
     if (!variableName.trim() || !expression.trim()) {
       setError("Please enter both a variable name and an expression");
+      return;
+    }
+
+    // Check if variable name starts with a number
+    if (/^[0-9]/.test(variableName)) {
+      setError("Variable names cannot start with a number");
       return;
     }
 

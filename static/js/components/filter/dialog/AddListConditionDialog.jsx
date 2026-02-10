@@ -645,6 +645,7 @@ const AddListConditionDialog = () => {
     dialog.resetDialog();
     // Reset $map state
     setMapFields([{ fieldName: "", expression: "" }]);
+    setError(""); // Clear error on close
   };
 
   const handleFieldSelection = (fieldLabel) => {
@@ -690,6 +691,12 @@ const AddListConditionDialog = () => {
         );
         return;
       }
+    }
+
+    // Check if variable name starts with a number
+    if (/^[0-9]/.test(form.conditionName.trim())) {
+      setError("Variable names cannot start with a number");
+      return;
     }
 
     // Check if variable name contains invalid characters

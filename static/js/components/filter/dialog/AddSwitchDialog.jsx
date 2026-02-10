@@ -109,6 +109,9 @@ const AddSwitchDialog = () => {
       setSwitchCases([{ id: uuidv4(), block: defaultBlock(), then: "" }]);
       setDefaultValue("");
       setCollapsedCases(new Set());
+    } else {
+      // Clear error when dialog closes
+      setNameError("");
     }
   }, [switchDialog.open]);
 
@@ -117,6 +120,10 @@ const AddSwitchDialog = () => {
     const normalizedName = normalizeFieldValue(name);
     if (!normalizedName.trim()) {
       return "Name is required";
+    }
+    // Check if name starts with a number
+    if (/^[0-9]/.test(normalizedName)) {
+      return "Variable names cannot start with a number";
     }
     // Check if name contains invalid characters
     const invalidChars = /[\s\-+*^\/%= ]/;
