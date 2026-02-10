@@ -1337,6 +1337,7 @@ const buildVariableStagesByLevel = (
 ) => {
   const stages = [];
   const maxLevel = Math.max(...Array.from(dependencyGraph.levels.values()), 0);
+  const materializedListVars = new Set(); // Track which list variables are actually materialized
 
   // Start from level 0 to include all variables (including those with no dependencies)
   for (let level = 0; level <= maxLevel; level++) {
@@ -1379,16 +1380,11 @@ const buildVariableStagesByLevel = (
     }
 
     // Then, build list variables at this level (use $addFields)
-    // Define list variables that are used 2+ times OR must be materialized (referenced as $varName)
+    // Always define list variables at their level, regardless of usage count
     const levelListVars = customListVariables.filter((varDef) => {
       const varLevel = dependencyGraph.levels.get(varDef.name) || 0;
       const isUsed = dependencyGraph.usedFields.listVariables.has(varDef.name);
-      const usage = dependencyGraph.listVariableUsage.get(varDef.name);
-      const usageCount = usage ? usage.count : 0;
-      const mustMaterialize = usage ? usage.mustMaterialize : false;
-      return (
-        varLevel === level && isUsed && (usageCount >= 2 || mustMaterialize)
-      );
+      return varLevel === level && isUsed;
     });
 
     if (levelListVars.length > 0) {
@@ -1403,11 +1399,16 @@ const buildVariableStagesByLevel = (
           customVariables,
           customSwitchCases,
         );
+        // Track that this list variable was materialized
+        materializedListVars.add(varDef.name);
       });
 
       stages.push(addFields);
     }
   }
+
+  // Store materialized list variables in the dependency graph for later use
+  dependencyGraph.materializedListVars = materializedListVars;
 
   return stages;
 };
@@ -1867,8 +1868,14 @@ const buildFinalProjectStage = (
   //   project[varName] = 1;
   // });
 
+  // Only project list variables that were actually materialized
+  const materializedListVars =
+    dependencyGraph.materializedListVars || new Set();
   dependencyGraph.usedFields.listVariables.forEach((varName) => {
-    project[varName] = 1;
+    // Only include in project if it was actually defined in an $addFields stage
+    if (materializedListVars.has(varName)) {
+      project[varName] = 1;
+    }
   });
 
   dependencyGraph.usedFields.switchCases.forEach((varName) => {
@@ -3037,67 +3044,7 @@ const convertListVariableCondition = (
     return {};
   }
 
-  // Check if this list variable should be inlined (usage count < 2)
-  const usage = dependencyGraph?.listVariableUsage?.get(listVar.name);
-  const usageCount = usage ? usage.count : 0;
-  const shouldInline = usageCount < 2;
-
-  // If usage count < 2, inline the list variable expression directly
-  if (shouldInline && listVar.listCondition) {
-    const inlinedExpression = generateListVariableExpression(
-      listVar.listCondition,
-      customListVariables,
-      dependencyGraph,
-      fieldOptions,
-      customVariables,
-      [], // customSwitchCases - not needed for inline expressions
-    );
-
-    // For boolean list variables ($anyElementTrue, $allElementTrue), wrap in $expr
-    if (
-      listVar.listCondition.operator === "$anyElementTrue" ||
-      listVar.listCondition.operator === "$allElementTrue"
-    ) {
-      // Handle boolean comparison
-      if (operator === "$eq" || operator === "equals") {
-        if (compareValue === true) {
-          return { $expr: inlinedExpression };
-        } else if (compareValue === false) {
-          return { $expr: { $not: inlinedExpression } };
-        }
-      } else if (operator === "$ne" || operator === "not equals") {
-        if (compareValue === true) {
-          return { $expr: { $not: inlinedExpression } };
-        } else if (compareValue === false) {
-          return { $expr: inlinedExpression };
-        }
-      }
-      // Default to true for boolean variables
-      return { $expr: inlinedExpression };
-    }
-
-    // For non-boolean list variables (e.g., aggregations), wrap the whole comparison in $expr
-    switch (operator) {
-      case "$eq":
-      case "equals":
-        return { $expr: { $eq: [inlinedExpression, compareValue] } };
-      case "$ne":
-      case "not equals":
-        return { $expr: { $ne: [inlinedExpression, compareValue] } };
-      case "$gt":
-        return { $expr: { $gt: [inlinedExpression, compareValue] } };
-      case "$gte":
-        return { $expr: { $gte: [inlinedExpression, compareValue] } };
-      case "$lt":
-        return { $expr: { $lt: [inlinedExpression, compareValue] } };
-      case "$lte":
-        return { $expr: { $lte: [inlinedExpression, compareValue] } };
-      default:
-        return { $expr: { $eq: [inlinedExpression, compareValue] } };
-    }
-  }
-
-  // Otherwise, reference the field name (it should be defined in $addFields)
+  // Always reference the field name (it should be defined in $addFields)
   switch (operator) {
     case "$eq":
     case "equals":
