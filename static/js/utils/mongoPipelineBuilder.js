@@ -197,7 +197,7 @@ const buildDependencyGraph = (
       switchCases: new Set(),
     },
     customBlockUsage: new Map(), // custom block name -> { count, block }
-    listVariableUsage: new Map(), // list variable name -> { count, variable }
+    listVariableUsage: new Map(), // list variable name -> { count, variable, mustMaterialize }
   };
 
   // Initialize all variables in graph
@@ -276,8 +276,23 @@ const markDependenciesAsUsed = (
       if (graph.variables.has(dep)) {
         if (customVariables.some((v) => v.name === dep)) {
           graph.usedFields.customVariables.add(dep);
-        } else if (customListVariables.some((v) => v.name === dep)) {
+        } else if (customListVariables.some((lv) => lv.name === dep)) {
           graph.usedFields.listVariables.add(dep);
+          // If this is a list variable dependency, ensure it's tracked for usage
+          const listVar = customListVariables.find((lv) => lv.name === dep);
+          if (listVar) {
+            const current = graph.listVariableUsage.get(dep) || {
+              count: 0,
+              variable: listVar,
+              mustMaterialize: false,
+            };
+            // Mark as must materialize because it's a dependency
+            graph.listVariableUsage.set(dep, {
+              count: Math.max(current.count, 1),
+              variable: listVar,
+              mustMaterialize: true,
+            });
+          }
         } else if (customSwitchCases.some((v) => v.name === dep)) {
           graph.usedFields.switchCases.add(dep);
         }
@@ -395,10 +410,12 @@ const analyzeFiltersForUsage = (
             const current = graph.listVariableUsage.get(fieldName) || {
               count: 0,
               variable: listVar,
+              mustMaterialize: false,
             };
             graph.listVariableUsage.set(fieldName, {
               count: current.count + 1,
               variable: listVar,
+              mustMaterialize: current.mustMaterialize,
             });
           }
         } else if (meta.isVariable) {
@@ -420,15 +437,19 @@ const analyzeFiltersForUsage = (
           } else if (customListVariables.some((v) => v.name === fieldName)) {
             graph.usedFields.listVariables.add(fieldName);
             // Track list variable usage count
-            const listVar = customListVariables.find((v) => v.name === fieldName);
+            const listVar = customListVariables.find(
+              (v) => v.name === fieldName,
+            );
             if (listVar) {
               const current = graph.listVariableUsage.get(fieldName) || {
                 count: 0,
                 variable: listVar,
+                mustMaterialize: false,
               };
               graph.listVariableUsage.set(fieldName, {
                 count: current.count + 1,
                 variable: listVar,
+                mustMaterialize: current.mustMaterialize,
               });
             }
           } else if (customSwitchCases.some((v) => v.name === fieldName)) {
@@ -459,10 +480,12 @@ const analyzeFiltersForUsage = (
             const current = graph.listVariableUsage.get(fieldName) || {
               count: 0,
               variable: listVar,
+              mustMaterialize: false,
             };
             graph.listVariableUsage.set(fieldName, {
               count: current.count + 1,
               variable: listVar,
+              mustMaterialize: current.mustMaterialize,
             });
           }
         }
@@ -496,10 +519,12 @@ const analyzeFiltersForUsage = (
             const current = graph.listVariableUsage.get(valueName) || {
               count: 0,
               variable: listVar,
+              mustMaterialize: false,
             };
             graph.listVariableUsage.set(valueName, {
               count: current.count + 1,
               variable: listVar,
+              mustMaterialize: current.mustMaterialize,
             });
           }
         } else if (meta.isVariable) {
@@ -530,10 +555,12 @@ const analyzeFiltersForUsage = (
               const current = graph.listVariableUsage.get(value) || {
                 count: 0,
                 variable: listVar,
+                mustMaterialize: false,
               };
               graph.listVariableUsage.set(value, {
                 count: current.count + 1,
                 variable: listVar,
+                mustMaterialize: current.mustMaterialize,
               });
             }
           } else if (customSwitchCases.some((v) => v.name === value)) {
@@ -541,6 +568,52 @@ const analyzeFiltersForUsage = (
           }
         }
       }
+    }
+
+    // Scan for variable references in raw MongoDB expressions
+    // This handles cases where filters contain operators like $filter, $map with inline expressions
+    // that reference variables directly (e.g., "$jd_min_prv" in a $subtract expression)
+    if (block.operator && block.value && typeof block.value === "object") {
+      const allVarNames = [];
+      const findVarRefs = (obj) => {
+        if (typeof obj === "string" && obj.startsWith("$")) {
+          const varName = obj.substring(1);
+          // Filter out MongoDB operators and array element references ($$this, $$ROOT, etc.)
+          if (!varName.startsWith("$") && !varName.includes(".")) {
+            allVarNames.push(varName);
+          }
+        } else if (typeof obj === "object" && obj !== null) {
+          Object.values(obj).forEach(findVarRefs);
+        }
+      };
+      findVarRefs(block.value);
+
+      allVarNames.forEach((varName) => {
+        if (customVariables.some((v) => v.name === varName)) {
+          graph.usedFields.customVariables.add(varName);
+        } else if (customListVariables.some((v) => v.name === varName)) {
+          graph.usedFields.listVariables.add(varName);
+          const listVar = customListVariables.find((v) => v.name === varName);
+          if (listVar) {
+            const current = graph.listVariableUsage.get(varName) || {
+              count: 0,
+              variable: listVar,
+              mustMaterialize: false,
+            };
+            graph.listVariableUsage.set(varName, {
+              count: current.count + 1,
+              variable: listVar,
+              mustMaterialize: true, // Field reference in MongoDB expression requires materialization
+            });
+          }
+        } else if (customSwitchCases.some((v) => v.name === varName)) {
+          graph.usedFields.switchCases.add(varName);
+        } else if (
+          fieldOptions.some((f) => f.value === varName || f.label === varName)
+        ) {
+          graph.usedFields.baseFields.add(varName);
+        }
+      });
     }
   };
 
@@ -698,33 +771,96 @@ const buildListDependencies = (
       }
 
       // Check for dependencies in filter conditions
-      if (condition.operator === "$filter" && condition.value?.children) {
-        analyzeBlockForDeps(
-          { children: condition.value.children },
-          deps,
-          customVariables,
-          customListVariables,
-          customSwitchCases,
-          fieldOptions,
-          varDef.name,
-        );
+      if (condition.operator === "$filter" && condition.value) {
+        // If the filter condition has a children structure (block format), analyze it
+        if (condition.value.children) {
+          analyzeBlockForDeps(
+            { children: condition.value.children },
+            deps,
+            customVariables,
+            customListVariables,
+            customSwitchCases,
+            fieldOptions,
+            varDef.name,
+          );
+        }
+
+        // Also scan for direct MongoDB expression references (e.g., raw $gt, $subtract expressions)
+        // This is needed when filter conditions contain raw MongoDB syntax with variable references
+        const allVarNames = [];
+        const findVarRefs = (obj) => {
+          if (typeof obj === "string" && obj.startsWith("$")) {
+            allVarNames.push(obj.substring(1));
+          } else if (typeof obj === "object" && obj !== null) {
+            Object.values(obj).forEach(findVarRefs);
+          }
+        };
+        findVarRefs(condition.value);
+        allVarNames.forEach((varName) => {
+          if (customVariables.some((v) => v.name === varName)) {
+            deps.add(varName);
+          }
+          if (
+            varName !== varDef.name &&
+            customListVariables.some((v) => v.name === varName)
+          ) {
+            deps.add(varName);
+          }
+          if (
+            varName !== varDef.name &&
+            customSwitchCases.some((v) => v.name === varName)
+          ) {
+            deps.add(varName);
+          }
+        });
       }
 
       // Check for dependencies in $anyElementTrue and $allElementsTrue conditions
       if (
         (condition.operator === "$anyElementTrue" ||
           condition.operator === "$allElementTrue") &&
-        condition.value?.children
+        condition.value
       ) {
-        analyzeBlockForDeps(
-          { children: condition.value.children },
-          deps,
-          customVariables,
-          customListVariables,
-          customSwitchCases,
-          fieldOptions,
-          varDef.name,
-        );
+        // If the condition has a children structure (block format), analyze it
+        if (condition.value.children) {
+          analyzeBlockForDeps(
+            { children: condition.value.children },
+            deps,
+            customVariables,
+            customListVariables,
+            customSwitchCases,
+            fieldOptions,
+            varDef.name,
+          );
+        }
+
+        // Also scan for direct MongoDB expression references (e.g., raw $gt, $subtract expressions)
+        const allVarNames = [];
+        const findVarRefs = (obj) => {
+          if (typeof obj === "string" && obj.startsWith("$")) {
+            allVarNames.push(obj.substring(1));
+          } else if (typeof obj === "object" && obj !== null) {
+            Object.values(obj).forEach(findVarRefs);
+          }
+        };
+        findVarRefs(condition.value);
+        allVarNames.forEach((varName) => {
+          if (customVariables.some((v) => v.name === varName)) {
+            deps.add(varName);
+          }
+          if (
+            varName !== varDef.name &&
+            customListVariables.some((v) => v.name === varName)
+          ) {
+            deps.add(varName);
+          }
+          if (
+            varName !== varDef.name &&
+            customSwitchCases.some((v) => v.name === varName)
+          ) {
+            deps.add(varName);
+          }
+        });
       }
 
       // Check for subfield dependencies in aggregations
@@ -1243,13 +1379,16 @@ const buildVariableStagesByLevel = (
     }
 
     // Then, build list variables at this level (use $addFields)
-    // Only define list variables that are used 2+ times
+    // Define list variables that are used 2+ times OR must be materialized (referenced as $varName)
     const levelListVars = customListVariables.filter((varDef) => {
       const varLevel = dependencyGraph.levels.get(varDef.name) || 0;
       const isUsed = dependencyGraph.usedFields.listVariables.has(varDef.name);
       const usage = dependencyGraph.listVariableUsage.get(varDef.name);
       const usageCount = usage ? usage.count : 0;
-      return varLevel === level && isUsed && usageCount >= 2;
+      const mustMaterialize = usage ? usage.mustMaterialize : false;
+      return (
+        varLevel === level && isUsed && (usageCount >= 2 || mustMaterialize)
+      );
     });
 
     if (levelListVars.length > 0) {
@@ -2614,6 +2753,30 @@ const convertConditionToMongoExpr = (
   const fieldType = condition.fieldType;
   const value = condition.value;
   const booleanSwitch = condition.booleanSwitch;
+
+  // Special handling for MongoDB expression operators ($expr, $filter)
+  // These operators wrap raw MongoDB expressions and should pass through as-is
+  if (operator === "$expr" && value && typeof value === "object") {
+    return { $expr: value };
+  }
+  if (operator === "$filter" && value && typeof value === "object") {
+    // For $filter, if there's a field, treat it as the input
+    // The value should contain the filter spec
+    if (field && value.cond) {
+      return {
+        $expr: {
+          $filter: {
+            input: `$${field}`,
+            cond: value.cond,
+          },
+        },
+      };
+    }
+    // If value is already a complete $filter spec, pass it through in $expr
+    if (value.input || value.cond) {
+      return { $expr: value };
+    }
+  }
 
   if (!field || !operator) {
     return {};
