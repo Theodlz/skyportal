@@ -66,7 +66,7 @@ const SaveBlockDialogMenu = () => {
     const saved = await dispatch(
       postElement({
         name: nameValue,
-        data: { block: saveDialog.block, stream },
+        data: { block: saveDialog.block, streams: [stream] },
         elements: "blocks",
       }),
     );

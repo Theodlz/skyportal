@@ -69,9 +69,12 @@ export const useFilterBuilderData = () => {
         const filterByStream = (items) => {
           if (!items) return [];
           if (!currentStream) return items; // Show all variables if no current stream
+          const streamName = currentStream.split(" ")[0];
           return items.filter(
             (item) =>
-              !item.stream || item.stream === currentStream.split(" ")[0], // Compare just the stream name (first part before space)
+              !item.streams ||
+              item.streams.length === 0 ||
+              item.streams.includes(streamName),
           );
         };
 

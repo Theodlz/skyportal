@@ -865,7 +865,11 @@ const AddListConditionDialog = () => {
     const apiResult = await dispatch(
       postElement({
         name: form.conditionName.trim(),
-        data: { listCondition: listCondition, type: "array", stream },
+        data: {
+          listCondition: listCondition,
+          type: "array",
+          streams: [stream],
+        },
         elements: "listVariables",
       }),
     );

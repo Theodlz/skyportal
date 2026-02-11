@@ -913,7 +913,7 @@ const AddVariableDialog = () => {
         data: {
           variable: eq,
           type: "number",
-          stream,
+          streams: [stream],
         },
         elements: "variables",
       }),

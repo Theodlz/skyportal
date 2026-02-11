@@ -165,41 +165,53 @@ class BoomFilterModulesHandler(BaseHandler):
                 db = client[queryDbName]
                 collection = db[data["elements"]]
                 if data["elements"] == "blocks":
+                    streams = data["data"].get("streams", [])
+                    # Extract stream name (first part before space) from each stream
+                    streams = [s.split(" ")[0] for s in streams] if streams else []
                     result = collection.insert_one(
                         {
                             "name": name,
                             "block": data["data"]["block"],
-                            "stream": data["data"]["stream"].split(" ")[0],
+                            "streams": streams,
                             "created_at": datetime.utcnow(),
                         }
                     )
                 elif data["elements"] == "variables":
+                    streams = data["data"].get("streams", [])
+                    # Extract stream name (first part before space) from each stream
+                    streams = [s.split(" ")[0] for s in streams] if streams else []
                     result = collection.insert_one(
                         {
                             "name": name,
                             "variable": data["data"]["variable"],
                             "type": data["data"]["type"],
-                            "stream": data["data"]["stream"].split(" ")[0],
+                            "streams": streams,
                             "created_at": datetime.utcnow(),
                         }
                     )
                 elif data["elements"] == "listVariables":
+                    streams = data["data"].get("streams", [])
+                    # Extract stream name (first part before space) from each stream
+                    streams = [s.split(" ")[0] for s in streams] if streams else []
                     result = collection.insert_one(
                         {
                             "name": name,
                             "listCondition": data["data"]["listCondition"],
                             "type": data["data"]["type"],
-                            "stream": data["data"]["stream"].split(" ")[0],
+                            "streams": streams,
                             "created_at": datetime.utcnow(),
                         }
                     )
                 elif data["elements"] == "switchCases":
+                    streams = data["data"].get("streams", [])
+                    # Extract stream name (first part before space) from each stream
+                    streams = [s.split(" ")[0] for s in streams] if streams else []
                     result = collection.insert_one(
                         {
                             "name": name,
                             "switchCondition": data["data"]["switchCondition"],
                             "type": data["data"]["type"],
-                            "stream": data["data"]["stream"].split(" ")[0],
+                            "streams": streams,
                             "created_at": datetime.utcnow(),
                         }
                     )

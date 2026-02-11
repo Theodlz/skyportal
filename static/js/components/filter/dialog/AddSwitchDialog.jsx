@@ -216,7 +216,7 @@ const AddSwitchDialog = () => {
     dispatch(
       postElement({
         name: switchName.trim(),
-        data: { switchCondition, type: "switch_variable", stream },
+        data: { switchCondition, type: "switch_variable", streams: [stream] },
         elements: "switchCases",
       }),
     );
