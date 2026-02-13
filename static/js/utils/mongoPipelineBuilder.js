@@ -3332,43 +3332,45 @@ const convertSchemaFieldCondition = (
     typeof processedValue === "object" &&
     !Array.isArray(processedValue);
 
-  // If arrayField is provided, we're in a $filter/$map context and need expression format with $$this
+  // If arrayField is provided, we're in a $filter/$map context and need expression format
   if (arrayField) {
-    // Strip the arrayField prefix from the field name if present
-    // e.g., if field is "prv_candidates.isdiffpos" and arrayField is "prv_candidates"
-    // we want "isdiffpos", not "prv_candidates.isdiffpos"
-    let fieldReference = field;
+    let fieldExpression;
     if (field.startsWith(`${arrayField}.`)) {
-      fieldReference = field.substring(arrayField.length + 1);
+      // Field is a subfield of the array, use $$this
+      const fieldReference = field.substring(arrayField.length + 1);
+      fieldExpression = `$$this.${fieldReference}`;
+    } else {
+      // Field is from the root document, use $field
+      fieldExpression = `$${field}`;
     }
 
     switch (operator) {
       case "$eq":
       case "equals":
-        return { $eq: [`$$this.${fieldReference}`, processedValue] };
+        return { $eq: [fieldExpression, processedValue] };
       case "$ne":
       case "not equals":
-        return { $ne: [`$$this.${fieldReference}`, processedValue] };
+        return { $ne: [fieldExpression, processedValue] };
       case "$gt":
-        return { $gt: [`$$this.${fieldReference}`, processedValue] };
+        return { $gt: [fieldExpression, processedValue] };
       case "$gte":
-        return { $gte: [`$$this.${fieldReference}`, processedValue] };
+        return { $gte: [fieldExpression, processedValue] };
       case "$lt":
-        return { $lt: [`$$this.${fieldReference}`, processedValue] };
+        return { $lt: [fieldExpression, processedValue] };
       case "$lte":
-        return { $lte: [`$$this.${fieldReference}`, processedValue] };
+        return { $lte: [fieldExpression, processedValue] };
       case "$exists":
-        return { $ne: [`$$this.${fieldReference}`, null] };
+        return { $ne: [fieldExpression, null] };
       case "$isNumber":
-        return { $isNumber: `$$this.${fieldReference}` };
+        return { $isNumber: fieldExpression };
       case "$lengthGt":
       case "length >":
-        return { $gt: [{ $size: `$$this.${fieldReference}` }, processedValue] };
+        return { $gt: [{ $size: fieldExpression }, processedValue] };
       case "$lengthLt":
       case "length <":
-        return { $lt: [{ $size: `$$this.${fieldReference}` }, processedValue] };
+        return { $lt: [{ $size: fieldExpression }, processedValue] };
       default:
-        return { $eq: [`$$this.${fieldReference}`, processedValue] };
+        return { $eq: [fieldExpression, processedValue] };
     }
   }
 
@@ -3527,14 +3529,16 @@ const parseValueForComparison = (
     }
 
     if (meta.isSchemaField) {
-      // In array context ($filter/$map), use $$this for field references
+      // In array context ($filter/$map), use $$this for subfields of the array, $ for others
       if (arrayField) {
-        // Strip the arrayField prefix from valueName if present
-        let fieldReference = valueName;
         if (valueName.startsWith(`${arrayField}.`)) {
-          fieldReference = valueName.substring(arrayField.length + 1);
+          // Field is a subfield of the array, use $$this
+          const fieldReference = valueName.substring(arrayField.length + 1);
+          return `$$this.${fieldReference}`;
+        } else {
+          // Field is from the root document, use $field
+          return `$${valueName}`;
         }
-        return `$$this.${fieldReference}`;
       }
       return `$${valueName}`;
     }
@@ -3554,14 +3558,16 @@ const parseValueForComparison = (
     (f) => f.value === value || f.label === value,
   );
   if (fieldRef) {
-    // In array context ($filter/$map), use $$this for field references
+    // In array context ($filter/$map), use $$this for subfields of the array, $ for others
     if (arrayField) {
-      // Strip the arrayField prefix from value if present
-      let fieldReference = value;
       if (value.startsWith(`${arrayField}.`)) {
-        fieldReference = value.substring(arrayField.length + 1);
+        // Field is a subfield of the array, use $$this
+        const fieldReference = value.substring(arrayField.length + 1);
+        return `$$this.${fieldReference}`;
+      } else {
+        // Field is from the root document, use $field
+        return `$${value}`;
       }
-      return `$$this.${fieldReference}`;
     }
     return `$${value}`;
   }
@@ -3572,14 +3578,16 @@ const parseValueForComparison = (
       (f) => f.value === value || f.label === value,
     );
     if (subFieldRef) {
-      // In array context ($filter/$map), use $$this for subfield references
+      // In array context ($filter/$map), use $$this for subfields of the array, $ for others
       if (arrayField) {
-        // Strip the arrayField prefix from value if present
-        let fieldReference = value;
         if (value.startsWith(`${arrayField}.`)) {
-          fieldReference = value.substring(arrayField.length + 1);
+          // Field is a subfield of the array, use $$this
+          const fieldReference = value.substring(arrayField.length + 1);
+          return `$$this.${fieldReference}`;
+        } else {
+          // Field is from the root document, use $field
+          return `$${value}`;
         }
-        return `$$this.${fieldReference}`;
       }
       return `$${value}`;
     }
