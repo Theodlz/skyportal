@@ -298,7 +298,7 @@ const markDependenciesAsUsed = (
         }
         markDeps(dep); // Recursively mark dependencies
       } else {
-        // It's a schema field
+        // It's a schema field - mark it as used since this variable is used
         graph.usedFields.baseFields.add(dep);
       }
     }
@@ -671,9 +671,9 @@ const buildArithmeticDependencies = (
         // Only add if it's a schema field and not already added as a variable
         if (isSchemaField && !isVariable) {
           deps.add(extractedField);
-          // IMPORTANT: Also mark this field as used so it gets projected
-          // This ensures the field is available for the arithmetic calculation
-          graph.usedFields.baseFields.add(extractedField);
+          // NOTE: Don't mark field as used here - only mark fields as used if the variable
+          // that references them is actually used in filter conditions
+          // graph.usedFields.baseFields.add(extractedField);
         }
       });
     }
@@ -1871,13 +1871,18 @@ const buildFinalProjectStage = (
   // Only project list variables that were actually materialized
   const materializedListVars =
     dependencyGraph.materializedListVars || new Set();
+  const listVarsToProject = [];
   dependencyGraph.usedFields.listVariables.forEach((varName) => {
     // Only include in project if it was actually defined in an $addFields stage
     if (materializedListVars.has(varName)) {
       project[varName] = 1;
+      listVarsToProject.push(varName);
     }
   });
 
+  const switchCasesToProject = Array.from(
+    dependencyGraph.usedFields.switchCases,
+  );
   dependencyGraph.usedFields.switchCases.forEach((varName) => {
     project[varName] = 1;
   });
@@ -1891,6 +1896,7 @@ const buildFinalProjectStage = (
   // This handles cases where additionalFieldsToProject might conflict with already projected fields
   const allProjectedFields = Object.keys(project);
   const filteredProject = {};
+  const removedParentFields = [];
 
   allProjectedFields.forEach((field) => {
     // Check if any other projected field is a child of this field
@@ -1901,6 +1907,8 @@ const buildFinalProjectStage = (
     // Only add this field if it doesn't have children being projected
     if (!hasChildProjected) {
       filteredProject[field] = project[field];
+    } else {
+      removedParentFields.push(field);
     }
   });
 
