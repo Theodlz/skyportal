@@ -653,20 +653,20 @@ export function getArrayFieldSubOptions(arrayFieldLabel, schema) {
               });
             } else if (fieldType.type === "array") {
               result.push({
-                label: fieldPath,
+                label: `${arrayFieldLabel}.${fieldPath}`,
                 type: "array",
                 group: catalogGroupName, // Add group for catalog subfields
               });
             } else {
               result.push({
-                label: fieldPath,
+                label: `${arrayFieldLabel}.${fieldPath}`,
                 type: getAvroFieldType(fieldType.type),
                 group: catalogGroupName, // Add group for catalog subfields
               });
             }
           } else {
             result.push({
-              label: fieldPath,
+              label: `${arrayFieldLabel}.${fieldPath}`,
               type: getAvroFieldType(fieldType),
               group: catalogGroupName, // Add group for catalog subfields
             });
