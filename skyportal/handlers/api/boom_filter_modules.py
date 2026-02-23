@@ -118,6 +118,7 @@ def boom_available(func):
 
 class BoomFilterModulesHandler(BaseHandler):
     @auth_or_token
+    @boom_available
     def get(self, name=None):
         elements = self.get_query_argument("elements")
 
@@ -154,6 +155,7 @@ class BoomFilterModulesHandler(BaseHandler):
         return self.success(data={str(elements): result})
 
     @auth_or_token
+    @boom_available
     def post(self, name):
         # Handle POST requests for boom filter modules
         data = self.get_json()
@@ -224,6 +226,7 @@ class BoomFilterModulesHandler(BaseHandler):
         return self.success()
 
     @auth_or_token
+    @boom_available
     def put(self, name):
         # Handle PUT requests for updating boom filter modules
         data = self.get_json()
