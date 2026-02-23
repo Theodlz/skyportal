@@ -1555,17 +1555,6 @@ default_gcn_tag:
 #   - xml:
 #       file: ../skyportal/tests/data/quakeml.xml
 
-<<<<<<< HEAD
-# shifts:
-#   - group_id: =program_A
-#     start_date: "2022-03-18 8:00:00"
-#     end_date: "2022-03-18 14:00:00"
-#     name: "the Night Shift"
-#     shift_admins:
-#       - =testadmin
-#     required_users_number: 6
-#     =id: nightshift
-=======
 shifts:
   - group_id: =program_A
     start_date: "2022-03-18 08:00:00"
@@ -1575,7 +1564,6 @@ shifts:
       - =testadmin
     required_users_number: 6
     =id: nightshift
->>>>>>> 5788379fd4f6bb1e97e43bd1bd12080cedf9ac9e
 
 #   - group_id: =program_B
 #     start_date: "2018-01-15 20:00:00"
