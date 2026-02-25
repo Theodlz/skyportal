@@ -70,6 +70,7 @@ const normalizeValue = (value) => {
  * @param {Array} customListVariables - List variables
  * @param {Array} customSwitchCases - Switch cases
  * @param {Array} additionalFieldsToProject - Extra fields to project
+ * @param {Boolean} annotationMode - If true, only project mandatory fields and additionalFieldsToProject
  * @returns {Array} MongoDB aggregation pipeline
  */
 export const buildMongoAggregationPipeline = (
@@ -80,11 +81,12 @@ export const buildMongoAggregationPipeline = (
   customListVariables = [],
   customSwitchCases = [],
   additionalFieldsToProject = [],
+  annotationMode = false,
 ) => {
   try {
     const pipeline = [];
 
-    // Step 1: Analyze dependencies
+    // Analyze dependencies
     const dependencyGraph = buildDependencyGraph(
       filters,
       customVariables,
@@ -93,10 +95,24 @@ export const buildMongoAggregationPipeline = (
       fieldOptions,
     );
 
-    // Step 2: Determine pipeline stages needed
+    // In annotation mode, mark source fields as used so they're available for $field references
+    if (annotationMode && additionalFieldsToProject.length > 0) {
+      additionalFieldsToProject.forEach((field) => {
+        const isVariable =
+          customVariables.some((v) => v.name === field) ||
+          customListVariables.some((v) => v.name === field) ||
+          customSwitchCases.some((v) => v.name === field);
+
+        if (!isVariable) {
+          dependencyGraph.usedFields.baseFields.add(field);
+        }
+      });
+    }
+
+    // Determine pipeline stages needed
     const stages = determineRequiredStages(dependencyGraph);
 
-    // Step 3: Extract early match conditions (simple filters on base fields) - FIRST!
+    // Extract early match conditions (simple filters on base fields)
     const { earlyMatch, remainingFilters } = extractEarlyMatchConditions(
       filters,
       fieldOptions,
@@ -105,12 +121,12 @@ export const buildMongoAggregationPipeline = (
       customSwitchCases,
     );
 
-    // Step 3a: Insert early $match stage FIRST if we have simple conditions
+    // Insert early $match stage if we have simple conditions
     if (earlyMatch && Object.keys(earlyMatch).length > 0) {
       pipeline.push({ $match: earlyMatch });
     }
 
-    // Step 4: Build initial project stage for base variables
+    // Build initial project stage for base variables
     if (stages.needsInitialProject) {
       const initialProject = buildInitialProjectStage(
         dependencyGraph,
@@ -125,7 +141,7 @@ export const buildMongoAggregationPipeline = (
       }
     }
 
-    // Step 5: Build stages for variables in dependency order (by level)
+    // Build stages for variables in dependency order
     const variableStages = buildVariableStagesByLevel(
       dependencyGraph,
       customVariables,
@@ -135,7 +151,7 @@ export const buildMongoAggregationPipeline = (
     );
     pipeline.push(...variableStages);
 
-    // Step 6: Build custom block definitions (only for blocks used 2+ times)
+    // Build custom block definitions (only for blocks used 2+ times)
     const customBlockStage = buildCustomBlockStage(
       dependencyGraph,
       schema,
@@ -148,7 +164,7 @@ export const buildMongoAggregationPipeline = (
       pipeline.push(customBlockStage);
     }
 
-    // Step 7: Build match stages for remaining filters (lookup-dependent)
+    // Build match stages for remaining filters
     const matchStages = buildMatchStages(
       remainingFilters,
       dependencyGraph,
@@ -160,11 +176,12 @@ export const buildMongoAggregationPipeline = (
     );
     pipeline.push(...matchStages);
 
-    // Step 7: Build final project stage
+    // Build final project stage
     const finalProject = buildFinalProjectStage(
       dependencyGraph,
       additionalFieldsToProject,
       fieldOptions,
+      annotationMode,
     );
     if (finalProject) {
       pipeline.push(finalProject);
@@ -1840,75 +1857,67 @@ const buildMatchStages = (
 
 /**
  * Builds the final project stage
+ *
+ * Annotation mode behavior:
+ * - When annotations exist: Project mandatory fields + annotation fields.
+ *   Annotation fields are available in final stage for use by higher-level code.
+ * - Without annotations: Project mandatory fields + all used fields and variables.
  */
 const buildFinalProjectStage = (
   dependencyGraph,
   additionalFieldsToProject,
   fieldOptions,
+  annotationMode = false,
 ) => {
-  const project = { objectId: 1, "candidate.jd": 1 }; // Always include objectId and candidate.jd for reference
+  const hasAnnotations = annotationMode && additionalFieldsToProject.length > 0;
+  const project = { objectId: 1, "candidate.jd": 1 };
 
-  // Add all used fields
-  // Filter out redundant child paths when parent is already projected (e.g., exclude "prv_candidates.isdiffpos" if "prv_candidates" is projected)
-  const baseFieldsArray = Array.from(dependencyGraph.usedFields.baseFields);
-  const fieldsToProject = baseFieldsArray.filter((field) => {
-    // Check if any other field is a parent of this field
-    // A parent would be a prefix followed by a dot (e.g., "prv_candidates" is parent of "prv_candidates.isdiffpos")
-    return !baseFieldsArray.some((otherField) => {
-      return otherField !== field && field.startsWith(`${otherField}.`);
+  if (!hasAnnotations) {
+    // Non-annotation mode: project all used fields and variables
+
+    // Add used base fields, filtering out child paths when parent is projected
+    const baseFieldsArray = Array.from(dependencyGraph.usedFields.baseFields);
+    const fieldsToProject = baseFieldsArray.filter((field) => {
+      return !baseFieldsArray.some((otherField) => {
+        return otherField !== field && field.startsWith(`${otherField}.`);
+      });
     });
-  });
 
-  fieldsToProject.forEach((field) => {
-    project[field] = 1;
-  });
+    fieldsToProject.forEach((field) => {
+      project[field] = 1;
+    });
 
-  // Note: Arithmetic variables are inlined, so they don't exist as document fields and shouldn't be projected
-  // dependencyGraph.usedFields.customVariables.forEach(varName => {
-  //   project[varName] = 1;
-  // });
+    // Project materialized list variables
+    const materializedListVars =
+      dependencyGraph.materializedListVars || new Set();
+    dependencyGraph.usedFields.listVariables.forEach((varName) => {
+      if (materializedListVars.has(varName)) {
+        project[varName] = 1;
+      }
+    });
 
-  // Only project list variables that were actually materialized
-  const materializedListVars =
-    dependencyGraph.materializedListVars || new Set();
-  const listVarsToProject = [];
-  dependencyGraph.usedFields.listVariables.forEach((varName) => {
-    // Only include in project if it was actually defined in an $addFields stage
-    if (materializedListVars.has(varName)) {
+    // Project switch cases
+    dependencyGraph.usedFields.switchCases.forEach((varName) => {
       project[varName] = 1;
-      listVarsToProject.push(varName);
-    }
-  });
+    });
 
-  const switchCasesToProject = Array.from(
-    dependencyGraph.usedFields.switchCases,
-  );
-  dependencyGraph.usedFields.switchCases.forEach((varName) => {
-    project[varName] = 1;
-  });
+    // Add additional fields
+    additionalFieldsToProject.forEach((field) => {
+      project[field] = 1;
+    });
+  }
 
-  // Add additional fields
-  additionalFieldsToProject.forEach((field) => {
-    project[field] = 1;
-  });
-
-  // Final pass: Remove parent paths if any of their children are in the project
-  // This handles cases where additionalFieldsToProject might conflict with already projected fields
+  // Remove parent paths if their children are in the project
   const allProjectedFields = Object.keys(project);
   const filteredProject = {};
-  const removedParentFields = [];
 
   allProjectedFields.forEach((field) => {
-    // Check if any other projected field is a child of this field
     const hasChildProjected = allProjectedFields.some((otherField) => {
       return otherField !== field && otherField.startsWith(`${field}.`);
     });
 
-    // Only add this field if it doesn't have children being projected
     if (!hasChildProjected) {
       filteredProject[field] = project[field];
-    } else {
-      removedParentFields.push(field);
     }
   });
 
@@ -1917,8 +1926,9 @@ const buildFinalProjectStage = (
 
 /**
  * Converts arithmetic expression to MongoDB expression with variable inlining
+ * @export
  */
-const convertArithmeticExpression = (
+export const convertArithmeticExpression = (
   variableDefinition,
   customVariables = [],
   processedVars = new Set(),
@@ -3786,6 +3796,7 @@ export function convertToMongoAggregation(
   customListVariables = [],
   customSwitchCases = [],
   additionalFieldsToProject = [],
+  annotationMode = false,
 ) {
   return buildMongoAggregationPipeline(
     filters,
@@ -3795,6 +3806,7 @@ export function convertToMongoAggregation(
     customListVariables,
     customSwitchCases,
     additionalFieldsToProject,
+    annotationMode,
   );
 }
 

@@ -43,6 +43,11 @@ const FilterBuilderContent = ({
     setHasBeenModified,
     // Get the factory function for creating default conditions
     createDefaultCondition,
+    // Get annotations and projection fields for saving/loading
+    annotations,
+    setAnnotations,
+    projectionFields,
+    setProjectionFields,
   } = useFilterBuilder();
   const navigate = useNavigate();
   const dispatch = useDispatch();
@@ -54,19 +59,6 @@ const FilterBuilderContent = ({
 
   const [schema, setSchema] = useState(null);
   const [fieldOptions, setFieldOptions] = useState([]);
-
-  // Helper function to create an empty filter with a default empty condition
-  const createEmptyFilterWithDefaultCondition = useCallback(
-    () => [
-      {
-        id: "root-block",
-        category: "block",
-        operator: "and",
-        children: [createDefaultCondition()],
-      },
-    ],
-    [createDefaultCondition],
-  );
 
   // Helper function to recursively collect all block IDs (excluding root blocks)
   const collectAllBlockIds = useCallback((blocks, isRoot = true) => {
@@ -90,7 +82,20 @@ const FilterBuilderContent = ({
     });
 
     return blockIds;
-  }, []);
+  }, []); // Empty dependency array since this function doesn't depend on any props or state
+
+  // Helper function to create an empty filter with a default empty condition
+  const createEmptyFilterWithDefaultCondition = useCallback(
+    () => [
+      {
+        id: "root-block",
+        category: "block",
+        operator: "and",
+        children: [createDefaultCondition()],
+      },
+    ],
+    [createDefaultCondition],
+  );
 
   // Initialize local filter data when filter prop changes
   useEffect(() => {
@@ -99,6 +104,22 @@ const FilterBuilderContent = ({
       return;
     }
 
+    // Helper to collapse all blocks after loading filter data
+    const collapseAllBlocks = (filterData) => {
+      if (setCollapsedBlocks && filterData) {
+        const allBlockIds = collectAllBlockIds(filterData);
+        if (allBlockIds.length > 0) {
+          setCollapsedBlocks((prev) => {
+            const newCollapsed = { ...prev };
+            allBlockIds.forEach((id) => {
+              newCollapsed[id] = true;
+            });
+            return newCollapsed;
+          });
+        }
+      }
+    };
+
     // First, check if we have filter data in the expected structure
     if (filter && filter.filters && filter.active_fid) {
       // This seems to be the original working structure
@@ -106,22 +127,42 @@ const FilterBuilderContent = ({
         (version) => version.fid === filter.active_fid,
       );
 
-      if (
-        activeFilters.length > 0 &&
-        activeFilters[0].version &&
-        activeFilters[0].version[0]
-      ) {
-        // Convert the original structure to editable format
-        // Extract the actual filter blocks from version[0]
-        const editableData = activeFilters.map(
-          (filterVersion) => filterVersion.version[0],
-        );
+      if (activeFilters.length > 0 && activeFilters[0].version) {
+        const versionData = activeFilters[0].version;
 
-        setLocalFilterData(editableData);
-        if (setFilters) {
-          setFilters(editableData);
+        // Check if version data contains both filters and annotations (new format)
+        if (versionData.filters && versionData.annotations !== undefined) {
+          setLocalFilterData(versionData.filters);
+          if (setFilters) {
+            setFilters(versionData.filters);
+          }
+          // Restore annotations if they exist
+          if (versionData.annotations && setAnnotations) {
+            setAnnotations(versionData.annotations);
+          }
+          // Restore projection fields if they exist
+          if (versionData.projectionFields && setProjectionFields) {
+            setProjectionFields(versionData.projectionFields);
+          }
+          // Collapse blocks after loading
+          collapseAllBlocks(versionData.filters);
+          return;
         }
-        return;
+
+        // Fallback: handle old format where version[0] contains filter data
+        if (Array.isArray(versionData) && versionData[0]) {
+          // Convert the original structure to editable format
+          // Extract the actual filter blocks from version[0]
+          const editableData = versionData;
+
+          setLocalFilterData(editableData);
+          if (setFilters) {
+            setFilters(editableData);
+          }
+          // Collapse blocks after loading
+          collapseAllBlocks(editableData);
+          return;
+        }
       }
     }
 
@@ -138,6 +179,8 @@ const FilterBuilderContent = ({
           if (setFilters && pipelineData) {
             setFilters(pipelineData);
           }
+          // Collapse blocks after loading
+          collapseAllBlocks(pipelineData);
         } catch (error) {
           console.error("Error parsing pipeline data:", error);
           const emptyFilter = createEmptyFilterWithDefaultCondition();
@@ -165,26 +208,6 @@ const FilterBuilderContent = ({
     setFilters,
     hasBeenModified,
     createEmptyFilterWithDefaultCondition,
-  ]);
-
-  // Set all blocks as collapsed by default when filter data changes
-  useEffect(() => {
-    // Only collapse blocks when we have filter data and it's not been modified by user
-    if (localFilterData && !hasBeenModified && setCollapsedBlocks) {
-      const allBlockIds = collectAllBlockIds(localFilterData);
-      if (allBlockIds.length > 0) {
-        setCollapsedBlocks((prev) => {
-          const newCollapsed = { ...prev };
-          allBlockIds.forEach((id) => {
-            newCollapsed[id] = true;
-          });
-          return newCollapsed;
-        });
-      }
-    }
-  }, [
-    localFilterData,
-    hasBeenModified,
     setCollapsedBlocks,
     collectAllBlockIds,
   ]);
@@ -298,8 +321,19 @@ const FilterBuilderContent = ({
       // Use the current local filter data (which includes user modifications)
       const currentFilters =
         localFilterData || contextFilters || filtersToRender;
+
+      // Get current annotations from context
+      const currentAnnotations = annotations || [];
+
+      // Combine filters and annotations in the version data
+      const versionData = {
+        filters: currentFilters,
+        annotations: currentAnnotations,
+        projectionFields: projectionFields || [],
+      };
+
       const result = await dispatch(
-        updateGroupFilter(filter.id, mongoQuery, currentFilters, filter_v.name),
+        updateGroupFilter(filter.id, mongoQuery, versionData, filter_v.name),
       );
       dispatch(showNotification("Filter saved to boom database!"));
       if (result.status === "success") {

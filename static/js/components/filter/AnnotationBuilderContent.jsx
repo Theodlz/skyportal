@@ -1159,27 +1159,6 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
             ))}
           </Box>
         )}
-
-        {/* Projection Preview */}
-        {projectionFields.length > 0 && (
-          <Box sx={{ mt: 3, p: 2, bgcolor: "grey.50", borderRadius: 1 }}>
-            <Typography variant="subtitle2" sx={{ mb: 1 }}>
-              Generated $project Stage:
-            </Typography>
-            <Typography
-              component="pre"
-              variant="body2"
-              sx={{
-                fontFamily: "monospace",
-                fontSize: "0.75rem",
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-              }}
-            >
-              {JSON.stringify(generateProjectionStage(), null, 2)}
-            </Typography>
-          </Box>
-        )}
       </Paper>
 
       {/* Dialogs - Removed to prevent duplicates when both FilterBuilderContent and AnnotationBuilderContent are mounted */}

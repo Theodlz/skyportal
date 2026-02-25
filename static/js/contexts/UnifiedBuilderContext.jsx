@@ -8,6 +8,7 @@ import {
   convertToMongoAggregation,
   formatMongoAggregation,
   isValidPipeline,
+  convertArithmeticExpression,
 } from "../utils/mongoPipelineBuilder";
 import { flattenFieldOptions } from "../constants/filterConstants";
 
@@ -113,10 +114,21 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
 
   // MongoDB aggregation conversion
   const generateMongoQuery = () => {
+    // Determine if we're in annotation mode (projections exist)
+    const hasAnnotations = projectionFields && projectionFields.length > 0;
+
     // Collect field names from annotation fields that need to be available
+    // BUT exclude arithmetic variables (they'll be inlined in annotations)
     const annotationFields = projectionFields
       ? projectionFields
           .filter((f) => f.fieldName && f.fieldName !== "objectId")
+          .filter((f) => {
+            // Exclude arithmetic variables - they'll be inlined
+            const isArithmeticVar = customVariables.some(
+              (v) => v.name === f.fieldName,
+            );
+            return !isArithmeticVar;
+          })
           .map((f) => f.fieldName)
       : [];
 
@@ -130,10 +142,11 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
       customListVariables,
       customSwitchCases,
       annotationFields, // Pass annotation fields so switch cases can be projected
+      hasAnnotations, // Pass annotation mode flag
     );
 
     // If there are projection fields (annotations), adapt the final project stage
-    if (projectionFields && projectionFields.length > 0) {
+    if (hasAnnotations) {
       // Get the last stage (which is always a $project stage now)
       const lastStageIndex = baseQuery.length - 1;
       const lastStage = baseQuery[lastStageIndex];
@@ -154,21 +167,72 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
           if (!field.fieldName || field.fieldName === "objectId") return;
           const outputName = field.outputName || field.fieldName;
 
+          // Check if this field is an arithmetic variable
+          const arithVar = customVariables.find(
+            (v) => v.name === field.fieldName,
+          );
+
           // Handle different projection types
           switch (field.type) {
             case "include":
-              annotations_object[outputName] = `$${field.fieldName}`;
+              if (arithVar) {
+                // Inline the arithmetic expression instead of referencing it
+                const expr = convertArithmeticExpression(
+                  arithVar.variable,
+                  customVariables,
+                );
+                if (expr) {
+                  annotations_object[outputName] = expr;
+                } else {
+                  // Fallback to reference if conversion fails
+                  annotations_object[outputName] = `$${field.fieldName}`;
+                }
+              } else {
+                annotations_object[outputName] = `$${field.fieldName}`;
+              }
               break;
             case "exclude":
               annotations_object[outputName] = 0;
               break;
             case "round":
-              annotations_object[outputName] = {
-                $round: [`$${field.fieldName}`, field.roundDecimals || 4],
-              };
+              if (arithVar) {
+                // Inline the arithmetic expression and wrap in $round
+                const expr = convertArithmeticExpression(
+                  arithVar.variable,
+                  customVariables,
+                );
+                if (expr) {
+                  annotations_object[outputName] = {
+                    $round: [expr, field.roundDecimals || 4],
+                  };
+                } else {
+                  // Fallback to reference if conversion fails
+                  annotations_object[outputName] = {
+                    $round: [`$${field.fieldName}`, field.roundDecimals || 4],
+                  };
+                }
+              } else {
+                annotations_object[outputName] = {
+                  $round: [`$${field.fieldName}`, field.roundDecimals || 4],
+                };
+              }
               break;
             default:
-              annotations_object[outputName] = `$${field.fieldName}`;
+              if (arithVar) {
+                // Inline the arithmetic expression instead of referencing it
+                const expr = convertArithmeticExpression(
+                  arithVar.variable,
+                  customVariables,
+                );
+                if (expr) {
+                  annotations_object[outputName] = expr;
+                } else {
+                  // Fallback to reference if conversion fails
+                  annotations_object[outputName] = `$${field.fieldName}`;
+                }
+              } else {
+                annotations_object[outputName] = `$${field.fieldName}`;
+              }
           }
         });
 
@@ -202,6 +266,7 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
       customListVariables,
       customSwitchCases,
       [], // No annotation fields for validation
+      false, // Not in annotation mode for validation
     );
     return isValidPipeline(pipeline);
   };
