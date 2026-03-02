@@ -11,15 +11,13 @@ import dustmaps.sfd
 import healpix_alchemy
 import numpy as np
 import requests
-from sqlalchemy import func, select
-from sqlalchemy.orm import column_property
 import sqlalchemy as sa
 from astropy import coordinates as ap_coord
 from astropy import units as u
 from dustmaps.config import config
-from sqlalchemy import event
+from sqlalchemy import event, func, select
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import column_property, relationship
 
 from baselayer.app.env import load_env
 from baselayer.app.models import (
@@ -770,12 +768,14 @@ def delete_obj_thumbnails_from_disk(mapper, connection, target):
             except (FileNotFoundError, OSError) as e:
                 log(f"Error deleting thumbnail file {thumb.file_uri}: {e}")
 
+
 class MetaObj(Base):
     """While we can have multiple Obj entries for the same astrophysical
     object (e.g., from different surveys), we may want to link them
     together as being the same object. This table represents such
     'meta-objects' that can be linked to multiple Objs.
     """
+
     __tablename__ = "meta_objs"
     name = sa.Column(
         sa.String,
@@ -787,18 +787,13 @@ class MetaObj(Base):
         default=False,
         doc="Boolean indicating whether the meta-object is a moving object.",
     )
-    objs = relationship(
-        "ObjToMetaObj",
-        secondary="obj_to_meta_obj",
-        cascade="delete",
-        passive_deletes=True,
-        doc="Links to Objs associated with this MetaObj.",
-    )
+
 
 class ObjToMetaObj(Base):
     """Association table linking Objs and MetaObjs in a many-to-many relationship
     (i.e., a MetaObj can have multiple Objs, and each Obj can link to multiple MetaObjs).
     """
+
     __tablename__ = "obj_to_meta_obj"
     obj_id = sa.Column(
         sa.String,
@@ -813,31 +808,38 @@ class ObjToMetaObj(Base):
         doc="ID of the associated MetaObj.",
     )
 
-# # Let's now add the reverse relationship to Obj
-# Obj.meta_objects = relationship(
-#     "ObjToMetaObj",
-#     back_populates="obj",
-#     cascade="delete",
-#     passive_deletes=True,
-#     doc="Links to MetaObjs associated with this Obj.",
-# )
 
-MetaObj.obj_ids = column_property(select(func.array_agg(ObjToMetaObj.obj_id)).where(
-    ObjToMetaObj.meta_obj_id == MetaObj.id
-).scalar_subquery(), deferred=True)
+MetaObj.objs = relationship(
+    "Obj",
+    secondary=ObjToMetaObj.__table__,
+    cascade="delete",
+    passive_deletes=True,
+    doc="Obj entries associated with this MetaObj.",
+)
+
+MetaObj.obj_ids = column_property(
+    select(func.array_agg(ObjToMetaObj.obj_id))
+    .where(ObjToMetaObj.meta_obj_id == MetaObj.id)
+    .scalar_subquery(),
+    deferred=True,
+)
 
 # add a similar thing to Obj model, to get the object ids, of all linked MetaObjs
-Obj.meta_obj_ids = column_property(select(func.array_agg(ObjToMetaObj.meta_obj_id)).where(
-    ObjToMetaObj.obj_id == Obj.id
-).scalar_subquery(), deferred=True)
+Obj.meta_obj_ids = column_property(
+    select(func.array_agg(ObjToMetaObj.meta_obj_id))
+    .where(ObjToMetaObj.obj_id == Obj.id)
+    .scalar_subquery(),
+    deferred=True,
+)
 
 Obj.associated_obj_ids = column_property(
     select(func.array_agg(ObjToMetaObj.obj_id))
-    .where(ObjToMetaObj.meta_obj_id.in_(
-        select(ObjToMetaObj.meta_obj_id).where(ObjToMetaObj.obj_id == Obj.id)
-    ))
+    .where(
+        ObjToMetaObj.meta_obj_id.in_(
+            select(ObjToMetaObj.meta_obj_id).where(ObjToMetaObj.obj_id == Obj.id)
+        )
+    )
     .correlate_except(ObjToMetaObj)
     .scalar_subquery(),
-    deferred=True
+    deferred=True,
 )
-
