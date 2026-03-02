@@ -64,6 +64,11 @@ streams:
       collection: ZTF_alerts
       selector: [1, 2, 3]
     =id: ztf_caltech
+  - name: LSST
+    altdata:
+      collection: LSST_alerts
+      selector: [1]
+    =id: lsst
 
 streams/=ztf_public/users:
   - user_id: =viewonlyuser
@@ -81,11 +86,19 @@ streams/=ztf_caltech/users:
   - user_id: =groupadmin
   - user_id: =testadmin
 
+streams/=lsst/users:
+  - user_id: =viewonlyuser
+  - user_id: =fulluser
+  - user_id: =groupadmin
+  - user_id: =testadmin
+
 groups/=program_A/streams:
   - stream_id: =ztf_partnership
+  - stream_id: =lsst
 
 groups/=program_B/streams:
   - stream_id: =ztf_public
+  - stream_id: =lsst
 
 filters:
   - name: Yellow transients
@@ -98,6 +111,13 @@ filters:
     altdata:
       origin: boom
     =id: example_filter2
+  - name: LSST w/ ZTF
+    group_id: =program_A
+    stream_id: =lsst
+    altdata:
+      boom:
+        filter_id: "5663d5dc-86b5-445e-815d-6767ad12795c"
+    =id: lsst_filter
 
 mmadetector:
   - name: LIGO Hanford Observatory
