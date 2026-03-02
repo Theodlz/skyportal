@@ -111,13 +111,13 @@ filters:
     altdata:
       origin: boom
     =id: example_filter2
-  # - name: LSST filter
-  #   group_id: =program_B
-  #   stream_id: =lsst
-  #   altdata:
-  #     boom:
-  #       filter_id: e3677152-9910-4cf3-8e4a-ff3b968006ae
-  #   =id: example_filter3
+  - name: LSST w/ ZTF
+    group_id: =program_A
+    stream_id: =lsst
+    altdata:
+      boom:
+        filter_id: "5663d5dc-86b5-445e-815d-6767ad12795c"
+    =id: lsst_filter
 
 mmadetector:
   - name: LIGO Hanford Observatory
