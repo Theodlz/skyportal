@@ -1438,7 +1438,7 @@ def get_finding_chart(
             fallback_image_source=fallback_image_source,
             zscale_contrast=zscale_contrast,
             zscale_krej=zscale_krej,
-            extra_display_string="",
+            extra_display_string=extra_display_string,
             **offset_star_kwargs,
         )
         value = finding_charts_cache[cache_key]
