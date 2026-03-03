@@ -3091,6 +3091,13 @@ const convertListVariableCondition = (
       return { [listVar.name]: { $lt: compareValue } };
     case "$lte":
       return { [listVar.name]: { $lte: compareValue } };
+    case "$in":
+      // For $in, ensure compareValue is an array
+      return {
+        [listVar.name]: {
+          $in: Array.isArray(compareValue) ? compareValue : [compareValue],
+        },
+      };
     case "$exists":
       return { [listVar.name]: { $exists: compareValue } };
     case "$lengthGt": {
@@ -3138,6 +3145,14 @@ const convertSwitchVariableCondition = (switchVar, operator, value) => {
       break;
     case "$lte":
       result = { [switchVar.name]: { $lte: compareValue } };
+      break;
+    case "$in":
+      // For $in, ensure compareValue is an array
+      result = {
+        [switchVar.name]: {
+          $in: Array.isArray(compareValue) ? compareValue : [compareValue],
+        },
+      };
       break;
     case "$exists":
       result = { [switchVar.name]: { $exists: compareValue } };
@@ -3249,6 +3264,14 @@ const convertArithmeticVariableCondition = (
           return { $lt: [expr, compareValue] };
         case "$lte":
           return { $lte: [expr, compareValue] };
+        case "$in":
+          // For $in, ensure compareValue is an array
+          return {
+            $in: [
+              expr,
+              Array.isArray(compareValue) ? compareValue : [compareValue],
+            ],
+          };
         default:
           return { $eq: [expr, compareValue] };
       }
@@ -3270,6 +3293,16 @@ const convertArithmeticVariableCondition = (
         return { $expr: { $lt: [expr, compareValue] } };
       case "$lte":
         return { $expr: { $lte: [expr, compareValue] } };
+      case "$in":
+        // For $in with $expr, ensure compareValue is an array
+        return {
+          $expr: {
+            $in: [
+              expr,
+              Array.isArray(compareValue) ? compareValue : [compareValue],
+            ],
+          },
+        };
       default:
         return { $expr: { $eq: [expr, compareValue] } };
     }
@@ -3290,6 +3323,13 @@ const convertArithmeticVariableCondition = (
         return { [arithVar.name]: { $lt: compareValue } };
       case "$lte":
         return { [arithVar.name]: { $lte: compareValue } };
+      case "$in":
+        // For $in fallback, ensure compareValue is an array
+        return {
+          [arithVar.name]: {
+            $in: Array.isArray(compareValue) ? compareValue : [compareValue],
+          },
+        };
       default:
         return { [arithVar.name]: { $eq: compareValue } };
     }
@@ -3377,6 +3417,14 @@ const convertSchemaFieldCondition = (
         return { $lt: [fieldExpression, processedValue] };
       case "$lte":
         return { $lte: [fieldExpression, processedValue] };
+      case "$in":
+        // For $in, processedValue should be an array
+        return {
+          $in: [
+            fieldExpression,
+            Array.isArray(processedValue) ? processedValue : [processedValue],
+          ],
+        };
       case "$exists":
         return { $ne: [fieldExpression, null] };
       case "$isNumber":
@@ -3409,6 +3457,14 @@ const convertSchemaFieldCondition = (
         return { $lt: [`$${field}`, processedValue] };
       case "$lte":
         return { $lte: [`$${field}`, processedValue] };
+      case "$in":
+        // For $in, processedValue should be an array
+        return {
+          $in: [
+            `$${field}`,
+            Array.isArray(processedValue) ? processedValue : [processedValue],
+          ],
+        };
       case "$exists":
         return { $ne: [`$${field}`, null] };
       case "$isNumber":
@@ -3442,6 +3498,16 @@ const convertSchemaFieldCondition = (
         return { $expr: { $lt: [`$${field}`, processedValue] } };
       case "$lte":
         return { $expr: { $lte: [`$${field}`, processedValue] } };
+      case "$in":
+        // For $in with MongoDB expression, use $in inside $expr
+        return {
+          $expr: {
+            $in: [
+              `$${field}`,
+              Array.isArray(processedValue) ? processedValue : [processedValue],
+            ],
+          },
+        };
       case "$exists":
         return { [field]: { $exists: true } };
       default:
@@ -3465,6 +3531,15 @@ const convertSchemaFieldCondition = (
       return { [field]: { $lt: processedValue } };
     case "$lte":
       return { [field]: { $lte: processedValue } };
+    case "$in":
+      // For $in, ensure processedValue is an array
+      return {
+        [field]: {
+          $in: Array.isArray(processedValue)
+            ? processedValue
+            : [processedValue],
+        },
+      };
     case "$lengthGt":
     case "length >":
       return { $expr: { $gt: [{ $size: `$${field}` }, processedValue] } };

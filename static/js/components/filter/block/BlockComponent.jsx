@@ -35,6 +35,7 @@ import OperatorSelector from "../condition/OperatorSelector";
 import ListConditionPopover from "../condition/ListConditionPopover";
 import SwitchCasePopover from "../condition/SwitchCasePopover";
 import ConditionalValueBuilder from "../condition/ConditionalValueBuilder";
+import ChipArrayInput from "../condition/ChipArrayInput";
 import { ConditionProvider } from "../../../contexts/ConditionContext";
 import { useCurrentBuilder } from "../../../hooks/useContexts";
 import { usePopoverRegistry } from "../../../hooks/useDialog";
@@ -935,7 +936,7 @@ const ValueInput = ({
   }
 
   // Skip value input for operators that have special inputs (handled by SpecialOperatorInputs)
-  const operatorsWithSpecialInputs = ["$exists", "$isNumber", "$round"];
+  const operatorsWithSpecialInputs = ["$exists", "$isNumber", "$round", "$in"];
   if (operatorsWithSpecialInputs.includes(conditionOrBlock.operator)) {
     return null;
   }
@@ -2185,6 +2186,18 @@ const SpecialOperatorInputs = ({
   block,
   updateCondition,
 }) => {
+  if (conditionOrBlock.operator === "$in") {
+    return (
+      <ChipArrayInput
+        value={conditionOrBlock.value}
+        onChange={(newValue) =>
+          updateCondition(block.id, conditionOrBlock.id, "value", newValue)
+        }
+        label="Enter values (space or enter to add)"
+      />
+    );
+  }
+
   if (mongoOperatorTypes[conditionOrBlock.operator] === "exists") {
     return (
       <FormControlLabel

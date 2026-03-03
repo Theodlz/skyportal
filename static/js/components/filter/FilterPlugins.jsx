@@ -871,7 +871,6 @@ const FilterPlugins = ({ group }) => {
                                     md: "1rem !important",
                                   },
                                   boxSizing: "border-box !important",
-                                  overflow: "visible !important",
                                 },
                                 "& h2": {
                                   fontSize: {
@@ -885,9 +884,6 @@ const FilterPlugins = ({ group }) => {
                                     xs: "0.75rem !important",
                                     md: "0.875rem !important",
                                   },
-                                },
-                                "& .MuiBox-root": {
-                                  overflow: "visible !important",
                                 },
                               }}
                             >
@@ -919,7 +915,6 @@ const FilterPlugins = ({ group }) => {
                                     md: "1rem !important",
                                   },
                                   boxSizing: "border-box !important",
-                                  overflow: "visible !important",
                                 },
                                 "& h2": {
                                   fontSize: {
@@ -933,9 +928,6 @@ const FilterPlugins = ({ group }) => {
                                     xs: "0.75rem !important",
                                     md: "0.875rem !important",
                                   },
-                                },
-                                "& .MuiBox-root": {
-                                  overflow: "visible !important",
                                 },
                               }}
                             >
