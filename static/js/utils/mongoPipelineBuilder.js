@@ -127,7 +127,13 @@ export const buildMongoAggregationPipeline = (
     }
 
     // Build initial project stage for base variables
-    if (stages.needsInitialProject) {
+    // Skip if we only have early match (no variables to compute)
+    const hasVariablesOrSwitches =
+      dependencyGraph.usedFields.customVariables.size > 0 ||
+      dependencyGraph.usedFields.listVariables.size > 0 ||
+      dependencyGraph.usedFields.switchCases.size > 0;
+
+    if (stages.needsInitialProject && hasVariablesOrSwitches) {
       const initialProject = buildInitialProjectStage(
         dependencyGraph,
         customVariables,
@@ -176,15 +182,32 @@ export const buildMongoAggregationPipeline = (
     );
     pipeline.push(...matchStages);
 
-    // Build final project stage
-    const finalProject = buildFinalProjectStage(
-      dependencyGraph,
-      additionalFieldsToProject,
-      fieldOptions,
-      annotationMode,
-    );
-    if (finalProject) {
-      pipeline.push(finalProject);
+    // Determine if we need a final project stage
+    // Skip if: only early match exists (no variables, no custom blocks, no complex filters)
+    // and not in annotation mode
+    const hasVariableStages = variableStages.length > 0;
+    const hasCustomBlocks = customBlockStage !== null;
+    const hasComplexFilters = remainingFilters.length > 0;
+    const hasOnlyEarlyMatch =
+      earlyMatch &&
+      Object.keys(earlyMatch).length > 0 &&
+      !hasVariableStages &&
+      !hasCustomBlocks &&
+      !hasComplexFilters;
+
+    // Build final project stage only if needed
+    const needsFinalProject = annotationMode || !hasOnlyEarlyMatch;
+
+    if (needsFinalProject) {
+      const finalProject = buildFinalProjectStage(
+        dependencyGraph,
+        additionalFieldsToProject,
+        fieldOptions,
+        annotationMode,
+      );
+      if (finalProject) {
+        pipeline.push(finalProject);
+      }
     }
 
     return pipeline;
