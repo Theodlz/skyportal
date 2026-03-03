@@ -198,6 +198,7 @@ async def get_source(
     include_gcn_crossmatches=False,
     include_gcn_notes=False,
     include_candidates=False,
+    include_meta_objs=False,
     include_tags=False,
 ):
     """Query source from database.
@@ -641,6 +642,28 @@ async def get_source(
             ],
             key=lambda x: x["passed_at"],
             reverse=True,
+        )
+
+    if include_meta_objs:
+        # let's treat them the same way as duplicates, where we grab the ra/dec/separation
+        # info for each associated obj, and sort by separation
+        associated_objs = session.scalars(
+            Obj.select(session.user_or_token).where(
+                Obj.id.in_(list(set(s.associated_obj_ids) - {s.id}))
+            )
+        ).all()
+        source_info["associated_objs"] = [
+            {
+                "obj_id": obj.id,
+                "ra": obj.ra,
+                "dec": obj.dec,
+                "separation": great_circle_distance(s.ra, s.dec, obj.ra, obj.dec)
+                * 3600,
+            }
+            for obj in associated_objs
+        ]
+        source_info["associated_objs"] = sorted(
+            source_info["associated_objs"], key=lambda x: x["separation"]
         )
 
     source_info = recursive_to_dict(source_info)
@@ -1762,6 +1785,7 @@ class SourceHandler(BaseHandler):
         includeGeoJSON = self.get_query_argument("includeGeoJSON", False)
         include_candidates = self.get_query_argument("includeCandidates", False)
         include_tags = self.get_query_argument("includeTags", True)
+        include_meta_objs = self.get_query_argument("includeMetaObjs", True)
 
         # optional, use caching
         use_cache = self.get_query_argument("useCache", False)
@@ -1900,6 +1924,7 @@ class SourceHandler(BaseHandler):
                         include_gcn_notes=include_gcn_notes,
                         include_candidates=include_candidates,
                         include_tags=include_tags,
+                        include_meta_objs=include_meta_objs,
                     )
                 except Exception as e:
                     traceback.print_exc()

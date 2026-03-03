@@ -10,8 +10,8 @@ from baselayer.app.access import auth_or_token, permissions
 from baselayer.app.env import load_env
 from baselayer.log import make_log
 
-from ...models import Filter
-from ..base import BaseHandler
+from ....models import Filter
+from ...base import BaseHandler
 
 log = make_log("app/boom-filter")
 

@@ -2,16 +2,12 @@
 from datetime import datetime, timedelta
 
 import requests
-from marshmallow.exceptions import ValidationError
-from sqlalchemy.orm import joinedload
-from sqlalchemy.orm.attributes import flag_modified
 
-from baselayer.app.access import auth_or_token, permissions
 from baselayer.app.env import load_env
 from baselayer.log import make_log
 
-from ...models import Filter
-from ..base import BaseHandler
+from ....models import Filter
+from ...base import BaseHandler
 
 log = make_log("app/boom-run-filter")
 

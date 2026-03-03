@@ -24,6 +24,7 @@ from baselayer.app.access import auth_or_token, permissions
 from baselayer.app.env import load_env
 from baselayer.app.model_util import recursive_to_dict
 from baselayer.log import make_log
+from skyportal.models.obj import ObjToMetaObj
 
 from ....models import (
     Allocation,
@@ -39,12 +40,14 @@ from ....models import (
     Localization,
     LocalizationTile,
     Obj,
+    ObjToMetaObj,
     Photometry,
     PhotStat,
     Source,
     Spectrum,
 )
 from ....utils.cache import Cache, array_to_bytes
+from ....utils.calculations import great_circle_distance
 from ....utils.parse import get_page_and_n_per_page
 from ....utils.sizeof import SIZE_WARNING_THRESHOLD, sizeof
 from ...base import BaseHandler
@@ -239,6 +242,37 @@ def include_requested_obj_data(
             ],
             obj_id,
             session,
+        )
+
+    if get_query_argument("includeMetaObjs", True):
+        associated_objs = session.scalars(
+            sa.select(Obj).where(
+                Obj.id.in_(
+                    sa.select(ObjToMetaObj.obj_id).where(
+                        ObjToMetaObj.meta_obj_id.in_(
+                            sa.select(ObjToMetaObj.meta_obj_id).where(
+                                ObjToMetaObj.obj_id == Obj.id
+                            )
+                        )
+                    )
+                )
+            )
+        ).all()
+        candidate["associated_objs"] = [
+            {
+                "obj_id": obj.id,
+                "ra": obj.ra,
+                "dec": obj.dec,
+                "separation": great_circle_distance(
+                    candidate["ra"], candidate["dec"], obj.ra, obj.dec
+                )
+                * 3600,  # convert degrees to arcseconds
+            }
+            for obj in associated_objs
+            if obj.id != obj_id
+        ]
+        candidate["associated_objs"] = sorted(
+            candidate["associated_objs"], key=lambda x: x["separation"]
         )
 
     candidate["annotations"] = sorted(
