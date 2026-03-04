@@ -34,7 +34,7 @@ import { showNotification } from "baselayer/components/Notifications";
 import FormValidationError from "../FormValidationError";
 import Button from "../Button";
 
-import * as filterActions from "../../ducks/filter";
+import * as filterActions from "../../ducks/boom_filter";
 import * as groupActions from "../../ducks/group";
 import * as streamsActions from "../../ducks/streams";
 
@@ -89,6 +89,7 @@ const GroupFiltersStreams = ({
         name: data.filter_name,
         group_id: group.id,
         stream_id: data.filter_stream_id,
+        altdata: {},
       }),
     );
     if (result.status === "success") {

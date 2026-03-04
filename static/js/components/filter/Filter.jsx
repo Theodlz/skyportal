@@ -14,7 +14,7 @@ import { showNotification } from "baselayer/components/Notifications";
 import FilterPlugins from "./FilterPlugins";
 
 import * as groupActions from "../../ducks/group";
-import * as filterActions from "../../ducks/filter";
+import * as filterActions from "../../ducks/boom_filter";
 import * as streamActions from "../../ducks/stream";
 
 const useStyles = makeStyles((theme) => ({
@@ -75,11 +75,11 @@ const Filter = () => {
   const [streamLoadError, setStreamLoadError] = useState("");
 
   const { fid } = useParams();
-  const loadedId = useSelector((state) => state.filter.id);
+  const loadedId = useSelector((state) => state.filter_v.id);
 
   useEffect(() => {
     const fetchFilter = async () => {
-      const data = await dispatch(filterActions.fetchFilter(fid));
+      const data = await dispatch(filterActions.fetchFilterVersion(fid));
       if (data.status === "error") {
         setFilterLoadError(data.message);
       }
@@ -89,8 +89,8 @@ const Filter = () => {
     }
   }, [fid, loadedId, dispatch]);
 
-  const group_id = useSelector((state) => state.filter.group_id);
-  const stream_id = useSelector((state) => state.filter.stream_id);
+  const group_id = useSelector((state) => state.filter_v.group_id);
+  const stream_id = useSelector((state) => state.filter_v.stream_id);
 
   useEffect(() => {
     const fetchGroup = async () => {
@@ -118,7 +118,7 @@ const Filter = () => {
     if (stream_id) fetchStream();
   }, [stream_id, dispatch, streamLoadError]);
 
-  const filter = useSelector((state) => state.filter);
+  const filter = useSelector((state) => state.filter_v);
   const group = useSelector((state) => state.group);
   const stream = useSelector((state) => state.stream);
 
@@ -142,7 +142,7 @@ const Filter = () => {
         {filter.name}
       </Typography>
 
-      <Grid container spacing={2}>
+      <Grid container spacing={2} sx={{ overflow: "visible" }}>
         <Grid item sm={12} md={12}>
           <Card className={classes.root}>
             <CardContent>
@@ -162,8 +162,8 @@ const Filter = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item sm={12} md={12}>
-          <FilterPlugins group={group} />
+        <Grid item sm={12} md={12} sx={{ overflow: "visible" }}>
+          {group && <FilterPlugins group={group} />}
         </Grid>
       </Grid>
     </div>
