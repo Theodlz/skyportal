@@ -1532,6 +1532,23 @@ const extractEarlyMatchConditions = (
       filter.children &&
       filter.children.length > 0
     ) {
+      // If this block has isTrue === false, don't unwrap it - keep it intact
+      // It needs special handling in the main match stage
+      if (filter.isTrue === false) {
+        remainingFilters.push(filter);
+        return;
+      }
+
+      // Check if any child has isTrue === false
+      // If so, keep the entire parent block intact to preserve the logical structure
+      const hasInvertedChild = filter.children.some(
+        (child) => child.isTrue === false,
+      );
+      if (hasInvertedChild) {
+        remainingFilters.push(filter);
+        return;
+      }
+
       const simpleChildren = [];
       const complexChildren = [];
       const parentLogic = (filter.logic || "and").toLowerCase();
@@ -1672,6 +1689,12 @@ const isSimpleBlock = (
   customSwitchCases,
 ) => {
   if (!block) return false;
+
+  // Blocks with isTrue === false require special handling ($nor wrapping)
+  // and cannot be extracted to early match stage
+  if (block.isTrue === false) {
+    return false;
+  }
 
   // If it has children, check all children recursively
   if (block.children && block.children.length > 0) {
@@ -2766,13 +2789,20 @@ const convertBlockToMongoExpr = (
     }
   }
 
-  // Handle custom blocks with isTrue === false (inverted logic) - only for inline blocks
-  // If the block is defined as a variable (usage.count >= 2), this is already handled above
-  if (block.customBlockName && block.isTrue === false) {
-    const usage = dependencyGraph?.customBlockUsage?.get(block.customBlockName);
-    // Only apply $nor if this block is NOT defined as a variable (used < 2 times)
-    if (!usage || usage.count < 2) {
-      // Wrap the result in $nor to invert the logic
+  // Handle blocks with isTrue === false (inverted logic)
+  // For custom blocks defined as variables (usage.count >= 2), this is already handled above
+  if (block.isTrue === false) {
+    // For custom blocks, only apply $nor if NOT defined as a variable (used < 2 times)
+    if (block.customBlockName) {
+      const usage = dependencyGraph?.customBlockUsage?.get(
+        block.customBlockName,
+      );
+      if (!usage || usage.count < 2) {
+        // Wrap the result in $nor to invert the logic
+        return { $nor: [result] };
+      }
+    } else {
+      // For non-custom blocks, always apply $nor to invert the logic
       return { $nor: [result] };
     }
   }

@@ -106,7 +106,7 @@ const useBlockState = (block, isRoot) => {
   const isCollapsed = useMemo(() => {
     if (!collapsedBlocks || !block?.id || isRoot) return false;
     return !!collapsedBlocks[block.id];
-  }, [collapsedBlocks, block?.id, isRoot]);
+  }, [collapsedBlocks, block, isRoot]);
 
   return {
     customBlockName,
@@ -996,6 +996,7 @@ ValueInput.propTypes = {
     operator: PropTypes.string,
     value: PropTypes.any,
     field: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
+    createdAt: PropTypes.number,
   }).isRequired,
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
@@ -1004,6 +1005,8 @@ ValueInput.propTypes = {
   setOpenEquationIds: PropTypes.func.isRequired,
   setSelectedChip: PropTypes.func.isRequired,
   setEquationAnchor: PropTypes.func,
+  createDefaultCondition: PropTypes.func.isRequired,
+  createDefaultBlock: PropTypes.func.isRequired,
 };
 
 const shouldSkipValueInput = (conditionOrBlock) => {
@@ -1272,6 +1275,7 @@ ListVariableInput.propTypes = {
     operator: PropTypes.string,
     value: PropTypes.any,
     booleanSwitch: PropTypes.bool,
+    createdAt: PropTypes.number,
   }).isRequired,
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
@@ -1318,18 +1322,6 @@ ConditionalValueInput.propTypes = {
   defaultCondition: PropTypes.func.isRequired,
   defaultBlock: PropTypes.func.isRequired,
   fieldOptionsList: PropTypes.array,
-};
-
-ConditionalValueInput.propTypes = {
-  conditionOrBlock: PropTypes.shape({
-    id: PropTypes.string.isRequired,
-    operator: PropTypes.string,
-    value: PropTypes.any,
-  }).isRequired,
-  block: PropTypes.shape({
-    id: PropTypes.string.isRequired,
-  }).isRequired,
-  updateCondition: PropTypes.func.isRequired,
 };
 
 const RegularValueInput = ({
@@ -1418,6 +1410,7 @@ RegularValueInput.propTypes = {
     id: PropTypes.string.isRequired,
     operator: PropTypes.string,
     value: PropTypes.any,
+    createdAt: PropTypes.number,
   }).isRequired,
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
@@ -2087,7 +2080,7 @@ const BlockHeader = ({
                 fontWeight: 500,
               }}
             >
-              {block?.blockValue !== false ? "True" : "False"}
+              {block?.isTrue !== false ? "True" : "False"}
             </Box>
           </Box>
         )}
@@ -2826,6 +2819,7 @@ ConditionComponentInner.propTypes = {
     operator: PropTypes.string,
     value: PropTypes.any,
     field: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
+    createdAt: PropTypes.number,
   }).isRequired,
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
@@ -2833,9 +2827,11 @@ ConditionComponentInner.propTypes = {
   setFilters: PropTypes.func.isRequired,
   filters: PropTypes.array.isRequired,
   createDefaultCondition: PropTypes.func.isRequired,
+  createDefaultBlock: PropTypes.func.isRequired,
   customVariables: PropTypes.array.isRequired,
   fieldOptionsList: PropTypes.array.isRequired,
   customListVariables: PropTypes.array.isRequired,
+  customSwitchCases: PropTypes.array.isRequired,
   isListDialogOpen: PropTypes.bool,
 };
 
@@ -2971,14 +2967,14 @@ const BlockComponent = ({
     );
   }, [
     blockState.isCollapsed,
-    block?.children,
-    block?.id,
+    block,
     fieldOptionsList,
     isListDialogOpen,
     localFilters,
     setLocalFilters,
     setListConditionDialog,
     stickyBlockId,
+    disableSwitchOption,
   ]);
 
   if (!block?.id) {
