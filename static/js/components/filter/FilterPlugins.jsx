@@ -35,7 +35,7 @@ const FilterPlugins = ({ group }) => {
     if (parseFloat(fid) !== filter?.id) {
       dispatch(filterActions.fetchFilter(fid));
     }
-    // if filterOrigin is already determined, no need to check again
+
     if (filterOrigin || !filter) {
       return;
     }
@@ -43,15 +43,31 @@ const FilterPlugins = ({ group }) => {
     if (filter?.altdata?.boom) {
       setFilterOrigin("boom");
     } else {
-      dispatch(kowalskiFilterActions.fetchFilterVersion(fid)).then(
-        (response) => {
-          if (response.status === "success") {
+      // Check if filter exists in Kowalski (we call the API directy and not via the
+      // Redux action o avoid toast notifications for status codes other than 200)
+      fetch(`/api/kowalski/filters/${fid}/v`)
+        .then((response) => {
+          if (response.status === 200) {
+            console.log(
+              "Filter found in Kowalski, setting filter origin to kowalski",
+            );
             setFilterOrigin("kowalski");
+          } else if (response.status === 404) {
+            console.log(
+              "Filter not found in Kowalski, setting filter origin to boom",
+            );
+            setFilterOrigin("boom");
           } else {
+            console.error(
+              `Unexpected response status ${response.status} when determining filter origin`,
+            );
             setFilterOrigin("boom");
           }
-        },
-      );
+        })
+        .catch(() => {
+          console.error("Error occurred while determining filter origin");
+          setFilterOrigin("unknown");
+        });
     }
   }, [fid, filter]);
 
