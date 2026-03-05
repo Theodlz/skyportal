@@ -35,6 +35,7 @@ import OperatorSelector from "../condition/OperatorSelector";
 import ListConditionPopover from "../condition/ListConditionPopover";
 import SwitchCasePopover from "../condition/SwitchCasePopover";
 import ConditionalValueBuilder from "../condition/ConditionalValueBuilder";
+import ChipArrayInput from "../condition/ChipArrayInput";
 import { ConditionProvider } from "../../../../contexts/ConditionContext";
 import { useCurrentBuilder } from "../../../../hooks/useContexts";
 import { usePopoverRegistry } from "../../../../hooks/useDialog";
@@ -107,7 +108,7 @@ const useBlockState = (block, isRoot) => {
   const isCollapsed = useMemo(() => {
     if (!collapsedBlocks || !block?.id || isRoot) return false;
     return !!collapsedBlocks[block.id];
-  }, [collapsedBlocks, block?.id, isRoot]);
+  }, [collapsedBlocks, block, isRoot]);
 
   return {
     customBlockName,
@@ -937,7 +938,7 @@ const ValueInput = ({
   }
 
   // Skip value input for operators that have special inputs (handled by SpecialOperatorInputs)
-  const operatorsWithSpecialInputs = ["$exists", "$isNumber", "$round"];
+  const operatorsWithSpecialInputs = ["$exists", "$isNumber", "$round", "$in"];
   if (operatorsWithSpecialInputs.includes(conditionOrBlock.operator)) {
     return null;
   }
@@ -997,6 +998,7 @@ ValueInput.propTypes = {
     operator: PropTypes.string,
     value: PropTypes.any,
     field: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
+    createdAt: PropTypes.number,
   }).isRequired,
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
@@ -1279,6 +1281,7 @@ ListVariableInput.propTypes = {
     operator: PropTypes.string,
     value: PropTypes.any,
     booleanSwitch: PropTypes.bool,
+    createdAt: PropTypes.number,
   }).isRequired,
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
@@ -1325,18 +1328,6 @@ ConditionalValueInput.propTypes = {
   defaultCondition: PropTypes.func.isRequired,
   defaultBlock: PropTypes.func.isRequired,
   fieldOptionsList: PropTypes.array,
-};
-
-ConditionalValueInput.propTypes = {
-  conditionOrBlock: PropTypes.shape({
-    id: PropTypes.string.isRequired,
-    operator: PropTypes.string,
-    value: PropTypes.any,
-  }).isRequired,
-  block: PropTypes.shape({
-    id: PropTypes.string.isRequired,
-  }).isRequired,
-  updateCondition: PropTypes.func.isRequired,
 };
 
 const RegularValueInput = ({
@@ -1427,6 +1418,7 @@ RegularValueInput.propTypes = {
     id: PropTypes.string.isRequired,
     operator: PropTypes.string,
     value: PropTypes.any,
+    createdAt: PropTypes.number,
   }).isRequired,
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
@@ -2096,7 +2088,7 @@ const BlockHeader = ({
                 fontWeight: 500,
               }}
             >
-              {block?.blockValue !== false ? "True" : "False"}
+              {block?.isTrue !== false ? "True" : "False"}
             </Box>
           </Box>
         )}
@@ -2195,6 +2187,18 @@ const SpecialOperatorInputs = ({
   block,
   updateCondition,
 }) => {
+  if (conditionOrBlock.operator === "$in") {
+    return (
+      <ChipArrayInput
+        value={conditionOrBlock.value}
+        onChange={(newValue) =>
+          updateCondition(block.id, conditionOrBlock.id, "value", newValue)
+        }
+        label="Enter values (space or enter to add)"
+      />
+    );
+  }
+
   if (mongoOperatorTypes[conditionOrBlock.operator] === "exists") {
     return (
       <FormControlLabel
@@ -2825,6 +2829,7 @@ ConditionComponentInner.propTypes = {
     operator: PropTypes.string,
     value: PropTypes.any,
     field: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
+    createdAt: PropTypes.number,
   }).isRequired,
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
@@ -2832,9 +2837,11 @@ ConditionComponentInner.propTypes = {
   setFilters: PropTypes.func.isRequired,
   filters: PropTypes.array.isRequired,
   createDefaultCondition: PropTypes.func.isRequired,
+  createDefaultBlock: PropTypes.func.isRequired,
   customVariables: PropTypes.array.isRequired,
   fieldOptionsList: PropTypes.array.isRequired,
   customListVariables: PropTypes.array.isRequired,
+  customSwitchCases: PropTypes.array.isRequired,
   isListDialogOpen: PropTypes.bool,
 };
 
@@ -2970,14 +2977,14 @@ const BlockComponent = ({
     );
   }, [
     blockState.isCollapsed,
-    block?.children,
-    block?.id,
+    block,
     fieldOptionsList,
     isListDialogOpen,
     localFilters,
     setLocalFilters,
     setListConditionDialog,
     stickyBlockId,
+    disableSwitchOption,
   ]);
 
   if (!block?.id) {

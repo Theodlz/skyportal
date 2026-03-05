@@ -127,7 +127,13 @@ export const buildMongoAggregationPipeline = (
     }
 
     // Build initial project stage for base variables
-    if (stages.needsInitialProject) {
+    // Skip if we only have early match (no variables to compute)
+    const hasVariablesOrSwitches =
+      dependencyGraph.usedFields.customVariables.size > 0 ||
+      dependencyGraph.usedFields.listVariables.size > 0 ||
+      dependencyGraph.usedFields.switchCases.size > 0;
+
+    if (stages.needsInitialProject && hasVariablesOrSwitches) {
       const initialProject = buildInitialProjectStage(
         dependencyGraph,
         customVariables,
@@ -176,15 +182,32 @@ export const buildMongoAggregationPipeline = (
     );
     pipeline.push(...matchStages);
 
-    // Build final project stage
-    const finalProject = buildFinalProjectStage(
-      dependencyGraph,
-      additionalFieldsToProject,
-      fieldOptions,
-      annotationMode,
-    );
-    if (finalProject) {
-      pipeline.push(finalProject);
+    // Determine if we need a final project stage
+    // Skip if: only early match exists (no variables, no custom blocks, no complex filters)
+    // and not in annotation mode
+    const hasVariableStages = variableStages.length > 0;
+    const hasCustomBlocks = customBlockStage !== null;
+    const hasComplexFilters = remainingFilters.length > 0;
+    const hasOnlyEarlyMatch =
+      earlyMatch &&
+      Object.keys(earlyMatch).length > 0 &&
+      !hasVariableStages &&
+      !hasCustomBlocks &&
+      !hasComplexFilters;
+
+    // Build final project stage only if needed
+    const needsFinalProject = annotationMode || !hasOnlyEarlyMatch;
+
+    if (needsFinalProject) {
+      const finalProject = buildFinalProjectStage(
+        dependencyGraph,
+        additionalFieldsToProject,
+        fieldOptions,
+        annotationMode,
+      );
+      if (finalProject) {
+        pipeline.push(finalProject);
+      }
     }
 
     return pipeline;
@@ -1509,6 +1532,23 @@ const extractEarlyMatchConditions = (
       filter.children &&
       filter.children.length > 0
     ) {
+      // If this block has isTrue === false, don't unwrap it - keep it intact
+      // It needs special handling in the main match stage
+      if (filter.isTrue === false) {
+        remainingFilters.push(filter);
+        return;
+      }
+
+      // Check if any child has isTrue === false
+      // If so, keep the entire parent block intact to preserve the logical structure
+      const hasInvertedChild = filter.children.some(
+        (child) => child.isTrue === false,
+      );
+      if (hasInvertedChild) {
+        remainingFilters.push(filter);
+        return;
+      }
+
       const simpleChildren = [];
       const complexChildren = [];
       const parentLogic = (filter.logic || "and").toLowerCase();
@@ -1649,6 +1689,12 @@ const isSimpleBlock = (
   customSwitchCases,
 ) => {
   if (!block) return false;
+
+  // Blocks with isTrue === false require special handling ($nor wrapping)
+  // and cannot be extracted to early match stage
+  if (block.isTrue === false) {
+    return false;
+  }
 
   // If it has children, check all children recursively
   if (block.children && block.children.length > 0) {
@@ -2743,13 +2789,20 @@ const convertBlockToMongoExpr = (
     }
   }
 
-  // Handle custom blocks with isTrue === false (inverted logic) - only for inline blocks
-  // If the block is defined as a variable (usage.count >= 2), this is already handled above
-  if (block.customBlockName && block.isTrue === false) {
-    const usage = dependencyGraph?.customBlockUsage?.get(block.customBlockName);
-    // Only apply $nor if this block is NOT defined as a variable (used < 2 times)
-    if (!usage || usage.count < 2) {
-      // Wrap the result in $nor to invert the logic
+  // Handle blocks with isTrue === false (inverted logic)
+  // For custom blocks defined as variables (usage.count >= 2), this is already handled above
+  if (block.isTrue === false) {
+    // For custom blocks, only apply $nor if NOT defined as a variable (used < 2 times)
+    if (block.customBlockName) {
+      const usage = dependencyGraph?.customBlockUsage?.get(
+        block.customBlockName,
+      );
+      if (!usage || usage.count < 2) {
+        // Wrap the result in $nor to invert the logic
+        return { $nor: [result] };
+      }
+    } else {
+      // For non-custom blocks, always apply $nor to invert the logic
       return { $nor: [result] };
     }
   }
@@ -3091,6 +3144,13 @@ const convertListVariableCondition = (
       return { [listVar.name]: { $lt: compareValue } };
     case "$lte":
       return { [listVar.name]: { $lte: compareValue } };
+    case "$in":
+      // For $in, ensure compareValue is an array
+      return {
+        [listVar.name]: {
+          $in: Array.isArray(compareValue) ? compareValue : [compareValue],
+        },
+      };
     case "$exists":
       return { [listVar.name]: { $exists: compareValue } };
     case "$lengthGt": {
@@ -3138,6 +3198,14 @@ const convertSwitchVariableCondition = (switchVar, operator, value) => {
       break;
     case "$lte":
       result = { [switchVar.name]: { $lte: compareValue } };
+      break;
+    case "$in":
+      // For $in, ensure compareValue is an array
+      result = {
+        [switchVar.name]: {
+          $in: Array.isArray(compareValue) ? compareValue : [compareValue],
+        },
+      };
       break;
     case "$exists":
       result = { [switchVar.name]: { $exists: compareValue } };
@@ -3249,6 +3317,14 @@ const convertArithmeticVariableCondition = (
           return { $lt: [expr, compareValue] };
         case "$lte":
           return { $lte: [expr, compareValue] };
+        case "$in":
+          // For $in, ensure compareValue is an array
+          return {
+            $in: [
+              expr,
+              Array.isArray(compareValue) ? compareValue : [compareValue],
+            ],
+          };
         default:
           return { $eq: [expr, compareValue] };
       }
@@ -3270,6 +3346,16 @@ const convertArithmeticVariableCondition = (
         return { $expr: { $lt: [expr, compareValue] } };
       case "$lte":
         return { $expr: { $lte: [expr, compareValue] } };
+      case "$in":
+        // For $in with $expr, ensure compareValue is an array
+        return {
+          $expr: {
+            $in: [
+              expr,
+              Array.isArray(compareValue) ? compareValue : [compareValue],
+            ],
+          },
+        };
       default:
         return { $expr: { $eq: [expr, compareValue] } };
     }
@@ -3290,6 +3376,13 @@ const convertArithmeticVariableCondition = (
         return { [arithVar.name]: { $lt: compareValue } };
       case "$lte":
         return { [arithVar.name]: { $lte: compareValue } };
+      case "$in":
+        // For $in fallback, ensure compareValue is an array
+        return {
+          [arithVar.name]: {
+            $in: Array.isArray(compareValue) ? compareValue : [compareValue],
+          },
+        };
       default:
         return { [arithVar.name]: { $eq: compareValue } };
     }
@@ -3377,6 +3470,14 @@ const convertSchemaFieldCondition = (
         return { $lt: [fieldExpression, processedValue] };
       case "$lte":
         return { $lte: [fieldExpression, processedValue] };
+      case "$in":
+        // For $in, processedValue should be an array
+        return {
+          $in: [
+            fieldExpression,
+            Array.isArray(processedValue) ? processedValue : [processedValue],
+          ],
+        };
       case "$exists":
         return { $ne: [fieldExpression, null] };
       case "$isNumber":
@@ -3409,6 +3510,14 @@ const convertSchemaFieldCondition = (
         return { $lt: [`$${field}`, processedValue] };
       case "$lte":
         return { $lte: [`$${field}`, processedValue] };
+      case "$in":
+        // For $in, processedValue should be an array
+        return {
+          $in: [
+            `$${field}`,
+            Array.isArray(processedValue) ? processedValue : [processedValue],
+          ],
+        };
       case "$exists":
         return { $ne: [`$${field}`, null] };
       case "$isNumber":
@@ -3442,6 +3551,16 @@ const convertSchemaFieldCondition = (
         return { $expr: { $lt: [`$${field}`, processedValue] } };
       case "$lte":
         return { $expr: { $lte: [`$${field}`, processedValue] } };
+      case "$in":
+        // For $in with MongoDB expression, use $in inside $expr
+        return {
+          $expr: {
+            $in: [
+              `$${field}`,
+              Array.isArray(processedValue) ? processedValue : [processedValue],
+            ],
+          },
+        };
       case "$exists":
         return { [field]: { $exists: true } };
       default:
@@ -3465,6 +3584,15 @@ const convertSchemaFieldCondition = (
       return { [field]: { $lt: processedValue } };
     case "$lte":
       return { [field]: { $lte: processedValue } };
+    case "$in":
+      // For $in, ensure processedValue is an array
+      return {
+        [field]: {
+          $in: Array.isArray(processedValue)
+            ? processedValue
+            : [processedValue],
+        },
+      };
     case "$lengthGt":
     case "length >":
       return { $expr: { $gt: [{ $size: `$${field}` }, processedValue] } };

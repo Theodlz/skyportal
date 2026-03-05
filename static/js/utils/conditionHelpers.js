@@ -557,11 +557,12 @@ export const getOperatorsForField = (
         "$gte",
         "$lt",
         "$lte",
+        "$in",
         "$round",
         ...baseOperators,
       ];
     case "string":
-      return ["$eq", "$ne", "$regex", "$type", ...baseOperators];
+      return ["$eq", "$ne", "$in", "$regex", "$type", ...baseOperators];
     case "array":
     case "array_variable": // List variables should have the same operators as regular arrays
     case "array_switch": // Switch cases with array outcomes should have the same operators as regular arrays
