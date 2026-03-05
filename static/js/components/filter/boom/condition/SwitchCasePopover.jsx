@@ -128,6 +128,44 @@ const ValueChip = ({
   );
 };
 
+ValueChip.propTypes = {
+  value: PropTypes.any,
+  customVariables: PropTypes.arrayOf(
+    PropTypes.shape({
+      name: PropTypes.string.isRequired,
+      expression: PropTypes.string.isRequired,
+    }),
+  ),
+  customListVariables: PropTypes.arrayOf(
+    PropTypes.shape({
+      name: PropTypes.string.isRequired,
+      expression: PropTypes.string.isRequired,
+    }),
+  ),
+  customSwitchCases: PropTypes.arrayOf(
+    PropTypes.shape({
+      name: PropTypes.string.isRequired,
+      switchCondition: PropTypes.shape({
+        value: PropTypes.shape({
+          cases: PropTypes.arrayOf(
+            PropTypes.shape({
+              block: PropTypes.object,
+              then: PropTypes.any,
+            }),
+          ),
+          default: PropTypes.any,
+        }),
+      }),
+    }),
+  ),
+  fieldOptionsList: PropTypes.arrayOf(
+    PropTypes.shape({
+      label: PropTypes.string.isRequired,
+      value: PropTypes.string.isRequired,
+    }),
+  ).isRequired,
+};
+
 const SwitchCasePopover = ({
   switchPopoverAnchor,
   setSwitchPopoverAnchor,
@@ -383,12 +421,42 @@ const SwitchCasePopover = ({
 };
 
 SwitchCasePopover.propTypes = {
-  switchPopoverAnchor: PropTypes.object,
+  switchPopoverAnchor: PropTypes.any,
   setSwitchPopoverAnchor: PropTypes.func.isRequired,
-  customSwitchCases: PropTypes.array,
-  customVariables: PropTypes.array,
-  customListVariables: PropTypes.array,
-  fieldOptionsList: PropTypes.array.isRequired,
+  customSwitchCases: PropTypes.arrayOf(
+    PropTypes.shape({
+      name: PropTypes.string.isRequired,
+      switchCondition: PropTypes.shape({
+        value: PropTypes.shape({
+          cases: PropTypes.arrayOf(
+            PropTypes.shape({
+              block: PropTypes.object,
+              then: PropTypes.any,
+            }),
+          ),
+          default: PropTypes.any,
+        }),
+      }),
+    }),
+  ).isRequired,
+  customVariables: PropTypes.arrayOf(
+    PropTypes.shape({
+      name: PropTypes.string.isRequired,
+      expression: PropTypes.string.isRequired,
+    }),
+  ),
+  customListVariables: PropTypes.arrayOf(
+    PropTypes.shape({
+      name: PropTypes.string.isRequired,
+      expression: PropTypes.string.isRequired,
+    }),
+  ),
+  fieldOptionsList: PropTypes.arrayOf(
+    PropTypes.shape({
+      label: PropTypes.string.isRequired,
+      value: PropTypes.string.isRequired,
+    }),
+  ).isRequired,
 };
 
 export default SwitchCasePopover;

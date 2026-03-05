@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState } from "react";
+import PropTypes from "prop-types";
 import {
   Popover,
   Button,
@@ -17,9 +18,9 @@ import BlockComponent from "../block/BlockComponent";
 import {
   useCurrentBuilder,
   useFilterBuilder,
-} from "../../../hooks/useContexts";
+} from "../../../../hooks/useContexts";
 import { useDispatch } from "react-redux";
-import { putElement } from "../../../ducks/boom_filter_modules";
+import { putElement } from "../../../../ducks/boom_filter_modules";
 
 // Helper function to normalize field values that may be objects or strings
 // Supports:
@@ -739,7 +740,7 @@ const ListConditionPopover = ({
             <div
               style={{ fontSize: 14, color: "#6b7280", fontStyle: "italic" }}
             >
-              This list condition doesn't have sub-conditions to display.
+              This list condition does not have sub-conditions to display.
             </div>
           )}
         </div>
@@ -788,8 +789,9 @@ const ListConditionPopover = ({
             COUNT({arrayField})
           </div>
           <div style={{ fontSize: 14, color: "#6b7280" }}>
-            This aggregation operation counts the number of elements in the "
-            {arrayField}" array.
+            This aggregation operation counts the number of elements in the
+            &quot;
+            {arrayField}&quot; array.
           </div>
         </div>
       );
@@ -823,8 +825,9 @@ const ListConditionPopover = ({
         </div>
         <div style={{ fontSize: 14, color: "#6b7280" }}>
           This aggregation operation calculates the{" "}
-          {operator.replace("$", "").toLowerCase()} value of the "{subField}"
-          field across all elements in the "{arrayField}" array.
+          {operator.replace("$", "").toLowerCase()} value of the &quot;
+          {subField}&quot; field across all elements in the &quot;{arrayField}
+          &quot; array.
         </div>
       </div>
     );
@@ -949,7 +952,7 @@ const ListConditionPopover = ({
             <div
               style={{ fontSize: 14, color: "#6b7280", fontStyle: "italic" }}
             >
-              This list condition doesn't have sub-conditions to display.
+              This list condition does not have sub-conditions to display.
             </div>
           )}
         </div>
@@ -1009,6 +1012,57 @@ const ListConditionPopover = ({
       </div>
     </Popover>
   );
+};
+
+ListConditionPopover.propTypes = {
+  listPopoverAnchor: PropTypes.object,
+  setListPopoverAnchor: PropTypes.func.isRequired,
+  conditionOrBlock: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    value: PropTypes.shape({
+      field: PropTypes.string.isRequired,
+      operator: PropTypes.string,
+      value: PropTypes.any,
+      subFieldOptions: PropTypes.array,
+    }).isRequired,
+    isListVariable: PropTypes.bool,
+  }).isRequired,
+  block: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    conditions: PropTypes.arrayOf(PropTypes.object).isRequired,
+  }).isRequired,
+  updateCondition: PropTypes.func.isRequired,
+  createDefaultCondition: PropTypes.func.isRequired,
+  customVariables: PropTypes.arrayOf(
+    PropTypes.shape({
+      name: PropTypes.string.isRequired,
+      variable: PropTypes.string.isRequired,
+    }),
+  ),
+  customListVariables: PropTypes.arrayOf(
+    PropTypes.shape({
+      name: PropTypes.string.isRequired,
+      listCondition: PropTypes.shape({
+        field: PropTypes.string.isRequired,
+        operator: PropTypes.string,
+        value: PropTypes.any,
+        subFieldOptions: PropTypes.array,
+      }).isRequired,
+    }),
+  ),
+  setCustomListVariables: PropTypes.func,
+  fieldOptionsList: PropTypes.arrayOf(
+    PropTypes.shape({
+      name: PropTypes.string.isRequired,
+      type: PropTypes.string.isRequired,
+    }),
+  ),
+  fieldOptions: PropTypes.arrayOf(
+    PropTypes.shape({
+      name: PropTypes.string.isRequired,
+      type: PropTypes.string.isRequired,
+    }),
+  ),
 };
 
 export default ListConditionPopover;

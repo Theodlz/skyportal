@@ -8,19 +8,19 @@ import {
   Save as SaveIcon,
 } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
-import { useFilterBuilder } from "../../hooks/useContexts";
-import { flattenFieldOptions } from "../../constants/filterConstants";
+import { useFilterBuilder } from "../../../hooks/useContexts";
+import { flattenFieldOptions } from "../../../constants/filterConstants";
 import AddVariableDialog from "./dialog/AddVariableDialog";
 import BlockComponent from "./block/BlockComponent";
 import AddListConditionDialog from "./dialog/AddListConditionDialog";
 import AddSwitchDialog from "./dialog/AddSwitchDialog";
 import SaveBlockDialogMenu from "./block/SaveBlockDialogMenu";
 import MongoQueryDialog from "./dialog/MongoQueryDialog";
-import { filterBuilderStyles } from "../../styles/componentStyles";
+import { filterBuilderStyles } from "../../../styles/componentStyles";
 import { showNotification } from "baselayer/components/Notifications";
 
-import { updateGroupFilter } from "../../ducks/boom_filter";
-import { fetchSchema } from "../../ducks/boom_filter_modules";
+import { updateGroupFilter } from "../../../ducks/boom_filter";
+import { fetchSchema } from "../../../ducks/boom_filter_modules";
 
 const FilterBuilderContent = ({
   onToggleAnnotationBuilder,
@@ -51,9 +51,9 @@ const FilterBuilderContent = ({
   } = useFilterBuilder();
   const navigate = useNavigate();
   const dispatch = useDispatch();
-  const filter_v = useSelector((state) => state.filter_v);
+  const filter_v = useSelector((state) => state.boom_filter_v);
   const filter_stream = useSelector(
-    (state) => state.filter_v.stream?.name?.split(" ")[0],
+    (state) => state.boom_filter_v.stream?.name?.split(" ")[0],
   );
   const store_schema = useSelector((state) => state.filter_modules?.schema);
 
@@ -220,8 +220,7 @@ const FilterBuilderContent = ({
   }, [localFilterData, setFilters]);
 
   useEffect(() => {
-    if (filter_stream)
-      dispatch(fetchSchema({ name: filter_stream, elements: "schema" }));
+    if (filter_stream) dispatch(fetchSchema(filter_stream));
   }, [filter_stream]);
 
   useEffect(() => {

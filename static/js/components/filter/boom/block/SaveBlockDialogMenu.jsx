@@ -7,8 +7,11 @@ import {
   DialogActions,
   Button,
 } from "@mui/material";
-import { fetchElement, postElement } from "../../../ducks/boom_filter_modules";
-import { useCurrentBuilder } from "../../../hooks/useContexts";
+import {
+  fetchElement,
+  postElement,
+} from "../../../../ducks/boom_filter_modules";
+import { useCurrentBuilder } from "../../../../hooks/useContexts";
 import { useDispatch, useSelector } from "react-redux";
 
 const SaveBlockDialogMenu = () => {
@@ -28,7 +31,7 @@ const SaveBlockDialogMenu = () => {
   } = useCurrentBuilder();
 
   const dispatch = useDispatch();
-  const stream = useSelector((state) => state.filter_v.stream?.name);
+  const stream = useSelector((state) => state.boom_filter_v.stream?.name);
 
   const handleSaveDialogConfirm = async () => {
     if (!saveName || !saveName.trim()) {
@@ -58,7 +61,7 @@ const SaveBlockDialogMenu = () => {
     const notAvailable = await dispatch(
       fetchElement({ name: nameValue, elements: "blocks" }),
     );
-    if (notAvailable.data.blocks) {
+    if (notAvailable.data.blocks?.length > 0) {
       setSaveError("Name already exists. Please choose another.");
       return;
     }

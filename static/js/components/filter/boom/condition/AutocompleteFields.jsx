@@ -8,7 +8,7 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import {
   mongoOperatorTypes,
   mongoOperatorLabels,
-} from "../../../constants/filterConstants";
+} from "../../../../constants/filterConstants";
 
 const GroupHeader = styled("div")(({ theme }) => {
   const primaryMain = theme.palette?.primary?.main || "#1976d2";

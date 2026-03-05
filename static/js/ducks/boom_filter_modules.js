@@ -24,26 +24,32 @@ export const PUT_ELEMENT = "skyportal/PUT_ELEMENT";
 export const PUT_ELEMENT_OK = "skyportal/PUT_ELEMENT_OK";
 
 export function fetchAllElements({ elements }) {
-  return API.GET(`/api/filter_modules`, FETCH_ALL_ELEMENTS, { elements });
+  return API.GET(`/api/boom/filter_modules`, FETCH_ALL_ELEMENTS, { elements });
 }
 
-export function fetchElement({ name, elements }) {
-  return API.GET(`/api/filter_modules/${name}`, FETCH_ELEMENT, { elements });
+export function fetchElement({ survey, elements }) {
+  return API.GET(`/api/boom/filter_modules`, FETCH_ELEMENT, {
+    elements,
+    survey,
+  });
 }
 
-export function fetchSchema({ name, elements }) {
-  return API.GET(`/api/filter_modules/${name}`, FETCH_SCHEMA, { elements });
+export function fetchSchema(survey) {
+  return API.GET(`/api/boom/filter_modules`, FETCH_SCHEMA, {
+    survey,
+    elements: "schema",
+  });
 }
 
 export function postElement({ name, data, elements }) {
-  return API.POST(`/api/filter_modules/${name}`, POST_ELEMENT, {
+  return API.POST(`/api/boom/filter_modules/${name}`, POST_ELEMENT, {
     data,
     elements,
   });
 }
 
 export function putElement({ name, data, elements }) {
-  return API.PUT(`/api/filter_modules/${name}`, PUT_ELEMENT, {
+  return API.PUT(`/api/boom/filter_modules/${name}`, PUT_ELEMENT, {
     data,
     elements,
   });

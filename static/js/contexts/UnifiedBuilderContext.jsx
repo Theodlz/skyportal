@@ -51,8 +51,9 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
     }
   }, [store_schema]);
 
-  // const schema = useSelector((state) => state.filter_modules?.schema);
-  const currentStream = useSelector((state) => state.filter_v.stream?.name);
+  const currentStream = useSelector(
+    (state) => state.boom_filter_v.stream?.name,
+  );
 
   // Load saved data on mount (similar to useFilterBuilderData)
   useEffect(() => {

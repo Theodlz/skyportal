@@ -5,12 +5,12 @@ import { FormControlLabel, Switch } from "@mui/material";
 import {
   mongoOperatorLabels,
   flattenFieldOptions,
-} from "../../../constants/filterConstants";
+} from "../../../../constants/filterConstants";
 import {
   getOperatorsForField,
   getFieldType,
-} from "../../../utils/conditionHelpers";
-import { useConditionContext } from "../../../hooks/useContexts";
+} from "../../../../utils/conditionHelpers";
+import { useConditionContext } from "../../../../hooks/useContexts";
 import TextField from "@mui/material/TextField";
 import Autocomplete from "@mui/material/Autocomplete";
 import { styled, lighten, darken } from "@mui/system";

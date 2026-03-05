@@ -31,22 +31,18 @@ import { useDispatch, useSelector } from "react-redux";
 import {
   useFilterBuilder,
   useAnnotationBuilder,
-} from "../../hooks/useContexts";
-import { getFieldOptionsWithVariable } from "../../utils/conditionHelpers";
-import AddVariableDialog from "./dialog/AddVariableDialog";
-import AddListConditionDialog from "./dialog/AddListConditionDialog";
-import AddSwitchDialog from "./dialog/AddSwitchDialog";
-import SaveBlockDialogMenu from "./block/SaveBlockDialogMenu";
+} from "../../../hooks/useContexts";
+import { getFieldOptionsWithVariable } from "../../../utils/conditionHelpers";
 import MongoQueryDialog from "./dialog/MongoQueryDialog";
-import { filterBuilderStyles } from "../../styles/componentStyles";
+import { filterBuilderStyles } from "../../../styles/componentStyles";
 import { styled, lighten, darken } from "@mui/system";
-import { latexToMongoConverter } from "../../utils/robustLatexConverter";
+import { latexToMongoConverter } from "../../../utils/robustLatexConverter";
 import CloseIcon from "@mui/icons-material/Close";
 import {
   flattenFieldOptions,
   getArrayFieldSubOptions,
-} from "../../constants/filterConstants";
-import { fetchSchema } from "../../ducks/boom_filter_modules";
+} from "../../../constants/filterConstants";
+import { fetchSchema } from "../../../ducks/boom_filter_modules";
 
 const GroupHeader = styled("div")(({ theme }) => {
   const primaryMain = theme.palette?.primary?.main || "#1976d2";
@@ -406,7 +402,7 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
   const dispatch = useDispatch();
 
   const filter_stream = useSelector(
-    (state) => state.filter_v.stream?.name.split(" ")[0],
+    (state) => state.boom_filter_v.stream?.name.split(" ")[0],
   );
   const store_schema = useSelector((state) => state.filter_modules?.schema);
 
@@ -437,8 +433,7 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
   useAnnotationBuilderData(annotationContext);
 
   useEffect(() => {
-    if (filter_stream)
-      dispatch(fetchSchema({ name: filter_stream, elements: "schema" }));
+    if (filter_stream) dispatch(fetchSchema(filter_stream));
   }, [filter_stream]);
 
   useEffect(() => {

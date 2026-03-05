@@ -4,12 +4,12 @@ import PropTypes from "prop-types";
 import {
   useFilterBuilder,
   useConditionContext,
-} from "../../../hooks/useContexts";
+} from "../../../../hooks/useContexts";
 import { v4 as uuidv4 } from "uuid";
 import ClearIcon from "@mui/icons-material/Clear";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
-import { blockHeaderStyles } from "../../../styles/componentStyles";
+import { blockHeaderStyles } from "../../../../styles/componentStyles";
 import {
   Paper,
   Button,
@@ -35,23 +35,23 @@ import OperatorSelector from "../condition/OperatorSelector";
 import ListConditionPopover from "../condition/ListConditionPopover";
 import SwitchCasePopover from "../condition/SwitchCasePopover";
 import ConditionalValueBuilder from "../condition/ConditionalValueBuilder";
-import { ConditionProvider } from "../../../contexts/ConditionContext";
-import { useCurrentBuilder } from "../../../hooks/useContexts";
-import { usePopoverRegistry } from "../../../hooks/useDialog";
-import { useHoverState } from "../../../hooks/useFilter";
+import { ConditionProvider } from "../../../../contexts/ConditionContext";
+import { useCurrentBuilder } from "../../../../hooks/useContexts";
+import { usePopoverRegistry } from "../../../../hooks/useDialog";
+import { useHoverState } from "../../../../hooks/useFilter";
 import {
   getOperatorsForField,
   getFieldOptionsWithVariable,
   createUpdateConditionFunction,
   createRemoveItemFunction,
   isFieldType,
-} from "../../../utils/conditionHelpers";
+} from "../../../../utils/conditionHelpers";
 import "katex/dist/katex.min.css";
 import Latex from "react-latex-next";
 import {
   mongoOperatorTypes,
   flattenFieldOptions,
-} from "../../../constants/filterConstants";
+} from "../../../../constants/filterConstants";
 
 // Helper function to normalize field values that may be objects or strings
 // Supports:
@@ -74,7 +74,9 @@ const escapeLatexForDisplay = (text) => {
 
 const useBlockState = (block, isRoot) => {
   const { collapsedBlocks, customBlocks } = useCurrentBuilder();
-  const currentStream = useSelector((state) => state.filter_v.stream?.name);
+  const currentStream = useSelector(
+    (state) => state.boom_filter_v.stream?.name,
+  );
 
   // Memoize custom block name resolution to avoid recalculation
   const customBlockName = useMemo(() => {
@@ -1003,6 +1005,8 @@ ValueInput.propTypes = {
   setOpenEquationIds: PropTypes.func.isRequired,
   setSelectedChip: PropTypes.func.isRequired,
   setEquationAnchor: PropTypes.func,
+  createDefaultCondition: PropTypes.func.isRequired,
+  createDefaultBlock: PropTypes.func.isRequired,
 };
 
 const shouldSkipValueInput = (conditionOrBlock) => {
@@ -1024,6 +1028,7 @@ shouldSkipValueInput.propTypes = {
     id: PropTypes.string.isRequired,
     operator: PropTypes.string,
     value: PropTypes.any,
+    createdAt: PropTypes.string,
   }).isRequired,
 };
 
@@ -1065,6 +1070,7 @@ ArrayFieldInput.propTypes = {
     id: PropTypes.string.isRequired,
     operator: PropTypes.string,
     value: PropTypes.any,
+    createdAt: PropTypes.string,
   }).isRequired,
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
@@ -1088,7 +1094,9 @@ const ListVariableInput = ({
     isListDialogOpen,
     setListConditionDialog,
   } = useConditionContext();
-  const currentStream = useSelector((state) => state.filter_v.stream?.name);
+  const currentStream = useSelector(
+    (state) => state.boom_filter_v.stream?.name,
+  );
   const operator =
     listVariable.listCondition?.operator || listVariable.operator;
   const selectedOperator = conditionOrBlock.operator;
@@ -1346,7 +1354,9 @@ const RegularValueInput = ({
     fieldOptionsList,
     isListDialogOpen,
   } = useConditionContext();
-  const currentStream = useSelector((state) => state.filter_v.stream?.name);
+  const currentStream = useSelector(
+    (state) => state.boom_filter_v.stream?.name,
+  );
 
   return (
     <AutocompleteFields
@@ -2428,7 +2438,9 @@ const ConditionComponentInner = ({
   const [switchPopoverAnchor, setSwitchPopoverAnchor] = useState(null);
   const [equationAnchor, setEquationAnchor] = useState(null);
   const schema = useSelector((state) => state.filter_modules?.schema);
-  const currentStream = useSelector((state) => state.filter_v.stream?.name);
+  const currentStream = useSelector(
+    (state) => state.boom_filter_v.stream?.name,
+  );
   const final_schema = schema?.versions?.find(
     (v) => v.vid === schema.active_id,
   )?.schema;
