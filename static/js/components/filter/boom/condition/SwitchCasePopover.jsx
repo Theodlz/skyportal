@@ -129,17 +129,31 @@ const ValueChip = ({
 };
 
 ValueChip.propTypes = {
-  value: PropTypes.any,
+  value: PropTypes.oneOfType([
+    PropTypes.string,
+    PropTypes.number,
+    PropTypes.bool,
+    PropTypes.object,
+  ]),
   customVariables: PropTypes.arrayOf(
     PropTypes.shape({
       name: PropTypes.string.isRequired,
-      expression: PropTypes.string.isRequired,
+      variable: PropTypes.string.isRequired,
     }),
   ),
   customListVariables: PropTypes.arrayOf(
     PropTypes.shape({
       name: PropTypes.string.isRequired,
-      expression: PropTypes.string.isRequired,
+      listCondition: PropTypes.shape({
+        field: PropTypes.string.isRequired,
+        operator: PropTypes.string,
+        value: PropTypes.oneOfType([
+          PropTypes.string,
+          PropTypes.number,
+          PropTypes.bool,
+          PropTypes.object,
+        ]),
+      }).isRequired,
     }),
   ),
   customSwitchCases: PropTypes.arrayOf(
@@ -149,11 +163,21 @@ ValueChip.propTypes = {
         value: PropTypes.shape({
           cases: PropTypes.arrayOf(
             PropTypes.shape({
-              block: PropTypes.object,
-              then: PropTypes.any,
+              block: PropTypes.shape({}),
+              then: PropTypes.oneOfType([
+                PropTypes.string,
+                PropTypes.number,
+                PropTypes.bool,
+                PropTypes.object,
+              ]),
             }),
           ),
-          default: PropTypes.any,
+          default: PropTypes.oneOfType([
+            PropTypes.string,
+            PropTypes.number,
+            PropTypes.bool,
+            PropTypes.object,
+          ]),
         }),
       }),
     }),
@@ -161,7 +185,7 @@ ValueChip.propTypes = {
   fieldOptionsList: PropTypes.arrayOf(
     PropTypes.shape({
       label: PropTypes.string.isRequired,
-      value: PropTypes.string.isRequired,
+      type: PropTypes.string.isRequired,
     }),
   ).isRequired,
 };
@@ -421,7 +445,7 @@ const SwitchCasePopover = ({
 };
 
 SwitchCasePopover.propTypes = {
-  switchPopoverAnchor: PropTypes.any,
+  switchPopoverAnchor: PropTypes.shape({}),
   setSwitchPopoverAnchor: PropTypes.func.isRequired,
   customSwitchCases: PropTypes.arrayOf(
     PropTypes.shape({
@@ -430,11 +454,21 @@ SwitchCasePopover.propTypes = {
         value: PropTypes.shape({
           cases: PropTypes.arrayOf(
             PropTypes.shape({
-              block: PropTypes.object,
-              then: PropTypes.any,
+              block: PropTypes.shape({}),
+              then: PropTypes.oneOfType([
+                PropTypes.string,
+                PropTypes.number,
+                PropTypes.bool,
+                PropTypes.object,
+              ]),
             }),
           ),
-          default: PropTypes.any,
+          default: PropTypes.oneOfType([
+            PropTypes.string,
+            PropTypes.number,
+            PropTypes.bool,
+            PropTypes.object,
+          ]),
         }),
       }),
     }),
@@ -442,19 +476,28 @@ SwitchCasePopover.propTypes = {
   customVariables: PropTypes.arrayOf(
     PropTypes.shape({
       name: PropTypes.string.isRequired,
-      expression: PropTypes.string.isRequired,
+      variable: PropTypes.string.isRequired,
     }),
   ),
   customListVariables: PropTypes.arrayOf(
     PropTypes.shape({
       name: PropTypes.string.isRequired,
-      expression: PropTypes.string.isRequired,
+      listCondition: PropTypes.shape({
+        field: PropTypes.string.isRequired,
+        operator: PropTypes.string,
+        value: PropTypes.oneOfType([
+          PropTypes.string,
+          PropTypes.number,
+          PropTypes.bool,
+          PropTypes.object,
+        ]),
+      }).isRequired,
     }),
   ),
   fieldOptionsList: PropTypes.arrayOf(
     PropTypes.shape({
       label: PropTypes.string.isRequired,
-      value: PropTypes.string.isRequired,
+      type: PropTypes.string.isRequired,
     }),
   ).isRequired,
 };

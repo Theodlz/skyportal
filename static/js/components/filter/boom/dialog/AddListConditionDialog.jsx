@@ -164,6 +164,7 @@ SubFieldSelector.propTypes = {
     }),
   ),
   selectedOperator: PropTypes.string,
+  key: PropTypes.string,
 };
 
 const ArrayFieldSelector = ({
@@ -247,6 +248,7 @@ ArrayFieldSelector.propTypes = {
       type: PropTypes.string,
     }),
   ),
+  key: PropTypes.string,
 };
 
 const ConditionNameInput = ({ conditionName, onNameChange, nameError }) => {
@@ -588,7 +590,7 @@ ConditionBuilderSection.propTypes = {
   selectedOperator: PropTypes.string,
   selectedArrayField: PropTypes.string,
   conditionName: PropTypes.string,
-  localFilters: PropTypes.arrayOf(PropTypes.object),
+  localFilters: PropTypes.arrayOf(PropTypes.shape({})),
   setLocalFilters: PropTypes.func,
   subFieldOptions: PropTypes.arrayOf(
     PropTypes.shape({
@@ -697,20 +699,7 @@ const AddListConditionDialog = () => {
         }
       }
     }
-  }, [
-    listConditionDialog.open,
-    listConditionDialog.conditionId,
-    dialog.listFieldNameFromCondition,
-    dialog.operatorFromCondition,
-    dialog.conditionValue,
-    form.selectedArrayField,
-    form.selectedOperator,
-    form.setSelectedArrayField,
-    form.setSelectedSubField,
-    form.setSelectedOperator,
-    dialog.handleFieldSelection,
-    dialog.handleOperatorChange,
-  ]);
+  }, [listConditionDialog.open, listConditionDialog.conditionId, dialog, form]);
 
   const handleClose = () => {
     setListConditionDialog({ open: false, blockId: null });

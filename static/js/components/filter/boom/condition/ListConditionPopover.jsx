@@ -166,6 +166,10 @@ const ListConditionPopover = ({
       return renderListVariableContent(freshListVar || listVar);
     }
 
+    // if (!conditionOrBlock) {
+    //   return null;
+    // }
+
     // Priority 2: Check for aggregation operator popover (newly created with subField)
     if (
       conditionOrBlock.value &&
@@ -834,12 +838,12 @@ const ListConditionPopover = ({
   };
 
   const renderRegularListCondition = (
-    conditionOrBlock,
-    block,
-    updateCondition,
-    createDefaultCondition,
-    customVariables,
-    customListVariables,
+    conditionBlock,
+    parentBlock,
+    updateConditionFunc,
+    createDefaultConditionFunc,
+    variables,
+    listVariables,
   ) => {
     // Get the operator label from mongoOperatorLabels
     const getOperatorLabel = (operator) => {
@@ -880,27 +884,27 @@ const ListConditionPopover = ({
             letterSpacing: 0.2,
           }}
         >
-          {conditionOrBlock.value.name ? (
+          {conditionBlock.value.name ? (
             <>
               <span style={{ color: "#059669" }}>
-                {conditionOrBlock.value.name}
+                {conditionBlock.value.name}
               </span>
               <span style={{ fontSize: 14, color: "#6b7280", marginLeft: 8 }}>
-                ({normalizeFieldValue(conditionOrBlock.value.field)})
+                ({normalizeFieldValue(conditionBlock.value.field)})
               </span>
             </>
           ) : (
             <>
               List Condition:{" "}
               <span style={{ color: "#059669" }}>
-                {normalizeFieldValue(conditionOrBlock.value.field)}
+                {normalizeFieldValue(conditionBlock.value.field)}
               </span>
             </>
           )}
         </div>
 
         {/* Display the list operator */}
-        {conditionOrBlock.value.operator && (
+        {conditionBlock.value.operator && (
           <div
             style={{
               padding: "8px 12px",
@@ -914,35 +918,34 @@ const ListConditionPopover = ({
             }}
           >
             <span style={{ fontWeight: 600 }}>Operator:</span>{" "}
-            {getOperatorLabel(conditionOrBlock.value.operator)}
+            {getOperatorLabel(conditionBlock.value.operator)}
           </div>
         )}
         <div style={{ width: "100%" }}>
-          {conditionOrBlock.value.value ? (
+          {conditionBlock.value.value ? (
             <BlockComponent
-              block={conditionOrBlock.value.value}
+              block={conditionBlock.value.value}
               parentBlockId={null}
               isRoot={true}
               fieldOptionsList={(() => {
                 // Combine subFieldOptions with full field options for comprehensive coverage
-                const subFieldOpts =
-                  conditionOrBlock.value.subFieldOptions || [];
+                const subFieldOpts = conditionBlock.value.subFieldOptions || [];
                 const fullFieldOpts = fieldOptionsList || fieldOptions || [];
                 // If we have subFieldOptions, combine them with full options, otherwise just use full options
                 return subFieldOpts.length > 0
                   ? [...fullFieldOpts, ...subFieldOpts]
                   : fullFieldOpts;
               })()}
-              localFilters={[conditionOrBlock.value.value]}
+              localFilters={[conditionBlock.value.value]}
               setLocalFilters={(newFilters) => {
                 // Update the list condition value in the main filters
                 const updatedListValue = {
-                  ...conditionOrBlock.value,
+                  ...conditionBlock.value,
                   value: newFilters[0],
                 };
-                updateCondition(
-                  block.id,
-                  conditionOrBlock.id,
+                updateConditionFunc(
+                  parentBlock.id,
+                  conditionBlock.id,
                   "value",
                   updatedListValue,
                 );
@@ -1015,21 +1018,36 @@ const ListConditionPopover = ({
 };
 
 ListConditionPopover.propTypes = {
-  listPopoverAnchor: PropTypes.object,
+  listPopoverAnchor: PropTypes.shape({}),
   setListPopoverAnchor: PropTypes.func.isRequired,
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
-    value: PropTypes.shape({
-      field: PropTypes.string.isRequired,
-      operator: PropTypes.string,
-      value: PropTypes.any,
-      subFieldOptions: PropTypes.array,
-    }).isRequired,
+    operator: PropTypes.string,
+    field: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
+    value: PropTypes.oneOfType([
+      PropTypes.string,
+      PropTypes.number,
+      PropTypes.bool,
+      PropTypes.shape({
+        field: PropTypes.string,
+        operator: PropTypes.string,
+        value: PropTypes.oneOfType([
+          PropTypes.string,
+          PropTypes.number,
+          PropTypes.bool,
+          PropTypes.object,
+        ]),
+        subFieldOptions: PropTypes.arrayOf(PropTypes.shape({})),
+        type: PropTypes.string,
+        subField: PropTypes.string,
+        name: PropTypes.string,
+      }),
+    ]),
     isListVariable: PropTypes.bool,
   }).isRequired,
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
-    conditions: PropTypes.arrayOf(PropTypes.object).isRequired,
+    conditions: PropTypes.arrayOf(PropTypes.shape({})),
   }).isRequired,
   updateCondition: PropTypes.func.isRequired,
   createDefaultCondition: PropTypes.func.isRequired,
@@ -1045,21 +1063,26 @@ ListConditionPopover.propTypes = {
       listCondition: PropTypes.shape({
         field: PropTypes.string.isRequired,
         operator: PropTypes.string,
-        value: PropTypes.any,
-        subFieldOptions: PropTypes.array,
+        value: PropTypes.oneOfType([
+          PropTypes.string,
+          PropTypes.number,
+          PropTypes.bool,
+          PropTypes.object,
+        ]),
+        subFieldOptions: PropTypes.arrayOf(PropTypes.shape({})),
       }).isRequired,
     }),
   ),
   setCustomListVariables: PropTypes.func,
   fieldOptionsList: PropTypes.arrayOf(
     PropTypes.shape({
-      name: PropTypes.string.isRequired,
+      label: PropTypes.string.isRequired,
       type: PropTypes.string.isRequired,
     }),
   ),
   fieldOptions: PropTypes.arrayOf(
     PropTypes.shape({
-      name: PropTypes.string.isRequired,
+      label: PropTypes.string.isRequired,
       type: PropTypes.string.isRequired,
     }),
   ),

@@ -614,7 +614,7 @@ const CustomAddElement = ({
 CustomAddElement.propTypes = {
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
-    children: PropTypes.array,
+    children: PropTypes.arrayOf(PropTypes.shape({})),
     category: PropTypes.string,
     customBlockName: PropTypes.string,
   }).isRequired,
@@ -625,13 +625,13 @@ CustomAddElement.propTypes = {
   customBlocks: PropTypes.arrayOf(
     PropTypes.shape({
       name: PropTypes.string.isRequired,
-      block: PropTypes.object,
+      block: PropTypes.shape({}),
     }),
   ).isRequired,
   defaultCondition: PropTypes.func.isRequired,
   defaultBlock: PropTypes.func.isRequired,
   setFilters: PropTypes.func.isRequired,
-  filters: PropTypes.array.isRequired,
+  filters: PropTypes.arrayOf(PropTypes.shape({})).isRequired,
   setSpecialConditionDialog: PropTypes.func.isRequired,
   setListConditionDialog: PropTypes.func.isRequired,
   setSwitchDialog: PropTypes.func.isRequired,
@@ -757,10 +757,16 @@ SaveBlockComponent.propTypes = {
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
     category: PropTypes.string,
-    children: PropTypes.array,
-    field: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
+    children: PropTypes.arrayOf(PropTypes.shape({})),
+    field: PropTypes.oneOfType([PropTypes.string, PropTypes.shape({})]),
     operator: PropTypes.string,
-    value: PropTypes.any,
+    value: PropTypes.oneOfType([
+      PropTypes.string,
+      PropTypes.number,
+      PropTypes.bool,
+      PropTypes.arrayOf(PropTypes.shape({})),
+      PropTypes.shape({}),
+    ]),
     isListVariable: PropTypes.bool,
   }).isRequired,
 };
@@ -841,16 +847,22 @@ EquationPopover.propTypes = {
   openEquationIds: PropTypes.arrayOf(PropTypes.string).isRequired,
   conditionId: PropTypes.string.isRequired,
   selectedChip: PropTypes.string.isRequired,
-  fieldOptionsWithVariable: PropTypes.array.isRequired,
+  fieldOptionsWithVariable: PropTypes.arrayOf(PropTypes.shape({})).isRequired,
   conditionOrBlock: PropTypes.shape({
-    field: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
+    field: PropTypes.oneOfType([PropTypes.string, PropTypes.shape({})]),
     variableName: PropTypes.string,
-    value: PropTypes.any,
+    value: PropTypes.oneOfType([
+      PropTypes.string,
+      PropTypes.number,
+      PropTypes.bool,
+      PropTypes.arrayOf(PropTypes.shape({})),
+      PropTypes.shape({}),
+    ]),
     fieldType: PropTypes.string,
     booleanSwitch: PropTypes.bool,
   }).isRequired,
-  customVariables: PropTypes.array.isRequired,
-  anchorEl: PropTypes.object,
+  customVariables: PropTypes.arrayOf(PropTypes.shape({})).isRequired,
+  anchorEl: PropTypes.shape({}),
   onClose: PropTypes.func.isRequired,
 };
 
@@ -996,8 +1008,14 @@ ValueInput.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
     operator: PropTypes.string,
-    value: PropTypes.any,
-    field: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
+    value: PropTypes.oneOfType([
+      PropTypes.string,
+      PropTypes.number,
+      PropTypes.bool,
+      PropTypes.arrayOf(PropTypes.shape({})),
+      PropTypes.shape({}),
+    ]),
+    field: PropTypes.oneOfType([PropTypes.string, PropTypes.shape({})]),
     createdAt: PropTypes.number,
   }).isRequired,
   block: PropTypes.shape({
@@ -1029,7 +1047,13 @@ shouldSkipValueInput.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
     operator: PropTypes.string,
-    value: PropTypes.any,
+    value: PropTypes.oneOfType([
+      PropTypes.string,
+      PropTypes.number,
+      PropTypes.bool,
+      PropTypes.arrayOf(PropTypes.shape({})),
+      PropTypes.shape({}),
+    ]),
     createdAt: PropTypes.string,
   }).isRequired,
 };
@@ -1071,8 +1095,14 @@ ArrayFieldInput.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
     operator: PropTypes.string,
-    value: PropTypes.any,
-    createdAt: PropTypes.string,
+    value: PropTypes.oneOfType([
+      PropTypes.string,
+      PropTypes.number,
+      PropTypes.bool,
+      PropTypes.arrayOf(PropTypes.shape({})),
+      PropTypes.shape({}),
+    ]),
+    createdAt: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   }).isRequired,
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
@@ -1272,14 +1302,28 @@ ListVariableInput.propTypes = {
   listVariable: PropTypes.shape({
     name: PropTypes.string.isRequired,
     type: PropTypes.string.isRequired,
-    value: PropTypes.any,
+    value: PropTypes.oneOfType([
+      PropTypes.string,
+      PropTypes.number,
+      PropTypes.bool,
+      PropTypes.arrayOf(PropTypes.shape({})),
+      PropTypes.shape({}),
+    ]),
     operator: PropTypes.string,
-    listCondition: PropTypes.object,
+    listCondition: PropTypes.shape({
+      operator: PropTypes.string,
+    }),
   }).isRequired,
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
     operator: PropTypes.string,
-    value: PropTypes.any,
+    value: PropTypes.oneOfType([
+      PropTypes.string,
+      PropTypes.number,
+      PropTypes.bool,
+      PropTypes.arrayOf(PropTypes.shape({})),
+      PropTypes.shape({}),
+    ]),
     booleanSwitch: PropTypes.bool,
     createdAt: PropTypes.number,
   }).isRequired,
@@ -1319,7 +1363,13 @@ ConditionalValueInput.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
     operator: PropTypes.string,
-    value: PropTypes.any,
+    value: PropTypes.oneOfType([
+      PropTypes.string,
+      PropTypes.number,
+      PropTypes.bool,
+      PropTypes.arrayOf(PropTypes.shape({})),
+      PropTypes.shape({}),
+    ]),
   }).isRequired,
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
@@ -1327,7 +1377,7 @@ ConditionalValueInput.propTypes = {
   updateCondition: PropTypes.func.isRequired,
   defaultCondition: PropTypes.func.isRequired,
   defaultBlock: PropTypes.func.isRequired,
-  fieldOptionsList: PropTypes.array,
+  fieldOptionsList: PropTypes.arrayOf(PropTypes.shape({})),
 };
 
 const RegularValueInput = ({
@@ -1417,7 +1467,13 @@ RegularValueInput.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
     operator: PropTypes.string,
-    value: PropTypes.any,
+    value: PropTypes.oneOfType([
+      PropTypes.string,
+      PropTypes.number,
+      PropTypes.bool,
+      PropTypes.arrayOf(PropTypes.shape({})),
+      PropTypes.shape({}),
+    ]),
     createdAt: PropTypes.number,
   }).isRequired,
   block: PropTypes.shape({
@@ -2162,7 +2218,7 @@ BlockHeader.propTypes = {
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
     type: PropTypes.string,
-    children: PropTypes.array.isRequired,
+    children: PropTypes.arrayOf(PropTypes.shape({})).isRequired,
     isTrue: PropTypes.bool,
     logic: PropTypes.string,
     operator: PropTypes.string,
@@ -2171,12 +2227,16 @@ BlockHeader.propTypes = {
   }).isRequired,
   parentBlockId: PropTypes.string,
   isRoot: PropTypes.bool.isRequired,
-  blockState: PropTypes.object.isRequired,
+  blockState: PropTypes.shape({
+    customBlockName: PropTypes.string,
+    isCollapsed: PropTypes.bool,
+    isCustomBlock: PropTypes.bool,
+  }).isRequired,
   uiState: PropTypes.shape({
     activeBlockForAdd: PropTypes.string,
     setActiveBlockForAdd: PropTypes.func,
   }).isRequired,
-  localFilters: PropTypes.array,
+  localFilters: PropTypes.arrayOf(PropTypes.shape({})),
   setLocalFilters: PropTypes.func,
   isStickyHeader: PropTypes.bool,
   disableSwitchOption: PropTypes.bool,
@@ -2351,7 +2411,13 @@ SpecialOperatorInputs.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
     operator: PropTypes.string,
-    value: PropTypes.any,
+    value: PropTypes.oneOfType([
+      PropTypes.string,
+      PropTypes.number,
+      PropTypes.bool,
+      PropTypes.arrayOf(PropTypes.shape({})),
+      PropTypes.shape({}),
+    ]),
   }).isRequired,
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
@@ -2411,15 +2477,21 @@ ConditionComponent.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
     operator: PropTypes.string,
-    value: PropTypes.any,
+    value: PropTypes.oneOfType([
+      PropTypes.string,
+      PropTypes.number,
+      PropTypes.bool,
+      PropTypes.arrayOf(PropTypes.shape({})),
+      PropTypes.shape({}),
+    ]),
   }).isRequired,
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
   }).isRequired,
-  fieldOptionsList: PropTypes.array.isRequired,
+  fieldOptionsList: PropTypes.arrayOf(PropTypes.shape({})).isRequired,
   isListDialogOpen: PropTypes.bool,
   setListConditionDialog: PropTypes.func.isRequired,
-  localFilters: PropTypes.array,
+  localFilters: PropTypes.arrayOf(PropTypes.shape({})),
   setLocalFilters: PropTypes.func,
 };
 
@@ -2827,21 +2899,27 @@ ConditionComponentInner.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
     operator: PropTypes.string,
-    value: PropTypes.any,
-    field: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
+    value: PropTypes.oneOfType([
+      PropTypes.string,
+      PropTypes.number,
+      PropTypes.bool,
+      PropTypes.arrayOf(PropTypes.shape({})),
+      PropTypes.shape({}),
+    ]),
+    field: PropTypes.oneOfType([PropTypes.string, PropTypes.shape({})]),
     createdAt: PropTypes.number,
   }).isRequired,
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
   }).isRequired,
   setFilters: PropTypes.func.isRequired,
-  filters: PropTypes.array.isRequired,
+  filters: PropTypes.arrayOf(PropTypes.shape({})).isRequired,
   createDefaultCondition: PropTypes.func.isRequired,
   createDefaultBlock: PropTypes.func.isRequired,
-  customVariables: PropTypes.array.isRequired,
-  fieldOptionsList: PropTypes.array.isRequired,
-  customListVariables: PropTypes.array.isRequired,
-  customSwitchCases: PropTypes.array.isRequired,
+  customVariables: PropTypes.arrayOf(PropTypes.shape({})).isRequired,
+  fieldOptionsList: PropTypes.arrayOf(PropTypes.shape({})).isRequired,
+  customListVariables: PropTypes.arrayOf(PropTypes.shape({})).isRequired,
+  customSwitchCases: PropTypes.arrayOf(PropTypes.shape({})).isRequired,
   isListDialogOpen: PropTypes.bool,
 };
 
@@ -2902,15 +2980,15 @@ const FieldSelector = ({
 FieldSelector.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
-    field: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
+    field: PropTypes.oneOfType([PropTypes.string, PropTypes.shape({})]),
     variableName: PropTypes.string,
   }).isRequired,
-  fieldOptionsWithVariable: PropTypes.array.isRequired,
+  fieldOptionsWithVariable: PropTypes.arrayOf(PropTypes.shape({})).isRequired,
   handleFieldChange: PropTypes.func.isRequired,
   setOpenEquationIds: PropTypes.func.isRequired,
   setSelectedChip: PropTypes.func.isRequired,
-  customVariables: PropTypes.array.isRequired,
-  customListVariables: PropTypes.array.isRequired,
+  customVariables: PropTypes.arrayOf(PropTypes.shape({})).isRequired,
+  customListVariables: PropTypes.arrayOf(PropTypes.shape({})).isRequired,
   setEquationAnchor: PropTypes.func.isRequired,
 };
 
@@ -3040,12 +3118,16 @@ const BlockComponent = ({
 BlockComponent.displayName = "BlockComponent";
 
 BlockComponent.propTypes = {
-  block: PropTypes.object.isRequired,
+  block: PropTypes.shape({
+    id: PropTypes.string,
+    children: PropTypes.arrayOf(PropTypes.shape({})),
+    category: PropTypes.string,
+  }).isRequired,
   parentBlockId: PropTypes.string,
   isRoot: PropTypes.bool,
-  fieldOptionsList: PropTypes.array,
+  fieldOptionsList: PropTypes.arrayOf(PropTypes.shape({})),
   isListDialogOpen: PropTypes.bool,
-  localFilters: PropTypes.array,
+  localFilters: PropTypes.arrayOf(PropTypes.shape({})),
   setLocalFilters: PropTypes.func,
   stickyBlockId: PropTypes.string,
   disableSwitchOption: PropTypes.bool,

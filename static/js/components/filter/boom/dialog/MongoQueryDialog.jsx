@@ -286,7 +286,7 @@ const MongoQueryDialog = () => {
     } else if (selectedCollection === "" && newCollection !== "") {
       setSelectedCollection(newCollection);
     }
-  }, [filter_stream, selectedCollection]);
+  }, [filter_stream, selectedCollection, dispatch]);
 
   const defaultStartDate = new Date();
   const defaultEndDate = new Date();

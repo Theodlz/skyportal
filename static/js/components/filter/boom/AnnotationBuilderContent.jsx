@@ -434,7 +434,7 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
 
   useEffect(() => {
     if (filter_stream) dispatch(fetchSchema(filter_stream));
-  }, [filter_stream]);
+  }, [filter_stream, dispatch]);
 
   useEffect(() => {
     if (store_schema) {
@@ -538,161 +538,6 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
     );
   };
 
-  const generateProjectionStage = () => {
-    const projection = {};
-    const annotations = {};
-
-    // Find availableFields for variable lookup
-    const availableFields = getFieldOptions();
-
-    // Always add objectId to the root of the projection as 1 (include)
-    projection.objectId = 1;
-
-    // Collect all output names being defined in this stage to prevent subfield conflicts
-    const definedFields = new Set();
-    projectionFields.forEach((field) => {
-      if (!field.fieldName || field.fieldName === "objectId") return;
-      const outputName = field.outputName || field.fieldName;
-      definedFields.add(outputName);
-    });
-
-    projectionFields.forEach((field) => {
-      // Only add to annotations if fieldName is present and not objectId
-      if (!field.fieldName || field.fieldName === "objectId") return;
-      const outputName = field.outputName || field.fieldName;
-
-      // Skip subfield projections if parent field is being defined in this stage
-      if (outputName.includes(".")) {
-        const parentField = outputName.split(".")[0];
-        if (definedFields.has(parentField)) {
-          return; // Skip this field to avoid MongoDB error
-        }
-      }
-
-      // If mapSaved, use the $map operator
-      if (field.type === "map" && field.mapSaved && field.mapMongoMapQuery) {
-        annotations[field.mapOutputFieldName || outputName] =
-          field.mapMongoMapQuery;
-        return;
-      }
-      const fieldOption = availableFields.find(
-        (opt) => opt.name === field.fieldName,
-      );
-      const isArithmeticVar = fieldOption?.isVariable;
-      // Retrieve the actual value of the expression if present
-      let expression = fieldOption?.expression;
-      if (expression && typeof expression === "object" && expression.value) {
-        expression = expression.value;
-      }
-
-      // Helper: if arithmetic variable, convert its expression to MongoDB expression, else $<fieldName>
-      const getFieldExpr = () => {
-        if (isArithmeticVar && expression) {
-          if (typeof expression === "string") {
-            try {
-              // Try to parse as JSON (MongoDB expression)
-              return JSON.parse(expression);
-            } catch {
-              try {
-                // Try to evaluate as JS object literal (MongoDB op)
-
-                return eval(`(${expression})`);
-              } catch {
-                // Fallback to string
-                return expression;
-              }
-            }
-          }
-          return expression;
-        }
-        return `$${field.fieldName}`;
-      };
-
-      // Aggregation operators with output type
-      if (
-        ["sum", "avg", "min", "max"].includes(field.type) &&
-        field.aggregationOutputType === "round"
-      ) {
-        // If round is selected for aggregation, wrap aggregation in $round
-        let aggExpr;
-        if (field.subField) {
-          aggExpr = {
-            [`$${field.type}`]: `$${field.fieldName}.${field.subField}`,
-          };
-        } else {
-          aggExpr = { [`$${field.type}`]: getFieldExpr() };
-        }
-        annotations[outputName] = {
-          $round: [aggExpr, field.roundDecimals],
-        };
-        return;
-      }
-
-      // All fields go inside the annotations key
-      switch (field.type) {
-        case "include":
-          annotations[outputName] = getFieldExpr();
-          break;
-        case "exclude":
-          annotations[outputName] = 0;
-          break;
-        case "round":
-          annotations[outputName] = {
-            $round: [getFieldExpr(), field.roundDecimals],
-          };
-          break;
-        case "sum":
-          if (field.aggregationOutputType === "exclude") {
-            annotations[outputName] = 0;
-          } else {
-            annotations[outputName] = field.subField
-              ? { $sum: `$${field.fieldName}.${field.subField}` }
-              : { $sum: getFieldExpr() };
-          }
-          break;
-        case "avg":
-          if (field.aggregationOutputType === "exclude") {
-            annotations[outputName] = 0;
-          } else {
-            annotations[outputName] = field.subField
-              ? { $avg: `$${field.fieldName}.${field.subField}` }
-              : { $avg: getFieldExpr() };
-          }
-          break;
-        case "min":
-          if (field.aggregationOutputType === "exclude") {
-            annotations[outputName] = 0;
-          } else {
-            annotations[outputName] = field.subField
-              ? { $min: `$${field.fieldName}.${field.subField}` }
-              : { $min: getFieldExpr() };
-          }
-          break;
-        case "max":
-          if (field.aggregationOutputType === "exclude") {
-            annotations[outputName] = 0;
-          } else {
-            annotations[outputName] = field.subField
-              ? { $max: `$${field.fieldName}.${field.subField}` }
-              : { $max: getFieldExpr() };
-          }
-          break;
-        case "count":
-          annotations[outputName] = { $size: getFieldExpr() };
-          break;
-        default:
-          annotations[outputName] = getFieldExpr();
-      }
-    });
-
-    // Add annotations to projection if there are any
-    if (Object.keys(annotations).length > 0) {
-      projection.annotations = annotations;
-    }
-
-    return projection;
-  };
-
   const handleShowMongoQuery = () => {
     // Use the unified context directly (same as filter builder)
     filterContext.setMongoDialog({ open: true });
@@ -722,7 +567,7 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
   const availableFields = getFieldOptions();
 
   // Initialize collapsed groups (collapse all groups by default)
-  React.useEffect(() => {
+  useEffect(() => {
     const allGroups = [...new Set(availableFields.map((field) => field.group))];
     if (allGroups.length > 0 && allGroups.length > collapsedGroups.size) {
       setCollapsedGroups(new Set(allGroups));

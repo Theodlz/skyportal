@@ -88,7 +88,7 @@ const AddSwitchDialog = () => {
         customListVariables || [],
         customSwitchCases || [],
         [],
-        Date.now(), // Switch dialog shows all switch cases since we're creating a new one
+        null, // Switch dialog shows all switch cases since we're creating a new one
         stream,
       ),
     [

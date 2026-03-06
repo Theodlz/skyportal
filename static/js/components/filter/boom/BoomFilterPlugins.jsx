@@ -165,8 +165,7 @@ const BoomFilterPlugins = ({ group }) => {
   // forms
   const [setOpenNew] = React.useState(false);
   const [inlineNewVersion, setInlineNewVersion] = React.useState(false);
-  const [showAnnotationBuilder, setShowAnnotationBuilder] =
-    React.useState(false);
+  const [showAnnotationBuilder, setShowAnnotationBuilder] = useState(false);
 
   useEffect(() => {
     let newPipeline = (filter_v?.fv || []).filter(
@@ -180,7 +179,7 @@ const BoomFilterPlugins = ({ group }) => {
     if (filter_v?.fv?.length > 0 && filter_v?.active_fid) {
       setValue("pipeline", newPipeline);
     }
-  }, [filter_v]);
+  }, [filter_v, setValue]);
 
   // save new filter version
   const onSubmitSaveFilterVersion = async (data) => {

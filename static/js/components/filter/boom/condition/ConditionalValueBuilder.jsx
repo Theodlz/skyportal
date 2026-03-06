@@ -102,7 +102,7 @@ const ConditionalValueBuilder = ({
     customListVariables,
     customSwitchCases || [],
     [],
-    conditionOrBlock.createdAt,
+    null,
     currentStream,
   );
 
@@ -528,7 +528,7 @@ ConditionalValueBuilder.propTypes = {
   value: PropTypes.shape({
     cases: PropTypes.arrayOf(
       PropTypes.shape({
-        block: PropTypes.object,
+        block: PropTypes.shape({}),
         then: PropTypes.string,
       }),
     ),
@@ -537,7 +537,7 @@ ConditionalValueBuilder.propTypes = {
   onChange: PropTypes.func,
   defaultCondition: PropTypes.func.isRequired,
   defaultBlock: PropTypes.func.isRequired,
-  fieldOptionsList: PropTypes.array,
+  fieldOptionsList: PropTypes.arrayOf(PropTypes.shape({})),
 };
 
 export default ConditionalValueBuilder;
