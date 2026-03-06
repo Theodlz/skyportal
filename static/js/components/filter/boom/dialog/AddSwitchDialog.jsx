@@ -22,11 +22,11 @@ import { v4 as uuidv4 } from "uuid";
 import {
   useCurrentBuilder,
   useFilterBuilder,
-} from "../../../hooks/useContexts";
+} from "../../../../hooks/useContexts";
 import BlockComponent from "../block/BlockComponent";
 import AutocompleteFields from "../condition/AutocompleteFields";
-import { getFieldOptionsWithVariable } from "../../../utils/conditionHelpers";
-import { postElement } from "../../../ducks/boom_filter_modules";
+import { getFieldOptionsWithVariable } from "../../../../utils/conditionHelpers";
+import { postElement } from "../../../../ducks/boom_filter_modules";
 
 /**
  * Helper function to extract string value from AutocompleteFields output
@@ -59,7 +59,7 @@ const defaultBlock = () => ({
 
 const AddSwitchDialog = () => {
   const dispatch = useDispatch();
-  const stream = useSelector((state) => state.filter_v.stream?.name);
+  const stream = useSelector((state) => state.boom_filter_v.stream?.name);
   const {
     switchDialog,
     closeSwitchDialog,
@@ -88,7 +88,7 @@ const AddSwitchDialog = () => {
         customListVariables || [],
         customSwitchCases || [],
         [],
-        Date.now(), // Switch dialog shows all switch cases since we're creating a new one
+        null, // Switch dialog shows all switch cases since we're creating a new one
         stream,
       ),
     [

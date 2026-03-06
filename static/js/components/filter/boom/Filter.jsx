@@ -75,7 +75,7 @@ const Filter = () => {
   const [streamLoadError, setStreamLoadError] = useState("");
 
   const { fid } = useParams();
-  const loadedId = useSelector((state) => state.filter?.id);
+  const loadedId = useSelector((state) => state.filter.id);
 
   useEffect(() => {
     const fetchFilter = async () => {
@@ -142,7 +142,7 @@ const Filter = () => {
         {filter.name}
       </Typography>
 
-      <Grid container spacing={2} sx={{ overflow: "visible" }}>
+      <Grid container spacing={2}>
         <Grid item sm={12} md={12}>
           <Card className={classes.root}>
             <CardContent>
@@ -162,8 +162,8 @@ const Filter = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item sm={12} md={12} sx={{ overflow: "visible" }}>
-          {group && <FilterPlugins group={group} />}
+        <Grid item sm={12} md={12}>
+          <FilterPlugins filter_id={fid} group={group} />
         </Grid>
       </Grid>
     </div>

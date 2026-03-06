@@ -33,11 +33,11 @@ const DELETE_GROUP_FILTER = "skyportal/DELETE_GROUP_FILTER";
 const DELETE_GROUP_FILTER_OK = "skyportal/DELETE_GROUP_FILTER_OK";
 
 export function fetchFilterVersion(id) {
-  return API.GET(`/api/filters/${id}`, FETCH_FILTER_VERSION);
+  return API.GET(`/api/boom/filters/${id}`, FETCH_FILTER_VERSION);
 }
 
 export function editFilterVersion({ filter_id, active, active_fid }) {
-  return API.PATCH(`/api/filters/${filter_id}`, EDIT_FILTER_VERSION, {
+  return API.PATCH(`/api/boom/filters/${filter_id}`, EDIT_FILTER_VERSION, {
     active,
     active_fid,
   });
@@ -53,29 +53,29 @@ export function addGroupFilter({ name, group_id, stream_id, altdata }) {
 }
 
 export function editAutosave({ filter_id, autoSave }) {
-  return API.PATCH(`/api/filters/${filter_id}`, EDIT_AUTOSAVE, {
+  return API.PATCH(`/api/boom/filters/${filter_id}`, EDIT_AUTOSAVE, {
     autoSave,
   });
 }
 
 export function deleteGroupFilter({ filter_id }) {
-  return API.DELETE(`/api/filters/${filter_id}`, DELETE_GROUP_FILTER);
+  return API.DELETE(`/api/boom/filters/${filter_id}`, DELETE_GROUP_FILTER);
 }
 
 export function editUpdateAnnotations({ filter_id, autoAnnotate }) {
-  return API.PATCH(`/api/filters/${filter_id}`, EDIT_UPDATE_ANNOTATIONS, {
+  return API.PATCH(`/api/boom/filters/${filter_id}`, EDIT_UPDATE_ANNOTATIONS, {
     autoAnnotate,
   });
 }
 
 export function editAutoFollowup({ filter_id, autoFollowup }) {
-  return API.PATCH(`/api/filters/${filter_id}`, EDIT_AUTO_FOLLOWUP, {
+  return API.PATCH(`/api/boom/filters/${filter_id}`, EDIT_AUTO_FOLLOWUP, {
     autoFollowup,
   });
 }
 
 export function updateGroupFilter(filter_id, altdata, filters, name) {
-  return API.POST(`/api/filters/${filter_id}`, UPDATE_GROUP_FILTER, {
+  return API.POST(`/api/boom/filters/${filter_id}`, UPDATE_GROUP_FILTER, {
     altdata,
     filters,
     name,
@@ -97,4 +97,4 @@ const reducer = (state = {}, action) => {
   }
 };
 
-store.injectReducer("filter_v", reducer);
+store.injectReducer("boom_filter_v", reducer);

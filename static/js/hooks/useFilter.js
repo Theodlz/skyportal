@@ -50,7 +50,9 @@ export const useFilterBuilderData = () => {
   ]);
 
   const dispatch = useDispatch();
-  const currentStream = useSelector((state) => state.filter_v.stream?.name);
+  const currentStream = useSelector(
+    (state) => state.boom_filter_v.stream?.name,
+  );
 
   // Load saved data on mount
   useEffect(() => {

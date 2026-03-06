@@ -22,10 +22,166 @@ import {
 } from "@mui/material";
 import { Info, Close as CloseIcon, ContentCopy } from "@mui/icons-material";
 import { v4 as uuidv4 } from "uuid";
-import { useCurrentBuilder } from "../../../hooks/useContexts";
-import { postElement } from "../../../ducks/boom_filter_modules";
+import { useCurrentBuilder } from "../../../../hooks/useContexts";
+import { postElement } from "../../../../ducks/boom_filter_modules";
 import { useDispatch, useSelector } from "react-redux";
 import EquationEditor from "equation-editor-react";
+
+// Numeric types
+const numericTypes = ["double", "float", "int", "long"];
+const excludedTypes = ["boolean", "array"];
+
+// Helper function to find matching parentheses
+const findMatchingParen = (str, startIdx) => {
+  let count = 1;
+  for (let i = startIdx + 1; i < str.length; i++) {
+    if (str[i] === "(") count++;
+    if (str[i] === ")") count--;
+    if (count === 0) return i;
+  }
+  return -1;
+};
+
+// Helper function to extract operand (handles parentheses, variables, numbers)
+const extractOperand = (str, fromEnd = false) => {
+  if (fromEnd) {
+    // Extract from end - look for the last complete operand
+    const trimmed = str.trim();
+    if (trimmed.endsWith(")")) {
+      // Find matching opening parenthesis
+      let count = 1;
+      for (let i = trimmed.length - 2; i >= 0; i--) {
+        if (trimmed[i] === ")") count++;
+        if (trimmed[i] === "(") count--;
+        if (count === 0) {
+          return trimmed.substring(i);
+        }
+      }
+    }
+    // Extract last number, variable, or function call
+    const match = trimmed.match(
+      /([a-zA-Z_][a-zA-Z0-9_.]*(?:\([^)]*\))?|\d+(?:\.\d+)?)$/,
+    );
+    return match ? match[0] : trimmed;
+  } else {
+    // Extract from start - look for the first complete operand
+    const trimmed = str.trim();
+    if (trimmed.startsWith("(")) {
+      const endIdx = findMatchingParen(trimmed, 0);
+      if (endIdx !== -1) {
+        return trimmed.substring(0, endIdx + 1);
+      }
+    }
+    // Extract first number, variable, or function call
+    const match = trimmed.match(
+      /^([a-zA-Z_][a-zA-Z0-9_.]*(?:\([^)]*\))?|\d+(?:\.\d+)?)/,
+    );
+    return match ? match[0] : trimmed;
+  }
+};
+
+// Convert division notation to fraction format for better display
+// This function handles complex expressions including parentheses
+const convertDivisionToFraction = (str) => {
+  // Process divisions from left to right, being careful about operator precedence
+  let result = str;
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    // Find division operators that are not already inside \frac
+    const divisionMatch = result.match(/(.*?)([^\\]|^)\/([^\/].*)/);
+    if (divisionMatch && !result.includes("\\frac")) {
+      const beforeDiv =
+        divisionMatch[1] + (divisionMatch[2] === "^" ? "" : divisionMatch[2]);
+      const afterDiv = divisionMatch[3];
+
+      // Extract the immediate operands around the division
+      const numerator = extractOperand(beforeDiv, true);
+      const denominator = extractOperand(afterDiv, false);
+
+      // Get the parts before numerator and after denominator
+      const beforeNumerator = beforeDiv.substring(
+        0,
+        beforeDiv.length - numerator.length,
+      );
+      const afterDenominator = afterDiv.substring(denominator.length);
+
+      // Don't convert if this looks like it's already a LaTeX fraction
+      if (numerator.includes("\\frac") || denominator.includes("\\frac")) {
+        break;
+      }
+
+      // Recursively convert nested divisions in operands
+      const convertedNum = convertDivisionToFraction(numerator);
+      const convertedDen = convertDivisionToFraction(denominator);
+
+      result = `${beforeNumerator}\\frac{${convertedNum}}{${convertedDen}}${afterDenominator}`;
+      changed = true;
+    }
+  }
+
+  return result;
+};
+
+const getPreviewEquation = (variableName, expression) => {
+  const varName = variableName || "yourVariableName";
+  let expr = expression || "yourEquation";
+
+  expr = convertDivisionToFraction(expr);
+
+  return `${varName} = ${expr}`;
+};
+
+// Helper to resolve named types in the schema
+const resolveNamedType = (typeName, schema) => {
+  if (typeof typeName !== "string" || !schema) return null;
+
+  // Look in fields
+  if (schema.fields && Array.isArray(schema.fields)) {
+    for (const field of schema.fields) {
+      const fieldType = Array.isArray(field.type)
+        ? field.type.find((t) => t !== "null")
+        : field.type;
+
+      // Direct match in field type
+      if (typeof fieldType === "object" && fieldType.name === typeName) {
+        return fieldType;
+      }
+
+      // Search in nested records
+      if (
+        typeof fieldType === "object" &&
+        fieldType.type === "record" &&
+        fieldType.fields &&
+        fieldType.name === typeName
+      ) {
+        return fieldType;
+      }
+
+      // Search in array items
+      if (
+        typeof fieldType === "object" &&
+        fieldType.type === "array" &&
+        typeof fieldType.items === "object" &&
+        fieldType.items.name === typeName
+      ) {
+        return fieldType.items;
+      }
+    }
+  }
+
+  // Look in types
+  if (schema.types && Array.isArray(schema.types)) {
+    for (const type of schema.types) {
+      if (type.name === typeName && type.type === "record") {
+        return type;
+      }
+    }
+  }
+
+  return null;
+};
 
 const AddVariableDialog = () => {
   const {
@@ -40,7 +196,7 @@ const AddVariableDialog = () => {
   } = useCurrentBuilder() || {};
 
   const dispatch = useDispatch();
-  const stream = useSelector((state) => state.filter_v.stream?.name);
+  const stream = useSelector((state) => state.boom_filter_v.stream?.name);
 
   const [variableName, setVariableName] = useState("");
   const [expression, setExpression] = useState("");
@@ -59,151 +215,6 @@ const AddVariableDialog = () => {
 
   // Use actual schema from context, no defaults
   const activeSchema = schema || {};
-
-  // Helper to resolve named types in the schema
-  const resolveNamedType = (typeName, schema) => {
-    if (typeof typeName !== "string" || !schema) return null;
-
-    // Look in fields
-    if (schema.fields && Array.isArray(schema.fields)) {
-      for (const field of schema.fields) {
-        const fieldType = Array.isArray(field.type)
-          ? field.type.find((t) => t !== "null")
-          : field.type;
-
-        // Direct match in field type
-        if (typeof fieldType === "object" && fieldType.name === typeName) {
-          return fieldType;
-        }
-
-        // Search in nested records
-        if (
-          typeof fieldType === "object" &&
-          fieldType.type === "record" &&
-          fieldType.fields &&
-          fieldType.name === typeName
-        ) {
-          return fieldType;
-        }
-
-        // Search in array items
-        if (
-          typeof fieldType === "object" &&
-          fieldType.type === "array" &&
-          typeof fieldType.items === "object" &&
-          fieldType.items.name === typeName
-        ) {
-          return fieldType.items;
-        }
-      }
-    }
-
-    // Look in types
-    if (schema.types && Array.isArray(schema.types)) {
-      for (const type of schema.types) {
-        if (type.name === typeName && type.type === "record") {
-          return type;
-        }
-      }
-    }
-
-    return null;
-  };
-
-  // Get all available array collections from Avro schema and list conditions
-  const getAvailableArrayCollections = () => {
-    const collections = [];
-
-    // Helper to get array type from potential union
-    const getArrayTypeFromField = (field) => {
-      if (typeof field.type === "object" && field.type.type === "array") {
-        return field.type;
-      }
-      if (Array.isArray(field.type)) {
-        return field.type.find(
-          (t) => typeof t === "object" && t.type === "array",
-        );
-      }
-      return null;
-    };
-
-    // Handle Avro schema format
-    if (
-      activeSchema &&
-      activeSchema.fields &&
-      Array.isArray(activeSchema.fields)
-    ) {
-      activeSchema.fields.forEach((field) => {
-        const arrayType = getArrayTypeFromField(field);
-
-        if (arrayType) {
-          // Check if this array contains records with nested catalogs/unions (like cross_matches)
-          let itemsType = arrayType.items;
-
-          // Resolve string references
-          if (typeof itemsType === "string") {
-            const resolvedType = resolveNamedType(itemsType, activeSchema);
-            if (resolvedType) {
-              itemsType = resolvedType;
-            }
-          }
-
-          // Check if items are records with union-type fields (catalog structure)
-          const hasCatalogStructure =
-            itemsType &&
-            typeof itemsType === "object" &&
-            itemsType.type === "record" &&
-            itemsType.fields &&
-            itemsType.fields.some(
-              (f) =>
-                Array.isArray(f.type) &&
-                f.type.some(
-                  (t) =>
-                    t !== "null" &&
-                    typeof t === "object" &&
-                    t.type === "record" &&
-                    t.fields,
-                ),
-            );
-
-          if (hasCatalogStructure) {
-            // Add each catalog as a separate collection
-            itemsType.fields.forEach((catalogField) => {
-              if (Array.isArray(catalogField.type)) {
-                const recordType = catalogField.type.find(
-                  (t) =>
-                    t !== "null" &&
-                    typeof t === "object" &&
-                    t.type === "record" &&
-                    t.fields,
-                );
-                if (recordType) {
-                  collections.push({
-                    name: `${field.name}.${catalogField.name}`,
-                    source: "schema",
-                    description: `${field.name} → ${catalogField.name}`,
-                    parentArray: field.name,
-                    catalogField: catalogField.name,
-                  });
-                }
-              }
-            });
-          } else {
-            // Regular array - add as single collection
-            collections.push({
-              name: field.name,
-              source: "schema",
-              description: `Schema collection: ${field.name}`,
-            });
-          }
-        }
-      });
-    }
-
-    // TODO: Add arrays from list conditions when filter structure is available
-
-    return collections;
-  };
 
   const operators = [
     { symbol: "+", name: "Add", type: "arithmetic" },
@@ -367,13 +378,10 @@ const AddVariableDialog = () => {
                     );
 
                   // Exclude booleans, arrays, and catalog structures from suggestions
-                  const isExcluded = ["boolean", "array"].includes(
-                    itemFieldType,
-                  );
-
                   if (
-                    !isExcluded &&
-                    (isNumericField || itemFieldType === "record")
+                    !excludedTypes.includes(itemFieldType) &&
+                    (numericTypes.includes(itemFieldType) ||
+                      itemFieldType === "record")
                   ) {
                     if (itemFieldType === "record") {
                       // For records (catalogs), don't add the catalog itself, just recurse into subfields
@@ -463,14 +471,11 @@ const AddVariableDialog = () => {
           }
 
           // Exclude booleans and arrays from top-level field suggestions
-          const isExcluded = fieldType === "boolean" || fieldType === "array";
-
-          // Numeric types we want to include
-          const numericTypes = ["double", "float", "int", "long"];
-          const isNumericField = numericTypes.includes(fieldType);
-
           // Include numeric fields (but exclude booleans and arrays)
-          if (isNumericField && !isExcluded) {
+          if (
+            !excludedTypes.includes(fieldType) &&
+            numericTypes.includes(fieldType)
+          ) {
             const fullPath = field.name;
 
             if (
@@ -489,7 +494,7 @@ const AddVariableDialog = () => {
           }
 
           // Skip if it's excluded or not a record type
-          if (isExcluded || fieldType !== "record") {
+          if (excludedTypes.includes(fieldType) || fieldType !== "record") {
             return;
           }
 
@@ -606,12 +611,8 @@ const AddVariableDialog = () => {
                 } else {
                   const nestedPath = `${parentPath}.${nestedField.name}`;
 
-                  // Numeric types we want to include
-                  const numericTypes = ["double", "float", "int", "long"];
-                  const isNumericField = numericTypes.includes(nestedFieldType);
-
                   // If it's a numeric field (not boolean, not array), suggest it
-                  if (isNumericField) {
+                  if (numericTypes.includes(nestedFieldType)) {
                     if (
                       nestedPath
                         .toLowerCase()
@@ -846,7 +847,7 @@ const AddVariableDialog = () => {
   };
 
   const handleCopyPreview = () => {
-    const equation = getPreviewEquation();
+    const equation = getPreviewEquation(variableName, expression);
     navigator.clipboard
       .writeText(equation)
       .then(() => {
@@ -967,111 +968,8 @@ const AddVariableDialog = () => {
     handleCloseSpecialCondition();
   };
 
-  const getPreviewEquation = () => {
-    const varName = variableName || "yourVariableName";
-    let expr = expression || "yourEquation";
-
-    // Convert division notation to fraction format for better display
-    // This function handles complex expressions including parentheses
-    const convertDivisionToFraction = (str) => {
-      // Helper function to find matching parentheses
-      const findMatchingParen = (str, startIdx) => {
-        let count = 1;
-        for (let i = startIdx + 1; i < str.length; i++) {
-          if (str[i] === "(") count++;
-          if (str[i] === ")") count--;
-          if (count === 0) return i;
-        }
-        return -1;
-      };
-
-      // Helper function to extract operand (handles parentheses, variables, numbers)
-      const extractOperand = (str, fromEnd = false) => {
-        if (fromEnd) {
-          // Extract from end - look for the last complete operand
-          const trimmed = str.trim();
-          if (trimmed.endsWith(")")) {
-            // Find matching opening parenthesis
-            let count = 1;
-            for (let i = trimmed.length - 2; i >= 0; i--) {
-              if (trimmed[i] === ")") count++;
-              if (trimmed[i] === "(") count--;
-              if (count === 0) {
-                return trimmed.substring(i);
-              }
-            }
-          }
-          // Extract last number, variable, or function call
-          const match = trimmed.match(
-            /([a-zA-Z_][a-zA-Z0-9_.]*(?:\([^)]*\))?|\d+(?:\.\d+)?)$/,
-          );
-          return match ? match[0] : trimmed;
-        } else {
-          // Extract from start - look for the first complete operand
-          const trimmed = str.trim();
-          if (trimmed.startsWith("(")) {
-            const endIdx = findMatchingParen(trimmed, 0);
-            if (endIdx !== -1) {
-              return trimmed.substring(0, endIdx + 1);
-            }
-          }
-          // Extract first number, variable, or function call
-          const match = trimmed.match(
-            /^([a-zA-Z_][a-zA-Z0-9_.]*(?:\([^)]*\))?|\d+(?:\.\d+)?)/,
-          );
-          return match ? match[0] : trimmed;
-        }
-      };
-
-      // Process divisions from left to right, being careful about operator precedence
-      let result = str;
-      let changed = true;
-
-      while (changed) {
-        changed = false;
-        // Find division operators that are not already inside \frac
-        const divisionMatch = result.match(/(.*?)([^\\]|^)\/([^\/].*)/);
-        if (divisionMatch && !result.includes("\\frac")) {
-          const beforeDiv =
-            divisionMatch[1] +
-            (divisionMatch[2] === "^" ? "" : divisionMatch[2]);
-          const afterDiv = divisionMatch[3];
-
-          // Extract the immediate operands around the division
-          const numerator = extractOperand(beforeDiv, true);
-          const denominator = extractOperand(afterDiv, false);
-
-          // Get the parts before numerator and after denominator
-          const beforeNumerator = beforeDiv.substring(
-            0,
-            beforeDiv.length - numerator.length,
-          );
-          const afterDenominator = afterDiv.substring(denominator.length);
-
-          // Don't convert if this looks like it's already a LaTeX fraction
-          if (numerator.includes("\\frac") || denominator.includes("\\frac")) {
-            break;
-          }
-
-          // Recursively convert nested divisions in operands
-          const convertedNum = convertDivisionToFraction(numerator);
-          const convertedDen = convertDivisionToFraction(denominator);
-
-          result = `${beforeNumerator}\\frac{${convertedNum}}{${convertedDen}}${afterDenominator}`;
-          changed = true;
-        }
-      }
-
-      return result;
-    };
-
-    expr = convertDivisionToFraction(expr);
-
-    return `${varName} = ${expr}`;
-  };
-
   const previewEquation = useMemo(
-    () => getPreviewEquation(),
+    () => getPreviewEquation(variableName, expression),
     [variableName, expression],
   );
 

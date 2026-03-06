@@ -7,13 +7,6 @@ export const RUN_BOOM_FILTER_ERROR = "skyportal/RUN_BOOM_FILTER_ERROR";
 export const RUN_BOOM_FILTER_FAIL = "skyportal/RUN_BOOM_FILTER_FAIL";
 export const BOOM_FILTER_CLEAR = "skyportal/BOOM_FILTER_CLEAR";
 
-// export function runBoomFilter({ filter, selectedCollection }) {
-//   return API.POST("/api/queries/count", RUN_BOOM_FILTER, {
-//     filter,
-//     selectedCollection,
-//   });
-// }
-
 export function runBoomFilter({
   pipeline,
   selectedCollection,
@@ -21,7 +14,7 @@ export function runBoomFilter({
   end_jd,
   filter_id,
 }) {
-  return API.POST("/api/queries/count", RUN_BOOM_FILTER, {
+  return API.POST("/api/boom/run_filter", RUN_BOOM_FILTER, {
     pipeline,
     selectedCollection,
     start_jd,
@@ -41,7 +34,7 @@ export function runBoomTestFilter({
   limit,
   cursor = null,
 }) {
-  return API.POST("/api/queries/pipeline/test", RUN_BOOM_FILTER, {
+  return API.POST("/api/boom/run_filter", RUN_BOOM_FILTER, {
     pipeline,
     selectedCollection,
     start_jd,

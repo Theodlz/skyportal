@@ -8,7 +8,7 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import {
   mongoOperatorTypes,
   mongoOperatorLabels,
-} from "../../../constants/filterConstants";
+} from "../../../../constants/filterConstants";
 
 const GroupHeader = styled("div")(({ theme }) => {
   const primaryMain = theme.palette?.primary?.main || "#1976d2";
@@ -215,7 +215,7 @@ const AutocompleteFields = ({
     if (allGroups.length > 0 && allGroups.length > collapsedGroups.size) {
       setCollapsedGroups(new Set(allGroups));
     }
-  }, [allGroups.length]);
+  }, [allGroups]);
 
   // Auto-expand groups that contain search matches
   useEffect(() => {
@@ -1013,7 +1013,12 @@ AutocompleteFields.propTypes = {
     id: PropTypes.string.isRequired,
     field: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
     operator: PropTypes.string,
-    value: PropTypes.any,
+    value: PropTypes.oneOfType([
+      PropTypes.string,
+      PropTypes.number,
+      PropTypes.bool,
+      PropTypes.object,
+    ]),
   }).isRequired,
   setOpenEquationIds: PropTypes.func.isRequired,
   setSelectedChip: PropTypes.func.isRequired,

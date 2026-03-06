@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from "react";
+import PropTypes from "prop-types";
 import {
   Box,
   Typography,
@@ -229,6 +230,25 @@ const MapExpressionEditor = ({
       )}
     </Box>
   );
+};
+
+MapExpressionEditor.propTypes = {
+  mapFields: PropTypes.arrayOf(
+    PropTypes.shape({
+      fieldName: PropTypes.string,
+      expression: PropTypes.string,
+    }),
+  ).isRequired,
+  onMapFieldsChange: PropTypes.func.isRequired,
+  arrayField: PropTypes.string.isRequired,
+  subFieldOptions: PropTypes.arrayOf(PropTypes.string).isRequired,
+  customVariables: PropTypes.arrayOf(
+    PropTypes.shape({
+      name: PropTypes.oneOfType([PropTypes.string, PropTypes.object])
+        .isRequired,
+      variable: PropTypes.string.isRequired,
+    }),
+  ),
 };
 
 export default MapExpressionEditor;

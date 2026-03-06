@@ -17,7 +17,9 @@ const SimpleConditionRow = ({ condition, onChange }) => {
     customSwitchCases,
     fieldOptionsList,
   } = useConditionContext();
-  const currentStream = useSelector((state) => state.filter_v.stream?.name);
+  const currentStream = useSelector(
+    (state) => state.boom_filter_v.stream?.name,
+  );
 
   const [field, setField] = useState(condition?.field || "");
   const [operator, setOperator] = useState(condition?.operator || "$eq");
@@ -104,6 +106,7 @@ SimpleConditionRow.propTypes = {
     field: PropTypes.string,
     operator: PropTypes.string,
     value: PropTypes.string,
+    createdAt: PropTypes.string,
   }),
   onChange: PropTypes.func,
 };

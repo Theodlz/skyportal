@@ -41,11 +41,11 @@ import {
   Download as DownloadIcon,
 } from "@mui/icons-material";
 import { Controller, useForm } from "react-hook-form";
-import { useCurrentBuilder } from "../../../hooks/useContexts";
+import { useCurrentBuilder } from "../../../../hooks/useContexts";
 import { LocalizationProvider } from "@mui/x-date-pickers";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
 import { DateTimePicker } from "@mui/x-date-pickers/DateTimePicker";
-import FormValidationError from "../../FormValidationError.jsx";
+import FormValidationError from "../../../FormValidationError.jsx";
 import ReactJson from "react-json-view";
 import makeStyles from "@mui/styles/makeStyles";
 import { useDispatch, useSelector } from "react-redux";
@@ -53,7 +53,7 @@ import {
   runBoomFilter,
   runBoomTestFilter,
   clearBoomFilter,
-} from "../../../ducks/boom_run_filter";
+} from "../../../../ducks/boom_run_filter";
 
 const useStyles = makeStyles((theme) => ({
   timeRange: {
@@ -175,9 +175,9 @@ const MongoQueryDialog = () => {
   const classes = useStyles();
 
   const filter_stream = useSelector(
-    (state) => state.filter_v.stream?.name?.split(" ")[0],
+    (state) => state.boom_filter_v.stream?.name?.split(" ")[0],
   );
-  const filter_id = useSelector((state) => state.filter_v.id);
+  const filter_id = useSelector((state) => state.boom_filter_v.id);
   const last_result_id = useSelector((state) =>
     state.query_result?.data?.results?.at(-1),
   );
@@ -286,7 +286,7 @@ const MongoQueryDialog = () => {
     } else if (selectedCollection === "" && newCollection !== "") {
       setSelectedCollection(newCollection);
     }
-  }, [filter_stream, selectedCollection]);
+  }, [filter_stream, selectedCollection, dispatch]);
 
   const defaultStartDate = new Date();
   const defaultEndDate = new Date();
@@ -464,7 +464,6 @@ const MongoQueryDialog = () => {
   };
 
   const executeQuery = async (
-    page = 1,
     countOnly = false,
     cursor = null,
     direction = "forward",
@@ -605,7 +604,7 @@ const MongoQueryDialog = () => {
       dispatch(clearBoomFilter());
 
       // Get first page data first
-      const firstPageQueryResult = await executeQuery(1, false);
+      const firstPageQueryResult = await executeQuery(false);
 
       if (firstPageQueryResult.result?.data) {
         dispatch({
@@ -634,7 +633,7 @@ const MongoQueryDialog = () => {
       }
 
       // Get actual count after first page
-      const countQueryResult = await executeQuery(1, true);
+      const countQueryResult = await executeQuery(true);
       // Good code when using queries/count endpoint
       // const actualCount = countQueryResult.result?.data?.data || 0;
       // temporary code to get count from results length

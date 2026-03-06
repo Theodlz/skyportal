@@ -34,10 +34,10 @@ export { ConditionContext };
 // props validation
 ConditionProvider.propTypes = {
   children: PropTypes.node.isRequired,
-  customVariables: PropTypes.array.isRequired,
-  customListVariables: PropTypes.array.isRequired,
-  customSwitchCases: PropTypes.array.isRequired,
-  fieldOptionsList: PropTypes.array.isRequired,
+  customVariables: PropTypes.arrayOf(PropTypes.shape({})).isRequired,
+  customListVariables: PropTypes.arrayOf(PropTypes.shape({})).isRequired,
+  customSwitchCases: PropTypes.arrayOf(PropTypes.shape({})).isRequired,
+  fieldOptionsList: PropTypes.arrayOf(PropTypes.shape({})).isRequired,
   isListDialogOpen: PropTypes.bool.isRequired,
   setListConditionDialog: PropTypes.func.isRequired,
 };

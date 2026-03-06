@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import PropTypes from "prop-types";
 import {
   Dialog,
   DialogTitle,
@@ -21,12 +22,11 @@ import {
   useListConditionDialog,
   useListConditionForm,
   useListConditionSave,
-} from "../../../hooks/useDialog";
-import { useCurrentBuilder } from "../../../hooks/useContexts";
+} from "../../../../hooks/useDialog";
+import { useCurrentBuilder } from "../../../../hooks/useContexts";
 import BlockComponent from "../block/BlockComponent";
-import FilterBuilder from "../FilterBuilder";
 import MapExpressionEditor from "./MapExpressionEditor";
-import { postElement } from "../../../ducks/boom_filter_modules";
+import { postElement } from "../../../../ducks/boom_filter_modules";
 import { useDispatch, useSelector } from "react-redux";
 
 /**
@@ -154,6 +154,19 @@ const SubFieldSelector = ({
   );
 };
 
+SubFieldSelector.propTypes = {
+  selectedSubField: PropTypes.string,
+  onSubFieldChange: PropTypes.func,
+  subFieldOptions: PropTypes.arrayOf(
+    PropTypes.shape({
+      label: PropTypes.string,
+      type: PropTypes.string,
+    }),
+  ),
+  selectedOperator: PropTypes.string,
+  key: PropTypes.string,
+};
+
 const ArrayFieldSelector = ({
   selectedArrayField,
   onFieldChange,
@@ -226,6 +239,18 @@ const ArrayFieldSelector = ({
   );
 };
 
+ArrayFieldSelector.propTypes = {
+  selectedArrayField: PropTypes.string,
+  onFieldChange: PropTypes.func,
+  availableArrayFields: PropTypes.arrayOf(
+    PropTypes.shape({
+      label: PropTypes.string,
+      type: PropTypes.string,
+    }),
+  ),
+  key: PropTypes.string,
+};
+
 const ConditionNameInput = ({ conditionName, onNameChange, nameError }) => {
   return (
     <Box sx={{ mb: 2 }}>
@@ -244,6 +269,12 @@ const ConditionNameInput = ({ conditionName, onNameChange, nameError }) => {
   );
 };
 
+ConditionNameInput.propTypes = {
+  conditionName: PropTypes.string,
+  onNameChange: PropTypes.func,
+  nameError: PropTypes.string,
+};
+
 const ListOperatorSelector = ({
   selectedOperator,
   onOperatorChange,
@@ -258,7 +289,6 @@ const ListOperatorSelector = ({
       $filter:
         "Filters the array to return only elements that match the conditions",
       $map: "Transforms each element in the array by applying an expression",
-      $size: "Checks if the array has a specific number of elements",
       $all: "Returns true if the array contains all specified values",
       $min: "Returns the minimum value from the array elements",
       $max: "Returns the maximum value from the array elements",
@@ -355,6 +385,17 @@ const ListOperatorSelector = ({
       )}
     </Box>
   );
+};
+
+ListOperatorSelector.propTypes = {
+  selectedOperator: PropTypes.string,
+  onOperatorChange: PropTypes.func,
+  operators: PropTypes.arrayOf(
+    PropTypes.shape({
+      value: PropTypes.string,
+      label: PropTypes.string,
+    }),
+  ),
 };
 
 const ConditionBuilderSection = ({
@@ -525,7 +566,7 @@ const ConditionBuilderSection = ({
                 variant="caption"
                 sx={{ color: "success.dark", fontStyle: "italic" }}
               >
-                "{conditionName}"
+                &quot;{conditionName}&quot;
               </Typography>
             )}
           </Box>
@@ -543,6 +584,40 @@ const ConditionBuilderSection = ({
       )}
     </Box>
   );
+};
+
+ConditionBuilderSection.propTypes = {
+  selectedOperator: PropTypes.string,
+  selectedArrayField: PropTypes.string,
+  conditionName: PropTypes.string,
+  localFilters: PropTypes.arrayOf(PropTypes.shape({})),
+  setLocalFilters: PropTypes.func,
+  subFieldOptions: PropTypes.arrayOf(
+    PropTypes.shape({
+      label: PropTypes.string,
+      type: PropTypes.string,
+      isSchemaField: PropTypes.bool,
+    }),
+  ),
+  fieldOptions: PropTypes.arrayOf(
+    PropTypes.shape({
+      label: PropTypes.string,
+      type: PropTypes.string,
+    }),
+  ),
+  mapFields: PropTypes.arrayOf(
+    PropTypes.shape({
+      fieldName: PropTypes.string,
+      expression: PropTypes.string,
+    }),
+  ),
+  onMapFieldsChange: PropTypes.func,
+  customVariables: PropTypes.arrayOf(
+    PropTypes.shape({
+      name: PropTypes.string,
+      type: PropTypes.string,
+    }),
+  ),
 };
 
 const AddListConditionDialog = () => {
@@ -584,7 +659,7 @@ const AddListConditionDialog = () => {
   );
   const save = useListConditionSave();
   const dispatch = useDispatch();
-  const stream = useSelector((state) => state.filter_v.stream?.name);
+  const stream = useSelector((state) => state.boom_filter_v.stream?.name);
 
   // Auto-populate form when opening inline with condition data
   useEffect(() => {
@@ -624,20 +699,7 @@ const AddListConditionDialog = () => {
         }
       }
     }
-  }, [
-    listConditionDialog.open,
-    listConditionDialog.conditionId,
-    dialog.listFieldNameFromCondition,
-    dialog.operatorFromCondition,
-    dialog.conditionValue,
-    form.selectedArrayField,
-    form.selectedOperator,
-    form.setSelectedArrayField,
-    form.setSelectedSubField,
-    form.setSelectedOperator,
-    dialog.handleFieldSelection,
-    dialog.handleOperatorChange,
-  ]);
+  }, [listConditionDialog.open, listConditionDialog.conditionId, dialog, form]);
 
   const handleClose = () => {
     setListConditionDialog({ open: false, blockId: null });

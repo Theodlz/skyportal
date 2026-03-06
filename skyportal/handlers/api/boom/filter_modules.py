@@ -115,19 +115,20 @@ def boom_available(func):
 class BoomFilterModulesHandler(BaseHandler):
     @auth_or_token
     @boom_available
-    def get(self, name=None):
+    def get(self):
         elements = self.get_query_argument("elements")
+        survey = self.get_query_argument("survey", None)
 
         with self.Session() as session:
             client = MongoClient(uri)
             try:
                 db = client[queryDbName]
                 collection = db[elements]
-                if name is None:
+                if survey is None:
                     result = list(collection.find())
                 elif elements == "schema":
                     result = requests.get(
-                        f"{boom_url}/filters/schemas/{name}",
+                        f"{boom_url}/filters/schemas/{survey}",
                         headers={"Authorization": f"Bearer {boom_token}"},
                     )
                     if result.status_code != 200:
@@ -141,7 +142,7 @@ class BoomFilterModulesHandler(BaseHandler):
                             f"Invalid JSON response from Boom API: {result.text}"
                         )
                 else:
-                    result = collection.find_one({"name": name})
+                    result = collection.find_one({"name": survey})
             except Exception as e:
                 traceback.print_exc()
                 return self.error(f"Error fetching data from MongoDB: {e}")

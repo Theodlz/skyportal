@@ -21,10 +21,9 @@ import {
 } from "@mui/icons-material";
 import BlockComponent from "../block/BlockComponent";
 import AutocompleteFields from "./AutocompleteFields";
-import { useCurrentBuilder } from "../../../hooks/useContexts";
-import { ConditionProvider } from "../../../contexts/ConditionContext";
-import { flattenFieldOptions } from "../../../constants/filterConstants";
-import { getFieldOptionsWithVariable } from "../../../utils/conditionHelpers";
+import { useCurrentBuilder } from "../../../../hooks/useContexts";
+import { flattenFieldOptions } from "../../../../constants/filterConstants";
+import { getFieldOptionsWithVariable } from "../../../../utils/conditionHelpers";
 import Latex from "react-latex-next";
 
 // Helper function to escape LaTeX special characters for display
@@ -64,7 +63,9 @@ const ConditionalValueBuilder = ({
 }) => {
   // Get schema from Redux and flatten to field options
   const schema = useSelector((state) => state.filter_modules?.schema);
-  const currentStream = useSelector((state) => state.filter_v.stream?.name);
+  const currentStream = useSelector(
+    (state) => state.boom_filter_v.stream?.name,
+  );
   const final_schema = schema?.versions?.find(
     (v) => v.vid === schema.active_id,
   )?.schema;
@@ -101,7 +102,7 @@ const ConditionalValueBuilder = ({
     customListVariables,
     customSwitchCases || [],
     [],
-    conditionOrBlock.createdAt,
+    null,
     currentStream,
   );
 
@@ -527,7 +528,7 @@ ConditionalValueBuilder.propTypes = {
   value: PropTypes.shape({
     cases: PropTypes.arrayOf(
       PropTypes.shape({
-        block: PropTypes.object,
+        block: PropTypes.shape({}),
         then: PropTypes.string,
       }),
     ),
@@ -536,7 +537,7 @@ ConditionalValueBuilder.propTypes = {
   onChange: PropTypes.func,
   defaultCondition: PropTypes.func.isRequired,
   defaultBlock: PropTypes.func.isRequired,
-  fieldOptionsList: PropTypes.array,
+  fieldOptionsList: PropTypes.arrayOf(PropTypes.shape({})),
 };
 
 export default ConditionalValueBuilder;

@@ -5,12 +5,12 @@ import { FormControlLabel, Switch } from "@mui/material";
 import {
   mongoOperatorLabels,
   flattenFieldOptions,
-} from "../../../constants/filterConstants";
+} from "../../../../constants/filterConstants";
 import {
   getOperatorsForField,
   getFieldType,
-} from "../../../utils/conditionHelpers";
-import { useConditionContext } from "../../../hooks/useContexts";
+} from "../../../../utils/conditionHelpers";
+import { useConditionContext } from "../../../../hooks/useContexts";
 import TextField from "@mui/material/TextField";
 import Autocomplete from "@mui/material/Autocomplete";
 import { styled, lighten, darken } from "@mui/system";
@@ -89,7 +89,7 @@ AutocompleteOperators.propTypes = {
   operators: PropTypes.arrayOf(PropTypes.string),
   value: PropTypes.string,
   onChange: PropTypes.func,
-  mongoOperatorLabels_: PropTypes.object,
+  mongoOperatorLabels_: PropTypes.shape({}),
   key: PropTypes.string,
 };
 
@@ -197,7 +197,12 @@ OperatorSelector.propTypes = {
     id: PropTypes.string.isRequired,
     field: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
     operator: PropTypes.string,
-    value: PropTypes.any,
+    value: PropTypes.oneOfType([
+      PropTypes.string,
+      PropTypes.number,
+      PropTypes.bool,
+      PropTypes.object,
+    ]),
   }).isRequired,
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,
@@ -427,7 +432,12 @@ const BooleanFieldSwitch = ({ conditionOrBlock, block, updateCondition }) => {
 BooleanFieldSwitch.propTypes = {
   conditionOrBlock: PropTypes.shape({
     id: PropTypes.string.isRequired,
-    value: PropTypes.any,
+    value: PropTypes.oneOfType([
+      PropTypes.string,
+      PropTypes.number,
+      PropTypes.bool,
+      PropTypes.object,
+    ]),
   }).isRequired,
   block: PropTypes.shape({
     id: PropTypes.string.isRequired,

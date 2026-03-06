@@ -8,19 +8,43 @@ import {
   Save as SaveIcon,
 } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
-import { useFilterBuilder } from "../../hooks/useContexts";
-import { flattenFieldOptions } from "../../constants/filterConstants";
+import { useFilterBuilder } from "../../../hooks/useContexts";
+import { flattenFieldOptions } from "../../../constants/filterConstants";
 import AddVariableDialog from "./dialog/AddVariableDialog";
 import BlockComponent from "./block/BlockComponent";
 import AddListConditionDialog from "./dialog/AddListConditionDialog";
 import AddSwitchDialog from "./dialog/AddSwitchDialog";
 import SaveBlockDialogMenu from "./block/SaveBlockDialogMenu";
 import MongoQueryDialog from "./dialog/MongoQueryDialog";
-import { filterBuilderStyles } from "../../styles/componentStyles";
+import { filterBuilderStyles } from "../../../styles/componentStyles";
 import { showNotification } from "baselayer/components/Notifications";
 
-import { updateGroupFilter } from "../../ducks/boom_filter";
-import { fetchSchema } from "../../ducks/boom_filter_modules";
+import { updateGroupFilter } from "../../../ducks/boom_filter";
+import { fetchSchema } from "../../../ducks/boom_filter_modules";
+
+// Helper function to recursively collect all block IDs (excluding root blocks)
+const collectAllBlockIds = (blocks, isRoot = true) => {
+  const blockIds = [];
+
+  if (!blocks || !Array.isArray(blocks)) return blockIds;
+
+  blocks.forEach((block) => {
+    if (!block || block.category !== "block") return;
+
+    // Don't collect root block IDs, only nested ones
+    if (!isRoot && block.id) {
+      blockIds.push(block.id);
+    }
+
+    // Recursively collect from children
+    if (block.children && block.children.length > 0) {
+      const childBlockIds = collectAllBlockIds(block.children, false);
+      blockIds.push(...childBlockIds);
+    }
+  });
+
+  return blockIds;
+};
 
 const FilterBuilderContent = ({
   onToggleAnnotationBuilder,
@@ -51,38 +75,14 @@ const FilterBuilderContent = ({
   } = useFilterBuilder();
   const navigate = useNavigate();
   const dispatch = useDispatch();
-  const filter_v = useSelector((state) => state.filter_v);
+  const filter_v = useSelector((state) => state.boom_filter_v);
   const filter_stream = useSelector(
-    (state) => state.filter_v.stream?.name?.split(" ")[0],
+    (state) => state.boom_filter_v.stream?.name?.split(" ")[0],
   );
   const store_schema = useSelector((state) => state.filter_modules?.schema);
 
   const [schema, setSchema] = useState(null);
   const [fieldOptions, setFieldOptions] = useState([]);
-
-  // Helper function to recursively collect all block IDs (excluding root blocks)
-  const collectAllBlockIds = useCallback((blocks, isRoot = true) => {
-    const blockIds = [];
-
-    if (!blocks || !Array.isArray(blocks)) return blockIds;
-
-    blocks.forEach((block) => {
-      if (!block || block.category !== "block") return;
-
-      // Don't collect root block IDs, only nested ones
-      if (!isRoot && block.id) {
-        blockIds.push(block.id);
-      }
-
-      // Recursively collect from children
-      if (block.children && block.children.length > 0) {
-        const childBlockIds = collectAllBlockIds(block.children, false);
-        blockIds.push(...childBlockIds);
-      }
-    });
-
-    return blockIds;
-  }, []); // Empty dependency array since this function doesn't depend on any props or state
 
   // Helper function to create an empty filter with a default empty condition
   const createEmptyFilterWithDefaultCondition = useCallback(
@@ -209,7 +209,10 @@ const FilterBuilderContent = ({
     hasBeenModified,
     createEmptyFilterWithDefaultCondition,
     setCollapsedBlocks,
-    collectAllBlockIds,
+    localFilterData,
+    setLocalFilterData,
+    setAnnotations,
+    setProjectionFields,
   ]);
 
   // Update context filters when local filter data changes
@@ -220,9 +223,8 @@ const FilterBuilderContent = ({
   }, [localFilterData, setFilters]);
 
   useEffect(() => {
-    if (filter_stream)
-      dispatch(fetchSchema({ name: filter_stream, elements: "schema" }));
-  }, [filter_stream]);
+    if (filter_stream) dispatch(fetchSchema(filter_stream));
+  }, [filter_stream, dispatch]);
 
   useEffect(() => {
     if (store_schema) {
@@ -232,21 +234,24 @@ const FilterBuilderContent = ({
   }, [store_schema]);
 
   // Callback to handle filter updates from child components
-  const handleFilterUpdate = (updatedFilters) => {
-    setHasBeenModified(true); // Mark as modified to prevent useEffect override
-    setLocalFilterData(updatedFilters);
-    // Also update the context immediately for MongoDB generation
-    if (setFilters) {
-      setFilters(updatedFilters);
-    }
-  };
+  const handleFilterUpdate = useCallback(
+    (updatedFilters) => {
+      setHasBeenModified(true); // Mark as modified to prevent useEffect override
+      setLocalFilterData(updatedFilters);
+      // Also update the context immediately for MongoDB generation
+      if (setFilters) {
+        setFilters(updatedFilters);
+      }
+    },
+    [setHasBeenModified, setLocalFilterData, setFilters],
+  );
 
   // Set the local filters updater in the context so dialogs can access it
   useEffect(() => {
     if (setLocalFiltersUpdater) {
       setLocalFiltersUpdater(() => handleFilterUpdate);
     }
-  }, [setLocalFiltersUpdater]);
+  }, [setLocalFiltersUpdater, handleFilterUpdate]);
 
   // Use local filter data or fallback to context filters
   const { filters: contextFilters } = useFilterBuilder();
@@ -467,8 +472,8 @@ FilterBuilderContent.propTypes = {
     name: PropTypes.string,
     stream_id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     group_id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
-    filt: PropTypes.object,
-    version: PropTypes.arrayOf(PropTypes.object),
+    filt: PropTypes.shape({}),
+    version: PropTypes.arrayOf(PropTypes.shape({})),
     active_fid: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     fv: PropTypes.arrayOf(
       PropTypes.shape({
