@@ -119,19 +119,49 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
     const hasAnnotations = projectionFields && projectionFields.length > 0;
 
     // Collect field names from annotation fields that need to be available
-    // BUT exclude arithmetic variables (they'll be inlined in annotations)
-    const annotationFields = projectionFields
-      ? projectionFields
-          .filter((f) => f.fieldName && f.fieldName !== "objectId")
-          .filter((f) => {
-            // Exclude arithmetic variables - they'll be inlined
-            const isArithmeticVar = customVariables.some(
-              (v) => v.name === f.fieldName,
-            );
-            return !isArithmeticVar;
-          })
-          .map((f) => f.fieldName)
-      : [];
+    const annotationFieldsSet = new Set();
+
+    if (projectionFields) {
+      projectionFields.forEach((f) => {
+        if (!f.fieldName || f.fieldName === "objectId") return;
+
+        // Check if this is an arithmetic variable
+        const arithVar = customVariables.find((v) => v.name === f.fieldName);
+
+        if (arithVar) {
+          // Arithmetic variable - scan its expression for variable references
+          // that need to be materialized
+          if (arithVar.variable) {
+            const expression = arithVar.variable.includes("=")
+              ? arithVar.variable.split("=")[1].trim()
+              : arithVar.variable;
+
+            // Scan for MongoDB-style variable references like $varname
+            const fieldRefPattern = /\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
+            const matches = [...expression.matchAll(fieldRefPattern)];
+
+            matches.forEach((match) => {
+              const varName = match[1];
+
+              // If it's a variable (not a schema field or MongoDB operator), add it
+              const isVariable =
+                customVariables.some((v) => v.name === varName) ||
+                customListVariables.some((v) => v.name === varName) ||
+                customSwitchCases.some((v) => v.name === varName);
+
+              if (isVariable) {
+                annotationFieldsSet.add(varName);
+              }
+            });
+          }
+        } else {
+          // Not an arithmetic variable - include it directly
+          annotationFieldsSet.add(f.fieldName);
+        }
+      });
+    }
+
+    const annotationFields = Array.from(annotationFieldsSet);
 
     // Always use filters as the base query, regardless of mode
     // This ensures annotations show both filters + projections
@@ -148,9 +178,9 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
 
     // If there are projection fields (annotations), adapt the final project stage
     if (hasAnnotations) {
-      // Get the last stage (which is always a $project stage now)
-      const lastStageIndex = baseQuery.length - 1;
-      const lastStage = baseQuery[lastStageIndex];
+      // Get the last stage (which is sempre a $project stage now)
+      let lastStageIndex = baseQuery.length - 1;
+      let lastStage = baseQuery[lastStageIndex];
 
       if (lastStage && lastStage.$project) {
         // Start with existing projection (includes _id and used fields)
@@ -240,9 +270,70 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
         // Add annotations_object to projection if there are any
         if (Object.keys(annotations_object).length > 0) {
           enhancedProjection.annotations = annotations_object;
+
+          // IMPORTANT: Scan the annotation expressions for $variableName references
+          // These need to be materialized before the $project stage
+          const extractVariableRefsFromExpr = (expr, refs) => {
+            if (typeof expr === "string" && expr.startsWith("$")) {
+              // Field reference like "$jd_min_prv"
+              const fieldName = expr.substring(1); // Remove $
+              // Check if this is a custom variable, list variable, or switch case
+              const isCustomVar = customVariables.some(
+                (v) => v.name === fieldName,
+              );
+              const isListVar = customListVariables.some(
+                (v) => v.name === fieldName,
+              );
+              const isSwitchCase = customSwitchCases.some(
+                (v) => v.name === fieldName,
+              );
+
+              if (isCustomVar || isListVar || isSwitchCase) {
+                refs.add(fieldName);
+              }
+            } else if (Array.isArray(expr)) {
+              expr.forEach((item) => extractVariableRefsFromExpr(item, refs));
+            } else if (typeof expr === "object" && expr !== null) {
+              Object.values(expr).forEach((value) =>
+                extractVariableRefsFromExpr(value, refs),
+              );
+            }
+          };
+
+          const additionalVarRefs = new Set();
+          Object.values(annotations_object).forEach((annotationExpr) => {
+            extractVariableRefsFromExpr(annotationExpr, additionalVarRefs);
+          });
+
+          // Add these variable references to annotationFields so they get materialized
+          additionalVarRefs.forEach((varName) => {
+            if (!annotationFields.includes(varName)) {
+              annotationFields.push(varName);
+            }
+          });
+
+          // If we found new variables, rebuild the pipeline with them included
+          if (additionalVarRefs.size > 0) {
+            const rebuiltQuery = convertToMongoAggregation(
+              filters,
+              schema,
+              fieldOptions,
+              customVariables,
+              customListVariables,
+              customSwitchCases,
+              annotationFields,
+              hasAnnotations,
+            );
+
+            // Replace baseQuery entirely with rebuilt query, except keep our enhanced projection
+            baseQuery.length = 0;
+            baseQuery.push(...rebuiltQuery.slice(0, -1)); // All stages except final project
+            // Update lastStageIndex after rebuild
+            lastStageIndex = baseQuery.length;
+          }
         }
 
-        // Replace the last stage with the enhanced projection
+        // Replace/add the last stage with the enhanced projection
         baseQuery[lastStageIndex] = { $project: enhancedProjection };
       }
     }
@@ -272,12 +363,8 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
     return isValidPipeline(pipeline);
   };
 
-  // Context value
   const value = {
-    // Mode
     mode,
-
-    // Schema and field options
     schema,
     fieldOptions,
 
@@ -333,7 +420,6 @@ export const UnifiedBuilderProvider = ({ children, mode = "filter" }) => {
   );
 };
 
-// props validation
 UnifiedBuilderProvider.propTypes = {
   children: PropTypes.node.isRequired,
   mode: PropTypes.oneOf(["filter", "annotation"]),

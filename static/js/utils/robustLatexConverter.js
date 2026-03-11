@@ -617,6 +617,12 @@ export class RobustLatexToMongoConverter {
       return `$${trimmed}`;
     }
 
+    // Check if it already starts with $ (field reference passed through)
+    if (trimmed.startsWith("$")) {
+      // Already has $ prefix, don't add another
+      return trimmed;
+    }
+
     // Fallback for unknown patterns - return as field reference
     return `$${trimmed}`;
   }

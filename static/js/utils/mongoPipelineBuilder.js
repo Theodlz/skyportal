@@ -98,15 +98,95 @@ export const buildMongoAggregationPipeline = (
     // In annotation mode, mark source fields as used so they're available for $field references
     if (annotationMode && additionalFieldsToProject.length > 0) {
       additionalFieldsToProject.forEach((field) => {
-        const isVariable =
-          customVariables.some((v) => v.name === field) ||
-          customListVariables.some((v) => v.name === field) ||
-          customSwitchCases.some((v) => v.name === field);
+        // Check if it's a custom variable
+        if (customVariables.some((v) => v.name === field)) {
+          dependencyGraph.usedFields.customVariables.add(field);
 
-        if (!isVariable) {
+          // IMPORTANT: When an arithmetic variable is used in annotations, we need to ensure
+          // all variables referenced in its expression are also materialized
+          // Scan the expression for variable references
+          const arithVar = customVariables.find((v) => v.name === field);
+          if (arithVar && arithVar.variable) {
+            const expression = arithVar.variable.includes("=")
+              ? arithVar.variable.split("=")[1].trim()
+              : arithVar.variable;
+
+            // Scan for MongoDB field references like $varname
+            const fieldRefPattern = /\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
+            const fieldMatches = [...expression.matchAll(fieldRefPattern)];
+
+            fieldMatches.forEach((match) => {
+              const refName = match[1];
+
+              // Check if this reference is to another variable that needs materialization
+              if (customVariables.some((v) => v.name === refName)) {
+                dependencyGraph.usedFields.customVariables.add(refName);
+              } else if (customListVariables.some((v) => v.name === refName)) {
+                dependencyGraph.usedFields.listVariables.add(refName);
+                const listVar = customListVariables.find(
+                  (v) => v.name === refName,
+                );
+                if (listVar) {
+                  const current = dependencyGraph.listVariableUsage.get(
+                    refName,
+                  ) || {
+                    count: 0,
+                    variable: listVar,
+                    mustMaterialize: false,
+                  };
+                  dependencyGraph.listVariableUsage.set(refName, {
+                    count: current.count + 1,
+                    variable: listVar,
+                    mustMaterialize: true, // Must materialize because it's referenced in annotation
+                  });
+                }
+              } else if (customSwitchCases.some((v) => v.name === refName)) {
+                dependencyGraph.usedFields.switchCases.add(refName);
+              } else if (
+                fieldOptions.some(
+                  (f) => f.value === refName || f.label === refName,
+                )
+              ) {
+                dependencyGraph.usedFields.baseFields.add(refName);
+              }
+            });
+          }
+        }
+        // Check if it's a list variable
+        else if (customListVariables.some((v) => v.name === field)) {
+          dependencyGraph.usedFields.listVariables.add(field);
+          // Track list variable usage count
+          const listVar = customListVariables.find((v) => v.name === field);
+          if (listVar) {
+            const current = dependencyGraph.listVariableUsage.get(field) || {
+              count: 0,
+              variable: listVar,
+              mustMaterialize: false,
+            };
+            dependencyGraph.listVariableUsage.set(field, {
+              count: current.count + 1,
+              variable: listVar,
+              mustMaterialize: current.mustMaterialize,
+            });
+          }
+        }
+        // Check if it's a switch case
+        else if (customSwitchCases.some((v) => v.name === field)) {
+          dependencyGraph.usedFields.switchCases.add(field);
+        }
+        // Otherwise it's a base field
+        else {
           dependencyGraph.usedFields.baseFields.add(field);
         }
       });
+
+      // Re-run dependency marking to ensure dependencies of these fields are also marked as used
+      markDependenciesAsUsed(
+        dependencyGraph,
+        customVariables,
+        customListVariables,
+        customSwitchCases,
+      );
     }
 
     // Determine pipeline stages needed
@@ -154,6 +234,8 @@ export const buildMongoAggregationPipeline = (
       customListVariables,
       customSwitchCases,
       fieldOptions,
+      additionalFieldsToProject,
+      annotationMode,
     );
     pipeline.push(...variableStages);
 
@@ -210,6 +292,24 @@ export const buildMongoAggregationPipeline = (
       }
     }
 
+    // Validate that all field references in the pipeline are defined
+    const validationErrors = validatePipelineFieldReferences(
+      pipeline,
+      fieldOptions,
+      customVariables,
+      customListVariables,
+      customSwitchCases,
+    );
+
+    if (validationErrors.length > 0) {
+      console.error(
+        "Pipeline validation failed - undefined field references:",
+        validationErrors,
+      );
+      // In development, you may want to throw an error instead
+      // throw new Error(`Undefined field references: ${validationErrors.join(", ")}`);
+    }
+
     return pipeline;
   } catch (error) {
     return [];
@@ -226,6 +326,41 @@ const buildDependencyGraph = (
   customSwitchCases,
   fieldOptions,
 ) => {
+  // Validate that custom variable names don't conflict with schema fields
+  const schemaFieldNames = new Set(
+    fieldOptions.map((f) => f.value).concat(fieldOptions.map((f) => f.label)),
+  );
+
+  const nameCollisions = [];
+
+  [...customVariables, ...customListVariables, ...customSwitchCases].forEach(
+    (varDef) => {
+      if (schemaFieldNames.has(varDef.name)) {
+        nameCollisions.push({
+          variableName: varDef.name,
+          variableType: customVariables.includes(varDef)
+            ? "arithmetic variable"
+            : customListVariables.includes(varDef)
+              ? "list variable"
+              : "switch case",
+        });
+      }
+    },
+  );
+
+  if (nameCollisions.length > 0) {
+    console.error(
+      "Variable name collision detected! The following custom variables have the same names as schema fields:",
+      nameCollisions,
+    );
+    console.error(
+      "This will cause the custom variable to overwrite the schema field in the pipeline.",
+      "Please rename your custom variables to avoid conflicts.",
+    );
+    // Optionally throw an error to prevent pipeline generation
+    // throw new Error(`Variable name collisions: ${nameCollisions.map(c => c.variableName).join(', ')}`);
+  }
+
   const graph = {
     variables: new Map(), // variable name -> dependencies
     reverseDeps: new Map(), // variable name -> variables that depend on it
@@ -238,6 +373,7 @@ const buildDependencyGraph = (
     },
     customBlockUsage: new Map(), // custom block name -> { count, block }
     listVariableUsage: new Map(), // list variable name -> { count, variable, mustMaterialize }
+    nameCollisions: nameCollisions, // Track collisions for later reference
   };
 
   // Initialize all variables in graph
@@ -677,7 +813,41 @@ const buildArithmeticDependencies = (
     if (varDef.variable && varDef.variable.includes("=")) {
       const expression = varDef.variable.split("=")[1].trim();
 
-      // Check for variable references in the expression
+      // First, check for MongoDB field references (e.g., $10days, $candidate.magpsf)
+      // This handles expressions with MongoDB operators like $map, $ifNull, etc.
+      const fieldRefPattern = /\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
+      const fieldMatches = [...expression.matchAll(fieldRefPattern)];
+
+      fieldMatches.forEach((match) => {
+        const fieldName = match[1];
+
+        // Check if it's a custom variable
+        if (
+          customVariables.some(
+            (v) => v.name === fieldName && v.name !== varDef.name,
+          )
+        ) {
+          deps.add(fieldName);
+        }
+        // Check if it's a list variable
+        else if (customListVariables.some((v) => v.name === fieldName)) {
+          deps.add(fieldName);
+        }
+        // Check if it's a switch case
+        else if (customSwitchCases.some((v) => v.name === fieldName)) {
+          deps.add(fieldName);
+        }
+        // Check if it's a schema field
+        else if (
+          fieldOptions.some(
+            (f) => f.value === fieldName || f.label === fieldName,
+          )
+        ) {
+          deps.add(fieldName);
+        }
+      });
+
+      // Also check for variable references without $ prefix (for LaTeX-style expressions)
       [
         ...customVariables,
         ...customListVariables,
@@ -1374,16 +1544,82 @@ const buildVariableStagesByLevel = (
   customListVariables,
   customSwitchCases,
   fieldOptions,
+  additionalFieldsToProject = [],
+  annotationMode = false,
 ) => {
   const stages = [];
   const maxLevel = Math.max(...Array.from(dependencyGraph.levels.values()), 0);
   const materializedListVars = new Set(); // Track which list variables are actually materialized
+  const materializedArithmeticVars = new Set(); // Track which arithmetic variables are materialized
+
+  // In annotation mode, arithmetic variables in additionalFieldsToProject must be materialized
+  const arithmeticVarsToMaterialize = new Set();
+  if (annotationMode) {
+    const toProcess = [];
+    additionalFieldsToProject.forEach((field) => {
+      if (customVariables.some((v) => v.name === field)) {
+        arithmeticVarsToMaterialize.add(field);
+        toProcess.push(field);
+      }
+    });
+
+    // Also materialize any arithmetic variables that these depend on
+    while (toProcess.length > 0) {
+      const current = toProcess.pop();
+      const deps = dependencyGraph.variables.get(current);
+      if (deps) {
+        deps.forEach((dep) => {
+          // If this dependency is an arithmetic variable and not already materialized
+          if (
+            customVariables.some((v) => v.name === dep) &&
+            !arithmeticVarsToMaterialize.has(dep)
+          ) {
+            arithmeticVarsToMaterialize.add(dep);
+            toProcess.push(dep);
+          }
+        });
+      }
+    }
+  }
 
   // Start from level 0 to include all variables (including those with no dependencies)
   for (let level = 0; level <= maxLevel; level++) {
-    // NOTE: Arithmetic variables are ALWAYS inlined, never materialized in $addFields
-    // This ensures full recursive expansion of nested variable references
-    // Skip arithmetic variable materialization entirely
+    // NOTE: Arithmetic variables are USUALLY inlined, never materialized in $addFields
+    // EXCEPTION: In annotation mode, if an arithmetic variable is in additionalFieldsToProject,
+    // it must be materialized so it can be referenced in the final project stage
+
+    // Build arithmetic variables at this level if they need to be materialized
+    const levelArithmeticVars = customVariables.filter((varDef) => {
+      const varLevel = dependencyGraph.levels.get(varDef.name) || 0;
+      const isUsed = dependencyGraph.usedFields.customVariables.has(
+        varDef.name,
+      );
+      const needsMaterialization = arithmeticVarsToMaterialize.has(varDef.name);
+      return varLevel === level && isUsed && needsMaterialization;
+    });
+
+    if (levelArithmeticVars.length > 0) {
+      const addFields = { $addFields: {} };
+
+      levelArithmeticVars.forEach((varDef) => {
+        try {
+          const expr = convertArithmeticExpression(
+            varDef.variable,
+            customVariables,
+          );
+          if (expr) {
+            addFields.$addFields[varDef.name] = expr;
+            materializedArithmeticVars.add(varDef.name);
+          }
+        } catch (error) {
+          // Skip invalid arithmetic expression
+        }
+      });
+
+      if (Object.keys(addFields.$addFields).length > 0) {
+        stages.push(addFields);
+      }
+    }
 
     // Build switch variables at this level (use $addFields)
     const levelSwitchVars = customSwitchCases.filter(
@@ -1447,8 +1683,9 @@ const buildVariableStagesByLevel = (
     }
   }
 
-  // Store materialized list variables in the dependency graph for later use
+  // Store materialized variables in the dependency graph for later use
   dependencyGraph.materializedListVars = materializedListVars;
+  dependencyGraph.materializedArithmeticVars = materializedArithmeticVars;
 
   return stages;
 };
@@ -1918,7 +2155,35 @@ const buildFinalProjectStage = (
   const hasAnnotations = annotationMode && additionalFieldsToProject.length > 0;
   const project = { objectId: 1, "candidate.jd": 1 };
 
-  if (!hasAnnotations) {
+  if (hasAnnotations) {
+    // Annotation mode: project mandatory fields + materialized variables needed for annotations
+    const materializedListVars =
+      dependencyGraph.materializedListVars || new Set();
+    const materializedArithmeticVars =
+      dependencyGraph.materializedArithmeticVars || new Set();
+
+    // Project materialized list variables that are used
+    dependencyGraph.usedFields.listVariables.forEach((varName) => {
+      if (materializedListVars.has(varName)) {
+        project[varName] = 1;
+      }
+    });
+
+    // Project materialized arithmetic variables (from additionalFieldsToProject)
+    materializedArithmeticVars.forEach((varName) => {
+      project[varName] = 1;
+    });
+
+    // Project switch cases that are used
+    dependencyGraph.usedFields.switchCases.forEach((varName) => {
+      project[varName] = 1;
+    });
+
+    // Also project base fields that are used as dependencies
+    dependencyGraph.usedFields.baseFields.forEach((field) => {
+      project[field] = 1;
+    });
+  } else {
     // Non-annotation mode: project all used fields and variables
 
     // Add used base fields, filtering out child paths when parent is projected
@@ -2000,6 +2265,7 @@ export const convertArithmeticExpression = (
 
 /**
  * Inlines variable references in an expression recursively
+ * Variables prefixed with $ (e.g., $varname) are treated as MongoDB field references and NOT inlined
  */
 const inlineVariablesInExpression = (
   expression,
@@ -2018,10 +2284,18 @@ const inlineVariablesInExpression = (
 
   for (const match of matches) {
     const varName = match[1];
+    const matchIndex = match.index;
 
     // Skip if it's a number or if we've already processed this variable (to prevent infinite recursion)
     if (!isNaN(varName) || processedVars.has(varName)) {
       continue;
+    }
+
+    // Check if this variable is preceded by a $ symbol (MongoDB field reference)
+    // If so, don't inline it - it should be materialized as a field
+    const charBefore = matchIndex > 0 ? result[matchIndex - 1] : "";
+    if (charBefore === "$") {
+      continue; // Skip inlining - this is a field reference like $varName
     }
 
     // Check if it's a custom variable
@@ -2041,8 +2315,9 @@ const inlineVariablesInExpression = (
         );
 
         // Replace the variable reference with the inlined expression, wrapped in parentheses
+        // Use a more precise regex that matches word boundaries but not after $
         result = result.replace(
-          new RegExp(`\\b${varName}\\b`, "g"),
+          new RegExp(`(?<!\\$)\\b${varName}\\b`, "g"),
           `(${inlinedVarExpr})`,
         );
       }
@@ -3779,6 +4054,244 @@ const parseValueForComparison = (
 
   // Return as literal value
   return !isNaN(value) && !isNaN(parseFloat(value)) ? parseFloat(value) : value;
+};
+
+/**
+ * MongoDB operators that should not be treated as field references
+ */
+const MONGODB_OPERATORS = new Set([
+  // Arithmetic operators
+  "$abs",
+  "$add",
+  "$ceil",
+  "$divide",
+  "$exp",
+  "$floor",
+  "$ln",
+  "$log",
+  "$log10",
+  "$mod",
+  "$multiply",
+  "$pow",
+  "$round",
+  "$sqrt",
+  "$subtract",
+  "$trunc",
+  // Array operators
+  "$arrayElemAt",
+  "$arrayToObject",
+  "$concatArrays",
+  "$filter",
+  "$first",
+  "$in",
+  "$indexOfArray",
+  "$isArray",
+  "$last",
+  "$map",
+  "$objectToArray",
+  "$range",
+  "$reduce",
+  "$reverseArray",
+  "$size",
+  "$slice",
+  "$zip",
+  "$allElementsTrue",
+  "$anyElementTrue",
+  // Boolean operators
+  "$and",
+  "$not",
+  "$or",
+  "$nor",
+  // Comparison operators
+  "$cmp",
+  "$eq",
+  "$gt",
+  "$gte",
+  "$lt",
+  "$lte",
+  "$ne",
+  // Conditional operators
+  "$cond",
+  "$ifNull",
+  "$switch",
+  // Date operators
+  "$dateFromString",
+  "$dateToString",
+  "$dayOfMonth",
+  "$dayOfWeek",
+  "$dayOfYear",
+  "$hour",
+  "$isoDayOfWeek",
+  "$isoWeek",
+  "$isoWeekYear",
+  "$millisecond",
+  "$minute",
+  "$month",
+  "$second",
+  "$toDate",
+  "$week",
+  "$year",
+  // String operators
+  "$concat",
+  "$indexOfBytes",
+  "$indexOfCP",
+  "$ltrim",
+  "$regexFind",
+  "$regexFindAll",
+  "$regexMatch",
+  "$replaceAll",
+  "$replaceOne",
+  "$rtrim",
+  "$split",
+  "$strLenBytes",
+  "$strLenCP",
+  "$strcasecmp",
+  "$substr",
+  "$substrBytes",
+  "$substrCP",
+  "$toLower",
+  "$toString",
+  "$trim",
+  "$toUpper",
+  // Type operators
+  "$convert",
+  "$toBool",
+  "$toDecimal",
+  "$toDouble",
+  "$toInt",
+  "$toLong",
+  "$toObjectId",
+  "$type",
+  // Aggregation operators
+  "$avg",
+  "$max",
+  "$min",
+  "$stdDevPop",
+  "$stdDevSamp",
+  "$sum",
+  "$median",
+  // Other operators
+  "$let",
+  "$literal",
+  "$mergeObjects",
+  "$rand",
+  "$sampleRate",
+]);
+
+/**
+ * Validates that all field references in a pipeline are defined
+ * @param {Array} pipeline - MongoDB aggregation pipeline
+ * @param {Array} fieldOptions - Available schema fields
+ * @param {Array} customVariables - Arithmetic variables
+ * @param {Array} customListVariables - List variables
+ * @param {Array} customSwitchCases - Switch cases
+ * @returns {Array} Array of undefined field reference errors
+ */
+const validatePipelineFieldReferences = (
+  pipeline,
+  fieldOptions,
+  customVariables,
+  customListVariables,
+  customSwitchCases,
+) => {
+  const errors = [];
+  const definedFields = new Set();
+
+  // Add all schema fields to defined fields
+  fieldOptions.forEach((field) => {
+    definedFields.add(field.value);
+    if (field.label && field.label !== field.value) {
+      definedFields.add(field.label);
+    }
+  });
+
+  // Add all custom variables
+  customVariables.forEach((v) => definedFields.add(v.name));
+  customListVariables.forEach((v) => definedFields.add(v.name));
+  customSwitchCases.forEach((v) => definedFields.add(v.name));
+
+  // Special system fields that are always available
+  definedFields.add("_id");
+  definedFields.add("objectId");
+
+  /**
+   * Recursively extracts field references from an expression
+   */
+  const extractFieldReferences = (value, path = "") => {
+    const references = [];
+
+    if (typeof value === "string") {
+      // Check if it's a field reference (starts with $ but not $$ or a MongoDB operator)
+      if (value.startsWith("$") && !value.startsWith("$$")) {
+        const fieldName = value.substring(1);
+        // Extract the root field name (before any dots)
+        const rootField = fieldName.split(".")[0];
+
+        // Skip MongoDB operators
+        if (!MONGODB_OPERATORS.has(value)) {
+          references.push({
+            field: rootField,
+            fullPath: fieldName,
+            location: path,
+          });
+        }
+      }
+    } else if (Array.isArray(value)) {
+      value.forEach((item, index) => {
+        references.push(...extractFieldReferences(item, `${path}[${index}]`));
+      });
+    } else if (value && typeof value === "object") {
+      Object.entries(value).forEach(([key, val]) => {
+        const newPath = path ? `${path}.${key}` : key;
+        references.push(...extractFieldReferences(val, newPath));
+      });
+    }
+
+    return references;
+  };
+
+  /**
+   * Tracks fields that are defined in a stage
+   */
+  const trackDefinedFields = (stage) => {
+    if (stage.$project) {
+      Object.entries(stage.$project).forEach(([field, value]) => {
+        // Only track if the field is included (value is 1 or an expression)
+        if (value === 1 || (typeof value === "object" && value !== null)) {
+          // Extract root field name (before any dots)
+          const rootField = field.split(".")[0];
+          definedFields.add(rootField);
+        }
+      });
+    } else if (stage.$addFields) {
+      Object.keys(stage.$addFields).forEach((field) => {
+        const rootField = field.split(".")[0];
+        definedFields.add(rootField);
+      });
+    }
+  };
+
+  // Process each stage
+  pipeline.forEach((stage, stageIndex) => {
+    // Extract all field references in this stage
+    const references = extractFieldReferences(stage, `stage[${stageIndex}]`);
+
+    // Check each reference
+    references.forEach(({ field, fullPath, location }) => {
+      if (!definedFields.has(field)) {
+        errors.push({
+          field: fullPath,
+          location,
+          message: `Field reference "$${fullPath}" is not defined. Make sure to define it in a previous stage or check for typos.`,
+        });
+      }
+    });
+
+    // Track fields defined by this stage for subsequent stages
+    trackDefinedFields(stage);
+  });
+
+  return errors;
 };
 
 /**

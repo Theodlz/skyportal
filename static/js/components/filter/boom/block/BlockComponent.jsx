@@ -65,30 +65,19 @@ const normalizeFieldValue = (field) => {
   return "";
 };
 
-// Helper function to escape LaTeX special characters for display
-const escapeLatexForDisplay = (text) => {
+const underscoreLatexForDisplay = (text) => {
   if (!text) return text;
-  // Escape underscores to prevent subscript rendering
-  // Replace _ with \_ to show it as literal underscore
   return text.replace(/_/g, "\\_");
 };
 
 const useBlockState = (block, isRoot) => {
   const { collapsedBlocks, customBlocks } = useCurrentBuilder();
-  const currentStream = useSelector(
-    (state) => state.boom_filter_v.stream?.name,
-  );
 
-  // Memoize custom block name resolution to avoid recalculation
   const customBlockName = useMemo(() => {
     if (!block) return null;
 
-    // Only use customBlockName if explicitly set on the block
-    // Don't try to infer it from customBlocks by ID to avoid showing
-    // names from previous save attempts that weren't completed
     let blockName = block.customBlockName;
 
-    // If block has custom block name, check if it's been updated in customBlocks
     if (block.customBlockName) {
       const found = customBlocks?.find((cb) => cb.block?.id === block?.id);
       if (found) {
@@ -102,7 +91,6 @@ const useBlockState = (block, isRoot) => {
     return blockName;
   }, [block, customBlocks]);
 
-  // Memoize derived state
   const isCustomBlock = useMemo(() => !!customBlockName, [customBlockName]);
 
   const isCollapsed = useMemo(() => {
@@ -133,9 +121,7 @@ const CustomAddElement = ({
 }) => {
   const [customBlockSearch, setCustomBlockSearch] = useState("");
   const [hoveredVariable, setHoveredVariable] = useState(false);
-  const [hoveredCondition, setHoveredCondition] = useState(false);
   const [variableButtonRef, setVariableButtonRef] = useState(null);
-  const [conditionButtonRef, setConditionButtonRef] = useState(null);
   const [addButtonRef, setAddButtonRef] = useState(null);
 
   const addItemToBlock = (blockId, category) => {
@@ -143,7 +129,6 @@ const CustomAddElement = ({
       return filtersArray.map((rootBlock) => {
         const updateBlock = (currentBlock) => {
           if (currentBlock.id === blockId) {
-            // Found the target block, add the new item to its children
             let newItem;
             if (category === "condition") {
               newItem = defaultCondition();
@@ -174,7 +159,6 @@ const CustomAddElement = ({
             };
           }
 
-          // Recursively update children blocks
           if (currentBlock.children) {
             return {
               ...currentBlock,
@@ -203,21 +187,18 @@ const CustomAddElement = ({
     });
     setActiveBlockForAdd(null);
     setHoveredVariable(false);
-    setHoveredCondition(false);
   };
 
   const handleOpenListCondition = (blockId, conditionId = null) => {
     setListConditionDialog({ open: true, blockId, conditionId });
     setActiveBlockForAdd(null);
     setHoveredVariable(false);
-    setHoveredCondition(false);
   };
 
   const handleOpenSwitchDialog = (blockId) => {
     setSwitchDialog({ open: true, blockId });
     setActiveBlockForAdd(null);
     setHoveredVariable(false);
-    setHoveredCondition(false);
   };
 
   const addCustomBlockToBlock = (blockId, customBlockName) => {
@@ -806,7 +787,7 @@ const EquationPopover = ({
     (eq) => eq.variable === variableOption.label,
   );
   const equation = eqObj ? eqObj.variable : variableOption.equation;
-  const displayEquation = escapeLatexForDisplay(equation);
+  const displayEquation = underscoreLatexForDisplay(equation);
 
   return (
     <Popover

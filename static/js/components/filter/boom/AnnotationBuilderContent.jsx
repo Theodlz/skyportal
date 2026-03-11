@@ -17,6 +17,7 @@ import {
   DialogContent,
   DialogActions,
   Chip,
+  Popover,
 } from "@mui/material";
 import {
   Code as CodeIcon,
@@ -33,10 +34,17 @@ import {
   useAnnotationBuilder,
 } from "../../../hooks/useContexts";
 import { getFieldOptionsWithVariable } from "../../../utils/conditionHelpers";
+import AddVariableDialog from "./dialog/AddVariableDialog";
+import AddListConditionDialog from "./dialog/AddListConditionDialog";
+import AddSwitchDialog from "./dialog/AddSwitchDialog";
+import SaveBlockDialogMenu from "./block/SaveBlockDialogMenu";
 import MongoQueryDialog from "./dialog/MongoQueryDialog";
+import AutocompleteFields from "./condition/AutocompleteFields";
 import { filterBuilderStyles } from "../../../styles/componentStyles";
 import { styled, lighten, darken } from "@mui/system";
 import { latexToMongoConverter } from "../../../utils/robustLatexConverter";
+import "katex/dist/katex.min.css";
+import Latex from "react-latex-next";
 import CloseIcon from "@mui/icons-material/Close";
 import {
   flattenFieldOptions,
@@ -73,6 +81,109 @@ const GroupHeader = styled("div")(({ theme }) => {
 const GroupItems = styled("ul")({
   padding: 0,
 });
+
+const ChipSpan = styled("span")({
+  // Hide scrollbars across all browsers
+  scrollbarWidth: "none", // Firefox
+  msOverflowStyle: "none", // IE/Edge
+  "&::-webkit-scrollbar": {
+    display: "none", // Chrome, Safari, Opera
+  },
+});
+
+// Helper function to calculate chip width and styling based on text length
+const getChipStyles = (text, baseStyles) => {
+  return {
+    ...baseStyles,
+    maxWidth: "calc(100% - 16px)",
+    fontSize: 15,
+    padding: "2px 12px",
+    transition: "all 0.2s ease",
+    overflowX: "auto",
+    overflowY: "hidden",
+    whiteSpace: baseStyles.whiteSpace || "nowrap",
+    textOverflow: "ellipsis",
+    WebkitOverflowScrolling: "touch",
+    scrollbarWidth: "none", // Firefox
+    msOverflowStyle: "none", // IE/Edge
+  };
+};
+
+// Helper function to escape LaTeX special characters for display
+const escapeLatexForDisplay = (text) => {
+  if (!text) return text;
+  // Escape underscores to prevent subscript rendering
+  return text.replace(/_/g, "\\_");
+};
+
+// EquationPopover component for annotations page
+const EquationPopover = ({
+  open,
+  anchorEl,
+  onClose,
+  variableName,
+  customVariables,
+}) => {
+  if (!open || !anchorEl || !variableName) return null;
+
+  const eqObj = customVariables.find(
+    (eq) => eq.variable === variableName || eq.name === variableName,
+  );
+  const equation = eqObj ? eqObj.variable : null;
+
+  if (!equation) return null;
+
+  const displayEquation = escapeLatexForDisplay(equation);
+
+  return (
+    <Popover
+      open={open}
+      anchorEl={anchorEl}
+      onClose={onClose}
+      anchorOrigin={{
+        vertical: "center",
+        horizontal: "right",
+      }}
+      transformOrigin={{
+        vertical: "center",
+        horizontal: "left",
+      }}
+      sx={{
+        "& .MuiPopover-paper": {
+          maxWidth: 600,
+          minWidth: 300,
+        },
+      }}
+    >
+      <Paper
+        elevation={3}
+        sx={{
+          p: 2,
+          background: "#fef3c7",
+          border: "1px solid #fde68a",
+          borderRadius: 2,
+        }}
+      >
+        <Latex>{`$$${displayEquation}$$`}</Latex>
+      </Paper>
+    </Popover>
+  );
+};
+
+EquationPopover.propTypes = {
+  open: PropTypes.bool.isRequired,
+  anchorEl: PropTypes.shape({
+    getBoundingClientRect: PropTypes.func,
+  }),
+  onClose: PropTypes.func.isRequired,
+  variableName: PropTypes.string,
+  customVariables: PropTypes.arrayOf(
+    PropTypes.shape({
+      variable: PropTypes.string,
+      name: PropTypes.string,
+    }),
+  ).isRequired,
+};
 
 const useAnnotationBuilderData = (builderContext) => {
   const { filters, setFilters, createDefaultBlock } = builderContext;
@@ -402,7 +513,7 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
   const dispatch = useDispatch();
 
   const filter_stream = useSelector(
-    (state) => state.boom_filter_v.stream?.name.split(" ")[0],
+    (state) => state.filter_v?.stream?.name.split(" ")[0],
   );
   const store_schema = useSelector((state) => state.filter_modules?.schema);
 
@@ -414,6 +525,11 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
   const [mapDialogOpen, setMapDialogOpen] = useState(false);
   const [mapDialogFieldId, setMapDialogFieldId] = useState(null);
   const [mapProjectionFields, setMapProjectionFields] = useState([]);
+
+  // State for equation popovers (for variable chips)
+  const [openEquationIds, setOpenEquationIds] = useState([]);
+  const [selectedChip, setSelectedChip] = useState(null);
+  const [equationAnchor, setEquationAnchor] = useState(null);
 
   useEffect(() => {
     if (!projectionFields || projectionFields.length === 0) {
@@ -433,7 +549,8 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
   useAnnotationBuilderData(annotationContext);
 
   useEffect(() => {
-    if (filter_stream) dispatch(fetchSchema(filter_stream));
+    if (filter_stream)
+      dispatch(fetchSchema({ name: filter_stream, elements: "schema" }));
   }, [filter_stream, dispatch]);
 
   useEffect(() => {
@@ -538,6 +655,161 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
     );
   };
 
+  const generateProjectionStage = () => {
+    const projection = {};
+    const annotations = {};
+
+    // Find availableFields for variable lookup
+    const availableFields = getFieldOptions();
+
+    // Always add objectId to the root of the projection as 1 (include)
+    projection.objectId = 1;
+
+    // Collect all output names being defined in this stage to prevent subfield conflicts
+    const definedFields = new Set();
+    projectionFields.forEach((field) => {
+      if (!field.fieldName || field.fieldName === "objectId") return;
+      const outputName = field.outputName || field.fieldName;
+      definedFields.add(outputName);
+    });
+
+    projectionFields.forEach((field) => {
+      // Only add to annotations if fieldName is present and not objectId
+      if (!field.fieldName || field.fieldName === "objectId") return;
+      const outputName = field.outputName || field.fieldName;
+
+      // Skip subfield projections if parent field is being defined in this stage
+      if (outputName.includes(".")) {
+        const parentField = outputName.split(".")[0];
+        if (definedFields.has(parentField)) {
+          return; // Skip this field to avoid MongoDB error
+        }
+      }
+
+      // If mapSaved, use the $map operator
+      if (field.type === "map" && field.mapSaved && field.mapMongoMapQuery) {
+        annotations[field.mapOutputFieldName || outputName] =
+          field.mapMongoMapQuery;
+        return;
+      }
+      const fieldOption = availableFields.find(
+        (opt) => opt.name === field.fieldName,
+      );
+      const isArithmeticVar = fieldOption?.isVariable;
+      // Retrieve the actual value of the expression if present
+      let expression = fieldOption?.expression;
+      if (expression && typeof expression === "object" && expression.value) {
+        expression = expression.value;
+      }
+
+      // Helper: if arithmetic variable, convert its expression to MongoDB expression, else $<fieldName>
+      const getFieldExpr = () => {
+        if (isArithmeticVar && expression) {
+          if (typeof expression === "string") {
+            try {
+              // Try to parse as JSON (MongoDB expression)
+              return JSON.parse(expression);
+            } catch {
+              try {
+                // Try to evaluate as JS object literal (MongoDB op)
+                // Using Function constructor instead of eval for security
+                return new Function(`return (${expression})`)();
+              } catch {
+                // Fallback to string
+                return expression;
+              }
+            }
+          }
+          return expression;
+        }
+        return `$${field.fieldName}`;
+      };
+
+      // Aggregation operators with output type
+      if (
+        ["sum", "avg", "min", "max"].includes(field.type) &&
+        field.aggregationOutputType === "round"
+      ) {
+        // If round is selected for aggregation, wrap aggregation in $round
+        let aggExpr;
+        if (field.subField) {
+          aggExpr = {
+            [`$${field.type}`]: `$${field.fieldName}.${field.subField}`,
+          };
+        } else {
+          aggExpr = { [`$${field.type}`]: getFieldExpr() };
+        }
+        annotations[outputName] = {
+          $round: [aggExpr, field.roundDecimals],
+        };
+        return;
+      }
+
+      // All fields go inside the annotations key
+      switch (field.type) {
+        case "include":
+          annotations[outputName] = getFieldExpr();
+          break;
+        case "exclude":
+          annotations[outputName] = 0;
+          break;
+        case "round":
+          annotations[outputName] = {
+            $round: [getFieldExpr(), field.roundDecimals],
+          };
+          break;
+        case "sum":
+          if (field.aggregationOutputType === "exclude") {
+            annotations[outputName] = 0;
+          } else {
+            annotations[outputName] = field.subField
+              ? { $sum: `$${field.fieldName}.${field.subField}` }
+              : { $sum: getFieldExpr() };
+          }
+          break;
+        case "avg":
+          if (field.aggregationOutputType === "exclude") {
+            annotations[outputName] = 0;
+          } else {
+            annotations[outputName] = field.subField
+              ? { $avg: `$${field.fieldName}.${field.subField}` }
+              : { $avg: getFieldExpr() };
+          }
+          break;
+        case "min":
+          if (field.aggregationOutputType === "exclude") {
+            annotations[outputName] = 0;
+          } else {
+            annotations[outputName] = field.subField
+              ? { $min: `$${field.fieldName}.${field.subField}` }
+              : { $min: getFieldExpr() };
+          }
+          break;
+        case "max":
+          if (field.aggregationOutputType === "exclude") {
+            annotations[outputName] = 0;
+          } else {
+            annotations[outputName] = field.subField
+              ? { $max: `$${field.fieldName}.${field.subField}` }
+              : { $max: getFieldExpr() };
+          }
+          break;
+        case "count":
+          annotations[outputName] = { $size: getFieldExpr() };
+          break;
+        default:
+          annotations[outputName] = getFieldExpr();
+      }
+    });
+
+    // Add annotations to projection if there are any
+    if (Object.keys(annotations).length > 0) {
+      projection.annotations = annotations;
+    }
+
+    return projection;
+  };
+
   const handleShowMongoQuery = () => {
     // Use the unified context directly (same as filter builder)
     filterContext.setMongoDialog({ open: true });
@@ -567,12 +839,12 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
   const availableFields = getFieldOptions();
 
   // Initialize collapsed groups (collapse all groups by default)
-  useEffect(() => {
+  React.useEffect(() => {
     const allGroups = [...new Set(availableFields.map((field) => field.group))];
     if (allGroups.length > 0 && allGroups.length > collapsedGroups.size) {
       setCollapsedGroups(new Set(allGroups));
     }
-  }, [availableFields.length]);
+  }, [availableFields, collapsedGroups.size]);
 
   return (
     <Box
@@ -665,7 +937,8 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
                     display: "flex",
                     alignItems: "center",
                     gap: 2,
-                    flexWrap: "wrap",
+                    flexWrap: "nowrap",
+                    overflowX: "auto",
                   }}
                 >
                   {/* Output Name */}
@@ -683,138 +956,67 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
                   />
 
                   {/* Field Selection */}
-                  <Autocomplete
-                    value={
-                      field.fieldName
-                        ? availableFields.find(
-                            (opt) => opt.name === field.fieldName,
-                          ) || null
-                        : null
-                    }
-                    onChange={(_, newValue) => {
-                      // If array field, ensure subFields are populated from schema if missing
-                      let subFields = newValue?.subFields || [];
-                      if (
-                        newValue?.isArray &&
-                        subFields.length === 0 &&
-                        newValue?.schema &&
-                        Array.isArray(newValue.schema)
-                      ) {
-                        const firstObj = newValue.schema[0];
-                        if (firstObj && typeof firstObj === "object") {
-                          subFields = Object.keys(firstObj);
-                        }
-                      }
+                  <Box sx={{ minWidth: 200, maxWidth: 300, flexShrink: 0 }}>
+                    <AutocompleteFields
+                      fieldOptions={availableFields}
+                      value={field.fieldName ? { name: field.fieldName } : ""}
+                      onChange={(newValue) => {
+                        // Handle the value from AutocompleteFields
+                        const fieldName =
+                          typeof newValue === "string"
+                            ? newValue
+                            : newValue?.name || "";
 
-                      updateProjectionField(field.id, {
-                        fieldName: newValue?.name || "",
-                        isArray:
-                          newValue?.type === "array" ||
-                          newValue?.type === "array_variable" ||
-                          newValue?.type === "array_switch",
-                        subFields,
-                      });
-                    }}
-                    onInputChange={(_, newInputValue, reason) => {
-                      if (reason === "input") {
-                        if (newInputValue && newInputValue.trim().length > 0) {
-                          const searchTerm = newInputValue.toLowerCase();
-                          const groupsWithMatches = new Set();
+                        // Find the full option to get metadata
+                        const fullOption = availableFields.find(
+                          (opt) => opt.name === fieldName,
+                        );
 
-                          availableFields.forEach((option) => {
-                            if (
-                              option.label &&
-                              option.label.toLowerCase().includes(searchTerm)
-                            ) {
-                              groupsWithMatches.add(option.group);
-                            }
-                            if (
-                              option.name &&
-                              option.name.toLowerCase().includes(searchTerm)
-                            ) {
-                              groupsWithMatches.add(option.group);
-                            }
-                          });
-
-                          if (groupsWithMatches.size > 0) {
-                            setCollapsedGroups((prev) => {
-                              const newCollapsed = new Set(prev);
-                              groupsWithMatches.forEach((groupName) => {
-                                newCollapsed.delete(groupName);
-                              });
-                              return newCollapsed;
-                            });
+                        // If array field, ensure subFields are populated
+                        let subFields = fullOption?.subFields || [];
+                        if (
+                          fullOption?.isArray &&
+                          subFields.length === 0 &&
+                          fullOption?.schema &&
+                          Array.isArray(fullOption.schema)
+                        ) {
+                          const firstObj = fullOption.schema[0];
+                          if (firstObj && typeof firstObj === "object") {
+                            subFields = Object.keys(firstObj);
                           }
                         }
-                      }
-                    }}
-                    options={availableFields}
-                    groupBy={(option) => option.group}
-                    getOptionLabel={(option) => option.label || option.name}
-                    isOptionEqualToValue={(option, value) =>
-                      option.name === value?.name
+
+                        updateProjectionField(field.id, {
+                          fieldName,
+                          isArray:
+                            fullOption?.type === "array" ||
+                            fullOption?.type === "array_variable" ||
+                            fullOption?.type === "array_switch",
+                          subFields,
+                        });
+                      }}
+                      conditionOrBlock={{
+                        id: field.id,
+                        field: field.fieldName,
+                      }}
+                      setOpenEquationIds={setOpenEquationIds}
+                      setSelectedChip={setSelectedChip}
+                      setEquationAnchor={setEquationAnchor}
+                      side="annotation"
+                    />
+                  </Box>
+                  {/* Equation Popover for this field */}
+                  <EquationPopover
+                    open={
+                      openEquationIds.includes(field.id) && !!equationAnchor
                     }
-                    sx={{ minWidth: 250 }}
-                    renderInput={(params) => (
-                      <TextField {...params} label="Field" size="small" />
-                    )}
-                    renderOption={(props, option) => {
-                      const { key, ...otherProps } = props;
-                      let displayText = option.name;
-                      if (
-                        option.group !== "Arithmetic Variables" &&
-                        option.group !== "Other Fields"
-                      ) {
-                        displayText = option.name.includes(option.group)
-                          ? option.name.split(".").slice(-1)[0]
-                          : option.name;
-                      }
-                      return (
-                        <li key={key} {...otherProps}>
-                          <Box>
-                            <Typography variant="body2">
-                              {displayText}
-                            </Typography>
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                            >
-                              {option.type}{" "}
-                              {option.isVariable ? "(variable)" : ""}
-                            </Typography>
-                          </Box>
-                        </li>
-                      );
+                    anchorEl={equationAnchor}
+                    onClose={() => {
+                      setOpenEquationIds([]);
+                      setEquationAnchor(null);
                     }}
-                    renderGroup={(params) => {
-                      const isCollapsed = collapsedGroups.has(params.group);
-                      return (
-                        <li key={params.key}>
-                          <GroupHeader
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              toggleGroupCollapse(params.group);
-                            }}
-                            title={`Click to ${
-                              isCollapsed ? "expand" : "collapse"
-                            } ${params.group} section`}
-                          >
-                            {isCollapsed ? (
-                              <ChevronRightIcon fontSize="small" />
-                            ) : (
-                              <ExpandMoreIcon fontSize="small" />
-                            )}
-                            {params.group}
-                          </GroupHeader>
-                          <GroupItems
-                            style={{ display: isCollapsed ? "none" : "block" }}
-                          >
-                            {params.children}
-                          </GroupItems>
-                        </li>
-                      );
-                    }}
+                    variableName={field.fieldName}
+                    customVariables={filterContext.customVariables || []}
                   />
 
                   {/* Projection Type */}

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import {
   Dialog,
   DialogTitle,
@@ -41,23 +41,6 @@ const SaveBlockDialogMenu = () => {
 
     const nameValue = saveName.trim();
 
-    // Check if an arithmetic variable with the same name already exists
-    if (customVariables?.some((v) => v.name === nameValue)) {
-      setSaveError(
-        "A variable with this name already exists. Please choose another.",
-      );
-      return;
-    }
-
-    // Check if a list variable with the same name already exists
-    if (customListVariables?.some((lv) => lv.name === nameValue)) {
-      setSaveError(
-        "A variable with this name already exists. Please choose another.",
-      );
-      return;
-    }
-
-    // Check for duplicate name
     const notAvailable = await dispatch(
       fetchElement({ name: nameValue, elements: "blocks" }),
     );
@@ -65,7 +48,7 @@ const SaveBlockDialogMenu = () => {
       setSaveError("Name already exists. Please choose another.");
       return;
     }
-    // Save customBlocks
+
     const saved = await dispatch(
       postElement({
         name: nameValue,
@@ -76,8 +59,6 @@ const SaveBlockDialogMenu = () => {
     if (saved) {
       const blockId = saveDialog.block.id;
 
-      // Update filters using the local updater if available (for FilterBuilderContent)
-      // This ensures both localFilterData and context filters are updated
       const updateFilters = localFiltersUpdater || setFilters;
 
       updateFilters((prevFilters) => {
@@ -91,19 +72,17 @@ const SaveBlockDialogMenu = () => {
                 ) || [],
             };
           }
-          // Create new block object with customBlockName and isTrue
-          // Force new object reference to trigger re-render
+
           const updatedBlock = {
             ...block,
             customBlockName: nameValue,
-            isTrue: true, // Explicitly set to true for root custom blocks
+            isTrue: true,
           };
           return updatedBlock;
         };
         return prevFilters.map(replaceBlock);
       });
 
-      // Then add to customBlocks registry
       setCustomBlocks((prev) => {
         const newName = `Custom.${nameValue}`;
         return [
