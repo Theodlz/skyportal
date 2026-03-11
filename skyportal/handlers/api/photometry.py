@@ -1009,7 +1009,7 @@ def insert_new_photometry_data(
             phot_stat.add_photometry_point(phot)
 
     session.add(phot_stat)
-    session.commit()  # add the updated phot_stats
+    session.commit()  # add the updated phot_stats and release any potential locks on the Photometry table
 
     if refresh:
         flow = Flow()
@@ -1333,24 +1333,23 @@ class PhotometryHandler(BaseHandler):
                                 added in request. Can be used to later delete all
                                 points in a single request.
         """
-        try:
-            group_ids = get_group_ids(self.get_json(), self.associated_user_object)
-        except ValidationError as e:
-            return self.error(e.args[0])
-        try:
-            stream_ids = get_stream_ids(self.get_json(), self.associated_user_object)
-        except ValidationError as e:
-            return self.error(e.args[0])
-
         refresh = self.get_query_argument("refresh", default=False)
+        refresh = str_to_bool(refresh, default=False)
 
-        # This lock ensures that the Photometry table data are not modified in any way
-        # between when the query for duplicate photometry is first executed and
-        # when the insert statement with the new photometry is performed.
-        # From the psql docs: This mode protects a table against concurrent
-        # data changes, and is self-exclusive so that only one session can
-        # hold it at a time.
-        with DBSession() as session:
+        with self.Session() as session:
+            try:
+                group_ids = get_group_ids(
+                    self.get_json(), self.associated_user_object, parent_session=session
+                )
+            except ValidationError as e:
+                return self.error(e.args[0])
+            try:
+                stream_ids = get_stream_ids(
+                    self.get_json(), self.associated_user_object, parent_session=session
+                )
+            except ValidationError as e:
+                return self.error(e.args[0])
+
             try:
                 df, instrument_cache = standardize_photometry_data(
                     self.get_json(), session
@@ -1370,6 +1369,12 @@ class PhotometryHandler(BaseHandler):
                 f"Pending request from {username} for object {obj_id} with {len(df.index)} rows"
             )
 
+            # This lock ensures that the Photometry table data are not modified in any way
+            # between when the query for duplicate photometry is first executed and
+            # when the insert statement with the new photometry is performed.
+            # From the psql docs: This mode protects a table against concurrent
+            # data changes, and is self-exclusive so that only one session can
+            # hold it at a time.
             try:
                 session.execute(
                     sa.text(
@@ -1465,23 +1470,13 @@ class PhotometryHandler(BaseHandler):
                                 added in request. Can be used to later delete all
                                 points in a single request.
         """
-        try:
-            group_ids = get_group_ids(self.get_json(), self.associated_user_object)
-        except ValidationError as e:
-            return self.error(e.args[0])
-
-        try:
-            stream_ids = get_stream_ids(self.get_json(), self.associated_user_object)
-        except ValidationError as e:
-            return self.error(e.args[0])
-
         refresh = self.get_query_argument("refresh", default=False)
-
         refresh = str_to_bool(refresh, default=False)
 
-        ignore_flux = self.get_query_argument("duplicate_ignore_flux", False)
         overwrite_flux = self.get_query_argument("overwrite_flux", False)
+        overwrite_flux = str_to_bool(overwrite_flux, default=False)
 
+        ignore_flux = self.get_query_argument("duplicate_ignore_flux", False)
         ignore_flux = str_to_bool(ignore_flux, default=False)
 
         # if ignore_flux is True, verify that the current_user is a super admin
@@ -1490,16 +1485,19 @@ class PhotometryHandler(BaseHandler):
                 "Ignoring flux/fluxerr when checking for duplicates is reserved to super admin users only"
             )
 
-        overwrite_flux = str_to_bool(overwrite_flux, default=False)
-
-        # This lock ensures that the Photometry table data are not modified
-        # in any way between when the query for duplicate photometry is first
-        # executed and when the insert statement with the new photometry is
-        # performed. From the psql docs: This mode protects a table against
-        # concurrent data changes, and is self-exclusive so that only one
-        # session can hold it at a time.
-
-        with DBSession() as session:
+        with self.Session() as session:
+            try:
+                group_ids = get_group_ids(
+                    self.get_json(), self.associated_user_object, parent_session=session
+                )
+            except ValidationError as e:
+                return self.error(e.args[0])
+            try:
+                stream_ids = get_stream_ids(
+                    self.get_json(), self.associated_user_object, parent_session=session
+                )
+            except ValidationError as e:
+                return self.error(e.args[0])
             try:
                 df, instrument_cache = standardize_photometry_data(
                     self.get_json(), session
@@ -1521,6 +1519,12 @@ class PhotometryHandler(BaseHandler):
 
             values_table, condition = get_values_table_and_condition(df, ignore_flux)
 
+            # This lock ensures that the Photometry table data are not modified
+            # in any way between when the query for duplicate photometry is first
+            # executed and when the insert statement with the new photometry is
+            # performed. From the psql docs: This mode protects a table against
+            # concurrent data changes, and is self-exclusive so that only one
+            # session can hold it at a time.
             try:
                 session.execute(
                     sa.text(
@@ -1653,7 +1657,7 @@ class PhotometryHandler(BaseHandler):
                         id_map[df_index] = id
 
                 # release the lock
-                self.verify_and_commit()
+                session.commit()
 
                 # get ids in the correct order
                 ids = [id_map[pdidx] for pdidx, _ in df.iterrows()]
@@ -1939,9 +1943,7 @@ class ObjPhotometryHandler(BaseHandler):
             "includeAnnotationInfo", False
         )
         include_extinction = self.get_query_argument("includeExtinction", False)
-        include_metaobjects_photometry = self.get_query_argument(
-            "includeMetaObjectsPhotometry", False
-        )
+
         deduplicate_photometry = self.get_query_argument("deduplicatePhotometry", False)
 
         include_owner_info = str_to_bool(include_owner_info, default=False)
@@ -1955,7 +1957,7 @@ class ObjPhotometryHandler(BaseHandler):
         include_extinction = str_to_bool(include_extinction, default=False)
 
         with self.Session() as session:
-            obj: Obj = session.scalars(
+            obj = session.scalars(
                 Obj.select(session.user_or_token).where(Obj.id == obj_id)
             ).first()
             if obj is None:
@@ -1992,20 +1994,12 @@ class ObjPhotometryHandler(BaseHandler):
                         )
                     )
 
-                obj_ids = {obj_id}
-                if include_metaobjects_photometry:
-                    obj_ids.update(obj.associated_obj_ids)
-
                 stmt = (
                     Photometry.select(
                         session.user_or_token,
                         options=options,
                     )
-                    .where(
-                        Photometry.obj_id.in_(obj_ids)
-                        if len(obj_ids) > 1
-                        else Photometry.obj_id == obj_id
-                    )
+                    .where(Photometry.obj_id == obj_id)
                     .distinct()
                 )
                 photometry = session.scalars(stmt).unique().all()
