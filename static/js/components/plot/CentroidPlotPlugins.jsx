@@ -3,7 +3,7 @@ import PropTypes from "prop-types";
 import makeStyles from "@mui/styles/makeStyles";
 import Typography from "@mui/material/Typography";
 
-import * as archiveActions from "../../ducks/archive";
+import * as archiveActions from "../../ducks/kowalski_archive";
 
 import { greatCircleDistance } from "../../utils";
 

@@ -8,7 +8,7 @@ import CircularProgress from "@mui/material/CircularProgress";
 
 import Button from "../Button";
 
-import * as archiveActions from "../../ducks/archive";
+import * as archiveActions from "../../ducks/kowalski_archive";
 
 const PositionedMenu = ({ handle, menu_name, menu_items, disabled }) => {
   const [anchorEl, setAnchorEl] = React.useState(null);
