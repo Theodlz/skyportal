@@ -129,6 +129,40 @@ export const useListConditionDialog = (
   // Find condition id in filters to retrieve the field name and operator
   const conditionId = listConditionDialog.conditionId;
 
+  const findDataInBlock = (block) => {
+    if (block.id === listConditionDialog.blockId) {
+      return block.children.reduce(
+        (data, child) => {
+          if (child.id === conditionId) {
+            return {
+              field: child.field || "",
+              operator: child.operator || "",
+            };
+          }
+          if (child.category === "block") {
+            return findDataInBlock(child) || data; // Recurse into child blocks
+          }
+          return data; // Return current data if not found
+        },
+        { field: "", operator: "" },
+      );
+    }
+
+    if (block.children) {
+      return block.children.reduce(
+        (data, child) => {
+          if (data.field) return data; // Stop if already found
+          if (child.category === "block") {
+            return findDataInBlock(child) || data; // Recurse into child blocks
+          }
+          return data; // Return current data if not found
+        },
+        { field: "", operator: "" },
+      );
+    }
+    return { field: "", operator: "" }; // Return empty if no data found in this block
+  };
+
   // Check all conditions in filters to find the field name and operator associated with the conditionId
   const getConditionDataFromId = () => {
     if (!conditionId) return { field: "", operator: "" };
@@ -136,40 +170,6 @@ export const useListConditionDialog = (
     return filters.reduce(
       (foundData, block) => {
         if (foundData.field) return foundData; // Stop if already found
-
-        const findDataInBlock = (block) => {
-          if (block.id === listConditionDialog.blockId) {
-            return block.children.reduce(
-              (data, child) => {
-                if (child.id === conditionId) {
-                  return {
-                    field: child.field || "",
-                    operator: child.operator || "",
-                  };
-                }
-                if (child.category === "block") {
-                  return findDataInBlock(child) || data; // Recurse into child blocks
-                }
-                return data; // Return current data if not found
-              },
-              { field: "", operator: "" },
-            );
-          }
-
-          if (block.children) {
-            return block.children.reduce(
-              (data, child) => {
-                if (data.field) return data; // Stop if already found
-                if (child.category === "block") {
-                  return findDataInBlock(child) || data; // Recurse into child blocks
-                }
-                return data; // Return current data if not found
-              },
-              { field: "", operator: "" },
-            );
-          }
-          return { field: "", operator: "" }; // Return empty if no data found in this block
-        };
 
         return findDataInBlock(block);
       },
@@ -278,9 +278,6 @@ export const useListConditionDialog = (
     handleFieldSelection,
     handleOperatorChange,
     resetDialog,
-
-    // Computed
-    listFieldNameFromCondition,
   };
 };
 
@@ -403,7 +400,7 @@ export const useListConditionForm = (
       const error = validateConditionName(newName);
       setNameError(error);
     },
-    [validateConditionName],
+    [setConditionName, validateConditionName, setNameError],
   );
 
   const resetForm = useCallback(() => {
@@ -412,7 +409,13 @@ export const useListConditionForm = (
     setSelectedSubField("");
     setConditionName("");
     setNameError("");
-  }, []);
+  }, [
+    setSelectedArrayField,
+    setSelectedOperator,
+    setSelectedSubField,
+    setConditionName,
+    setNameError,
+  ]);
 
   const isFormValid = useCallback(() => {
     if (
@@ -633,8 +636,8 @@ export const usePopoverRegistry = (
 
     // Set up the global callback if it doesn't exist
     if (!window.openListPopover) {
-      window.openListPopover = (conditionId, anchorElement) => {
-        const callback = window.listPopoverRegistry?.get(conditionId);
+      window.openListPopover = (targetConditionId, anchorElement) => {
+        const callback = window.listPopoverRegistry?.get(targetConditionId);
         if (callback) {
           return callback(anchorElement);
         }

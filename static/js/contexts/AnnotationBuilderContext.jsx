@@ -1,8 +1,6 @@
 import React from "react";
 import PropTypes from "prop-types";
-import {
-  UnifiedBuilderProvider,
-} from "./UnifiedBuilderContext";
+import { UnifiedBuilderProvider } from "./UnifiedBuilderContext";
 
 export const AnnotationBuilderProvider = ({ children }) => (
   <UnifiedBuilderProvider mode="annotation">{children}</UnifiedBuilderProvider>
