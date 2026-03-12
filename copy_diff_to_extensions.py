@@ -11,7 +11,13 @@ import shutil
 import subprocess
 from pathlib import Path
 
-DEST = Path("extensions")
+DEST = Path("extensions/skyportal")
+EXCLUDED_FILES = {
+    "copy_diff_to_extensions.py",
+    "package.json",
+    "uv.lock",
+    "pyproject.toml",
+}
 
 
 def get_diffed_files():
@@ -22,7 +28,9 @@ def get_diffed_files():
         text=True,
         check=True,
     )
-    files = [f for f in result.stdout.splitlines() if f.strip()]
+    files = [
+        f for f in result.stdout.splitlines() if f.strip() and f not in EXCLUDED_FILES
+    ]
     return files
 
 
@@ -55,6 +63,10 @@ def main():
     if not files:
         print("No diffed files found between HEAD and main.")
         return
+
+    if DEST.exists():
+        print(f"Removing existing destination: '{DEST}/'")
+        shutil.rmtree(DEST)
 
     print(f"Found {len(files)} diffed file(s). Copying to '{DEST}/'...\n")
     copied, skipped = copy_files(files)

@@ -878,13 +878,3 @@ docs:
       description: Development server
     - url: https://skyportal.io
       description: Production server
-
-boom:
-  protocol: http
-  host: localhost
-  port: 4000
-  username: admin
-  password: adminsecret
-  filter_modules:
-    mongodb_uri: "mongodb://localhost:27017"
-    database: "caltech_test_db"
