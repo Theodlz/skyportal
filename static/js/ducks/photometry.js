@@ -20,7 +20,6 @@ export function fetchSourcePhotometry(id, params = {}) {
     includeOwnerInfo: true,
     includeStreamInfo: true,
     includeValidationInfo: true,
-    // includeMetaObjectsPhotometry: true,
     ...params,
   });
 }

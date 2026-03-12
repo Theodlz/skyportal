@@ -27,10 +27,10 @@ from ....models import (
     Filter,
     Group,
     Instrument,
-    MetaObj,
     Obj,
-    ObjToMetaObj,
+    ObjToSuperObj,
     Stream,
+    SuperObj,
     Thumbnail,
     User,
 )
@@ -536,23 +536,23 @@ class BoomObjectHandler(BaseHandler):
                         session,
                     )
 
-                    # if there isn't one already, we create a MetaObj and associate both the ZTF and LSST Obj with it, so that in the future we can easily query all associated objects across surveys
+                    # if there isn't one already, we create a SuperObj and associate both the ZTF and LSST Obj with it, so that in the future we can easily query all associated objects across surveys
                     existing_associations = session.scalars(
-                        sa.select(ObjToMetaObj).where(
-                            ObjToMetaObj.obj_id.in_(
+                        sa.select(ObjToSuperObj).where(
+                            ObjToSuperObj.obj_id.in_(
                                 [data["objectId"], other_alert["_id"]]
                             )
                         )
                     ).all()
                     if len(existing_associations) == 0:
-                        metaobj = MetaObj()
-                        session.add(metaobj)
-                        session.flush()  # to get the metaobj.id
-                        association1 = ObjToMetaObj(
-                            obj_id=data["objectId"], meta_obj_id=metaobj.id
+                        superobj = SuperObj()
+                        session.add(superobj)
+                        session.flush()  # to get the superobj.id
+                        association1 = ObjToSuperObj(
+                            obj_id=data["objectId"], super_obj_id=superobj.id
                         )
-                        association2 = ObjToMetaObj(
-                            obj_id=other_alert["_id"], meta_obj_id=metaobj.id
+                        association2 = ObjToSuperObj(
+                            obj_id=other_alert["_id"], super_obj_id=superobj.id
                         )
                         session.add_all([association1, association2])
 
