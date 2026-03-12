@@ -5,9 +5,7 @@ import json
 import pathlib
 import platform
 import traceback
-from datetime import datetime, timedelta
 
-import arrow
 import bson.json_util as bj
 import matplotlib
 import matplotlib.pyplot as plt
@@ -35,9 +33,6 @@ from baselayer.log import make_log
 from skyportal.utils.calculations import great_circle_distance
 
 from ....models import (
-    Candidate,
-    Classification,
-    Filter,
     Group,
     Instrument,
     Obj,

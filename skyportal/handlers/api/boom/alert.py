@@ -18,17 +18,16 @@ from astropy.visualization import (
 from scipy.ndimage import rotate
 from sqlalchemy.orm.session import Session
 
-from baselayer.app.access import auth_or_token
+from baselayer.app.access import permissions
 from baselayer.app.env import load_env
 from baselayer.log import make_log
 
 from ....models import (
-    Candidate,
-    Filter,
     Group,
     Instrument,
     Obj,
     ObjToSuperObj,
+    Source,
     Stream,
     SuperObj,
     Thumbnail,
@@ -339,14 +338,48 @@ def process_photometry(
 
 
 class BoomObjectHandler(BaseHandler):
-    @auth_or_token
+    @permissions(["Upload data"])
     @boom_available
-    def get(self, survey, object_id):
+    def post(self, survey, object_id):
         """
         ---
-        summary: Get an object from BOOM
+        summary: Import an alert from Boom for a given survey and object ID
+        description: Import an alert from Boom for a given survey and object ID
+        tags:
+            - alerts
+            - boom
         """
+        group_ids = data.pop("group_ids", None)
+        try:
+            group_ids = [int(gid) for gid in group_ids]
+        except Exception:
+            return self.error(
+                "Invalid `group_ids` parameter. Must be a list of integers."
+            )
+
         with self.Session() as session:
+            if not self.associated_user_object.is_admin:
+                accessible_groups = [
+                    g.id for g in self.associated_user_object.accessible_groups
+                ]
+                if not all(gid in accessible_groups for gid in group_ids):
+                    return self.error(
+                        "You do not have access to all the groups provided in `group_ids`."
+                    )
+
+            # validate that all the groups exist in the database
+            groups = session.scalars(
+                sa.select(Group).where(Group.id.in_(group_ids))
+            ).all()
+            if len(groups) != len(group_ids):
+                existing_group_ids = {g.id for g in groups}
+                missing_group_ids = [
+                    gid for gid in group_ids if gid not in existing_group_ids
+                ]
+                return self.error(
+                    f"The following group IDs do not exist (or are not accessible): {missing_group_ids}"
+                )
+
             user = session.scalar(sa.select(User).where(User.id == 1))
             if user is None:
                 log("User with id 1 not found in the database")
@@ -408,6 +441,7 @@ class BoomObjectHandler(BaseHandler):
 
             obj = session.scalar(sa.select(Obj).where(Obj.id == data["objectId"]))
             if not obj:
+                # create the obj and save it to the groups
                 obj = Obj(
                     id=data["objectId"],
                     ra=data["candidate"]["ra"],
@@ -418,19 +452,27 @@ class BoomObjectHandler(BaseHandler):
                     origin=f"BOOM",
                 )
                 session.add(obj)
-
-            # DEBUG, also add a Candidate entry for this object, so that it shows up in the candidate list and we can link to the candidate page
-            # we can associate it to the first filter we find
-            filter_id = session.scalar(sa.select(Filter.id).order_by(Filter.id.asc()))
-            if filter_id is not None:
-                candidate = Candidate(
-                    obj_id=data["objectId"],
-                    filter_id=filter_id,
-                    passing_alert_id=data["_id"],
-                    passed_at=datetime.utcnow(),
-                    uploader_id=user.id,
-                )
-                session.add(candidate)
+                for g in groups:
+                    session.add(
+                        Source(
+                            obj=obj, group=g, saved_by_id=self.associated_user_object.id
+                        )
+                    )
+            else:
+                # if the obj already exists, we just save it to new groups if any
+                existing_sources = session.scalars(
+                    sa.select(Source).where(
+                        Source.obj_id == obj.id, Source.group_id.in_(group_ids)
+                    )
+                ).all()
+                existing_group_ids = {s.group_id for s in existing_sources}
+                new_groups = [g for g in groups if g.id not in existing_group_ids]
+                for g in new_groups:
+                    session.add(
+                        Source(
+                            obj=obj, group=g, saved_by_id=self.associated_user_object.id
+                        )
+                    )
 
             # Grab and insert cutouts, if they don't already exist for this object in the database.
             existing_cutouts = session.scalars(
@@ -491,7 +533,10 @@ class BoomObjectHandler(BaseHandler):
             )
             if other_response.status_code != 200:
                 log(
-                    f"Error querying Boom API for other survey photometry: {other_response.status_code} {other_response.text}"
+                    f"Error querying Boom API for matching surveys' photometry: {other_response.status_code} {other_response.text}"
+                )
+                return self.error(
+                    f"Error querying Boom API for matching surveys' photometry: {other_response.status_code} {other_response.text}"
                 )
             else:
                 other_data = other_response.json().get("data", {})
