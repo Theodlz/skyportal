@@ -40,11 +40,12 @@ from ....models import (
     Localization,
     LocalizationTile,
     Obj,
-    ObjToMetaObj,
+    ObjToSuperObj,
     Photometry,
     PhotStat,
     Source,
     Spectrum,
+    SuperObj,
 )
 from ....utils.cache import Cache, array_to_bytes
 from ....utils.calculations import great_circle_distance
@@ -244,35 +245,36 @@ def include_requested_obj_data(
             session,
         )
 
-    if get_query_argument("includeMetaObjs", True):
-        associated_objs = session.scalars(
-            sa.select(Obj).where(
-                Obj.id.in_(
-                    sa.select(ObjToMetaObj.obj_id).where(
-                        ObjToMetaObj.meta_obj_id.in_(
-                            sa.select(ObjToMetaObj.meta_obj_id).where(
-                                ObjToMetaObj.obj_id == Obj.id
-                            )
-                        )
-                    )
-                )
+    if get_query_argument("includeAssociatedObjs", True):
+        # For each associated obj, we include the same info as for duplicates (obj_id, ra, dec, separation),
+        # but we also include the super_obj_id (and name) through which it is associated to the current obj
+        super_objs = session.scalars(
+            sa.select(SuperObj).where(
+                ObjToSuperObj.obj_id == obj_id,
             )
         ).all()
-        candidate["associated_objs"] = [
-            {
-                "obj_id": obj.id,
-                "ra": obj.ra,
-                "dec": obj.dec,
-                "separation": great_circle_distance(
-                    candidate["ra"], candidate["dec"], obj.ra, obj.dec
+        associated_objs = []
+        for super_obj in super_objs:
+            super_obj_id = super_obj.id
+            super_obj_name = super_obj.name
+            for obj in super_obj.objs:
+                if obj.id == obj_id:
+                    continue
+                associated_objs.append(
+                    {
+                        "obj_id": obj.id,
+                        "ra": obj.ra,
+                        "dec": obj.dec,
+                        "separation": great_circle_distance(
+                            candidate["ra"], candidate["dec"], obj.ra, obj.dec
+                        )
+                        * 3600,
+                        "super_obj_id": super_obj_id,
+                        "super_obj_name": super_obj_name,
+                    }
                 )
-                * 3600,  # convert degrees to arcseconds
-            }
-            for obj in associated_objs
-            if obj.id != obj_id
-        ]
         candidate["associated_objs"] = sorted(
-            candidate["associated_objs"], key=lambda x: x["separation"]
+            associated_objs, key=lambda x: x["separation"]
         )
 
     candidate["annotations"] = sorted(

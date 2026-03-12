@@ -198,7 +198,7 @@ async def get_source(
     include_gcn_crossmatches=False,
     include_gcn_notes=False,
     include_candidates=False,
-    include_meta_objs=False,
+    include_associated_objs=False,
     include_tags=False,
 ):
     """Query source from database.
@@ -644,26 +644,31 @@ async def get_source(
             reverse=True,
         )
 
-    if include_meta_objs:
-        # let's treat them the same way as duplicates, where we grab the ra/dec/separation
-        # info for each associated obj, and sort by separation
-        associated_objs = session.scalars(
-            Obj.select(session.user_or_token).where(
-                Obj.id.in_(list(set(s.associated_obj_ids) - {s.id}))
-            )
-        ).all()
-        source_info["associated_objs"] = [
-            {
-                "obj_id": obj.id,
-                "ra": obj.ra,
-                "dec": obj.dec,
-                "separation": great_circle_distance(s.ra, s.dec, obj.ra, obj.dec)
-                * 3600,
-            }
-            for obj in associated_objs
-        ]
+    if include_associated_objs:
+        # For each associated obj, we include the same info as for duplicates (obj_id, ra, dec, separation),
+        # but we also include the super_obj_id (and name) through which it is associated to the current obj
+        associated_objs = []
+        for super_obj in s.super_objs:
+            super_obj_id = super_obj.id
+            super_obj_name = super_obj.name
+            for obj in super_obj.objs:
+                if obj.id == s.id:
+                    continue
+                associated_objs.append(
+                    {
+                        "obj_id": obj.id,
+                        "ra": obj.ra,
+                        "dec": obj.dec,
+                        "separation": great_circle_distance(
+                            s.ra, s.dec, obj.ra, obj.dec
+                        )
+                        * 3600,
+                        "super_obj_id": super_obj_id,
+                        "super_obj_name": super_obj_name,
+                    }
+                )
         source_info["associated_objs"] = sorted(
-            source_info["associated_objs"], key=lambda x: x["separation"]
+            associated_objs, key=lambda x: x["separation"]
         )
 
     source_info = recursive_to_dict(source_info)
@@ -1785,7 +1790,7 @@ class SourceHandler(BaseHandler):
         includeGeoJSON = self.get_query_argument("includeGeoJSON", False)
         include_candidates = self.get_query_argument("includeCandidates", False)
         include_tags = self.get_query_argument("includeTags", True)
-        include_meta_objs = self.get_query_argument("includeMetaObjs", True)
+        include_associated_objs = self.get_query_argument("includeAssociatedObjs", True)
 
         # optional, use caching
         use_cache = self.get_query_argument("useCache", False)
@@ -1924,7 +1929,7 @@ class SourceHandler(BaseHandler):
                         include_gcn_notes=include_gcn_notes,
                         include_candidates=include_candidates,
                         include_tags=include_tags,
-                        include_meta_objs=include_meta_objs,
+                        include_associated_objs=include_associated_objs,
                     )
                 except Exception as e:
                     traceback.print_exc()

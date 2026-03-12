@@ -244,11 +244,6 @@ const PhotometryPlot = ({
   const config = useSelector((state) => state.config);
   const photometry = useSelector((state) => state.photometry);
 
-  // const duplicateOptions = useMemo(
-  //   () => [...new Set([...(duplicates || []), ...(associated_objs || [])])],
-  //   [duplicates, associated_objs],
-  // );
-  // the above yields duplicates, let's deduplicate by obj_id
   const duplicateOptions = useMemo(() => {
     const allDuplicates = [...(duplicates || []), ...(associated_objs || [])];
     const uniqueDuplicates = [];
