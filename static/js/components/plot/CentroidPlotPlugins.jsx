@@ -199,7 +199,7 @@ const CentroidPlotPlugins = ({ crossMatches, refRA, refDec }) => {
       // we compute the offset_arcsec for each source in the catalog
       // and then sort by offset_arcsec to get the nearest source
       nearestOffsets[catalog] = crossMatches[catalog]
-        .map((cm) => {
+        ?.map((cm) => {
           const ra_offset =
             Math.cos((refDec / 180) * Math.PI) * (cm.ra - refRA) * 3600;
           const dec_offset = (cm.dec - refDec) * 3600;
