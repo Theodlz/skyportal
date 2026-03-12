@@ -64,3 +64,5 @@ dists/
 
 # postgres persistent volume
 data/dbdata/
+
+extensions/
