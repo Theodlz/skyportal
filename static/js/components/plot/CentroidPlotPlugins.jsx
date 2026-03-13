@@ -1,23 +1,72 @@
-import React from "react"; // eslint-disable-line no-unused-vars
+import React from "react";
 import PropTypes from "prop-types";
 import makeStyles from "@mui/styles/makeStyles";
-import Typography from "@mui/material/Typography"; // eslint-disable-line no-unused-vars
+import Typography from "@mui/material/Typography";
 
-// import * as archiveActions from "../ducks/archive";
-// IMPORTANT: the file imported above needs to be added to the same codebase where the UI plugin will be overwritten.
-//            It should add the `cross_match` key to the redux store, along with methods to populate that field.
+import * as archiveActions from "../../ducks/kowalski_archive";
 
-// list of cross-match catalogs to hide
-const hiddenCrossMatches = ["PS1_PSC"]; // eslint-disable-line no-unused-vars
+import { greatCircleDistance } from "../../utils";
 
-// map the cross-match catalog names to the colors to use for plotting them
-const crossMatchesColors = {}; // eslint-disable-line no-unused-vars
+const hiddenCrossMatches = ["PS1_PSC"];
 
-// map the fields names to display for each cross-match source to the actual field names
-const crossMatchesLabels = {}; // eslint-disable-line no-unused-vars
+const crossMatchesColors = {
+  AllWISE: "#2f5492",
+  Gaia_EDR3: "#FF00FF",
+  PS1_DR1: "#3bbed5",
+  PS1_PSC: "#d62728",
+  GALEX: "#6607c2",
+  TNS: "#ed6cf6",
+};
 
-// max radius in arcseconds to use for cross-matching
-const radius = 10.0; // eslint-disable-line no-unused-vars
+const crossMatchesLabels = {
+  AllWISE: {
+    name: "designation",
+    ra_unc: "sigra",
+    dec_unc: "sigdec",
+    w1: "w1mpro",
+    w2: "w2mpro",
+    w3: "w3mpro",
+    w4: "w4mpro",
+  },
+  Gaia_EDR3: {
+    name: "designation",
+    ra_unc: "ra_error",
+    dec_unc: "dec_error",
+    parallax: "parallax",
+    parallax_unc: "parallax_error",
+    pm: "pm",
+    phot_bp_mean_mag: "phot_bp_mean_mag",
+    phot_rp_mean_mag: "phot_rp_mean_mag",
+  },
+  PS1_DR1: {
+    name: "_id",
+    ra_unc: "raMeanErr",
+    dec_unc: "decMeanErr",
+    nDetections: "nDetections",
+  },
+  GALEX: {
+    name: "name",
+    FUVmag: "FUVmag",
+    NUVmag: "NUVmag",
+  },
+  "2MASS_PSC": {
+    name: "designation",
+    j_mag: "j_m",
+    j_mag_unc: "j_msigcom",
+    h_mag: "h_m",
+    h_mag_unc: "h_msigcom",
+    k_mag: "k_m",
+    k_mag_unc: "k_msigcom",
+  },
+  TNS: {
+    name: "name",
+    discoverymag: "discoverymag",
+    discoverydate: "discoverydate",
+    internal_names: "internal_names",
+  },
+};
+
+const radius = 10.0;
 
 const useStyles = makeStyles(() => ({
   pluginContainer: {
@@ -27,22 +76,117 @@ const useStyles = makeStyles(() => ({
   },
 }));
 
-// eslint-disable-next-line no-unused-vars
 function getCrossMatches(ra, dec, dispatch) {
-  // implement logic to fetch cross matches from the archive
-  // and add them to the redux store's "cross_matches" key
-  return null;
+  dispatch(archiveActions.fetchCrossMatches({ ra, dec, radius }));
 }
 
-// eslint-disable-next-line no-unused-vars
+function getCatalogCrossMatches(crossMatches, catalog) {
+  const catalogCrossMatches = crossMatches?.[catalog];
+  return Array.isArray(catalogCrossMatches) ? catalogCrossMatches : [];
+}
+
 function getCrossMatchesTraces(crossMatches, refRA, refDec) {
   const traces = [];
-  // implement logic to display cross matches on the centroid plot
+  // cross_matches are already grouped by catalog (instead of filter)
+  Object.keys(crossMatches).forEach((catalog) => {
+    const catalogCrossMatches = getCatalogCrossMatches(crossMatches, catalog);
+
+    if (
+      catalogCrossMatches.length > 0 &&
+      !hiddenCrossMatches.includes(catalog) &&
+      crossMatchesLabels[catalog]
+    ) {
+      const catalogPoints = catalogCrossMatches.map((cm) => {
+        const newPoint = { ...cm };
+        newPoint.ra_offset =
+          Math.cos((refDec / 180) * Math.PI) * (cm.ra - refRA) * 3600;
+        newPoint.dec_offset = (cm.dec - refDec) * 3600;
+        newPoint.offset_arcsec = Math.sqrt(
+          newPoint.ra_offset ** 2 + newPoint.dec_offset ** 2,
+        );
+        newPoint.deltaRA =
+          greatCircleDistance(cm.ra, cm.dec, refRA, cm.dec, "arcsec") *
+          -Math.sign(cm.ra - refRA);
+        newPoint.deltaDec =
+          greatCircleDistance(cm.ra, cm.dec, cm.ra, refDec, "arcsec") *
+          Math.sign(cm.dec - refDec);
+        let text = `Catalog: ${catalog}`;
+
+        if (
+          crossMatchesLabels[catalog].name &&
+          cm[crossMatchesLabels[catalog].name]
+        ) {
+          text += `<br>Name: ${cm[crossMatchesLabels[catalog].name]}`;
+        }
+        if (
+          crossMatchesLabels[catalog].ra_unc &&
+          !Number.isNaN(parseFloat(cm[crossMatchesLabels[catalog].ra_unc], 10))
+        ) {
+          text += `<br>RA: ${cm.ra.toFixed(6)} ± ${parseFloat(
+            cm[crossMatchesLabels[catalog].ra_unc],
+            10,
+          ).toFixed(4)}`;
+        } else {
+          text += `<br>RA: ${cm.ra.toFixed(6)}`;
+        }
+        if (
+          crossMatchesLabels[catalog].dec_unc &&
+          !Number.isNaN(parseFloat(cm[crossMatchesLabels[catalog].dec_unc], 10))
+        ) {
+          text += `<br>Dec: ${cm.dec.toFixed(6)} ± ${parseFloat(
+            cm[crossMatchesLabels[catalog].dec_unc],
+            10,
+          ).toFixed(4)}`;
+        } else {
+          text += `<br>Dec: ${cm.dec.toFixed(6)}`;
+        }
+        // then loop over all the other fields
+        Object.keys(crossMatchesLabels[catalog]).forEach((key) => {
+          if (
+            key !== "name" &&
+            key !== "ra_unc" &&
+            key !== "dec_unc" &&
+            cm[crossMatchesLabels[catalog][key]]
+          ) {
+            text += `<br>${key}: ${cm[crossMatchesLabels[catalog][key]]}`;
+          }
+        });
+        text += `<br>RA offset: ${newPoint.ra_offset.toFixed(4)}"`;
+        text += `<br>Dec offset: ${newPoint.dec_offset.toFixed(4)}"`;
+        text += `<br>Offset: ${newPoint.offset_arcsec.toFixed(4)}"`;
+        newPoint.text = text;
+        return newPoint;
+      });
+
+      const color = crossMatchesColors[catalog] || "black";
+
+      traces.push({
+        x: catalogPoints.map((p) => p.deltaRA),
+        y: catalogPoints.map((p) => p.deltaDec),
+        mode: "markers",
+        type: "scatter",
+        marker: {
+          size: 12,
+          color,
+          opacity: 1,
+          symbol: "star",
+        },
+        name: catalog,
+        hoverlabel: {
+          bgcolor: "white",
+          font: { size: 14 },
+          align: "left",
+        },
+        text: catalogPoints.map((p) => p.text),
+        hovertemplate: "%{text}<extra></extra>",
+      });
+    }
+  });
   return traces;
 }
 
 const CentroidPlotPlugins = ({ crossMatches, refRA, refDec }) => {
-  const classes = useStyles(); // eslint-disable-line no-unused-vars
+  const classes = useStyles();
   if (
     !crossMatches ||
     Object.keys(crossMatches).length === 0 ||
@@ -52,9 +196,52 @@ const CentroidPlotPlugins = ({ crossMatches, refRA, refDec }) => {
     return null;
   }
 
-  // Implement plugin to display information under the centroid plot
+  // for each catalog, get the nearest source and compute the offset
+  const nearestOffsets = {};
+  Object.keys(crossMatches).forEach((catalog) => {
+    const catalogCrossMatches = getCatalogCrossMatches(crossMatches, catalog);
 
-  return null;
+    if (
+      catalogCrossMatches.length > 0 &&
+      !hiddenCrossMatches.includes(catalog)
+    ) {
+      // we compute the offset_arcsec for each source in the catalog
+      // and then sort by offset_arcsec to get the nearest source
+      nearestOffsets[catalog] = catalogCrossMatches
+        .map((cm) => {
+          const ra_offset =
+            Math.cos((refDec / 180) * Math.PI) * (cm.ra - refRA) * 3600;
+          const dec_offset = (cm.dec - refDec) * 3600;
+          const offset_arcsec = Math.sqrt(ra_offset ** 2 + dec_offset ** 2);
+          return { ...cm, offset_arcsec };
+        })
+        .sort((a, b) => a.offset_arcsec - b.offset_arcsec)[0];
+    }
+  });
+
+  if (Object.keys(nearestOffsets).length === 0) {
+    return null;
+  }
+
+  return (
+    <div className={classes.pluginContainer}>
+      <Typography variant="h6">
+        Offsets from nearest sources in reference catalogs:
+      </Typography>
+      <div>
+        {Object.keys(nearestOffsets).map((catalog) => {
+          const offset = nearestOffsets[catalog];
+          return (
+            <div key={catalog}>
+              <Typography variant="body1">
+                {catalog}: {offset.offset_arcsec.toFixed(2)}&quot;
+              </Typography>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 };
 
 CentroidPlotPlugins.propTypes = {

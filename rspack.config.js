@@ -73,6 +73,20 @@ const config = {
         include: /node_modules\/react-big-calendar\/lib\/css/,
         use: ["style-loader", "css-loader"],
       },
+      {
+        test: /\.css$/,
+        include: /node_modules\/katex\/dist/,
+        use: ["style-loader", "css-loader"],
+      },
+      {
+        test: /\.css$/,
+        include: /node_modules\/mathquill\/build/,
+        use: ["style-loader", "css-loader"],
+      },
+      {
+        test: /\.(woff|woff2|eot|ttf|otf|svg)$/,
+        type: "asset/resource",
+      },
     ],
   },
   plugins: [

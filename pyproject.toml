@@ -98,6 +98,7 @@ dependencies = [
     "brotli==1.2.0",
     "numexpr==2.14.1",
     "setuptools<76.1.0",
+    "cramjam==2.11.0",
 ]
 
 [dependency-groups]
