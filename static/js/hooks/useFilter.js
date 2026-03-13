@@ -1,13 +1,7 @@
 import { useContext, useEffect, useCallback, useState } from "react";
-import { useLocation } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { v4 as uuidv4 } from "uuid";
 import { UnifiedBuilderContext } from "../contexts/UnifiedBuilderContext";
-import {
-  fetchSavedBlocks,
-  fetchSavedVariables,
-  fetchSavedListVariables,
-} from "../services/filterApi";
 import { fetchAllElements } from "../ducks/boom_filter_modules";
 import { useFilterBuilder } from "./useContexts";
 
