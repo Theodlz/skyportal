@@ -823,22 +823,22 @@ const AddListConditionDialog = () => {
           (lv) => lv.name === dialog.listFieldName,
         );
         if (existingListVar && existingListVar.listCondition?.subFieldOptions) {
-          // Use subFieldOptions from the existing list variable
-          // Extract just the subfield name (after the last dot) to avoid nesting issues
+          // Use subFieldOptions from the existing list variable.
+          // Strip to bare subfield name — handleFieldSelection will re-prefix
+          // with the input variable name at runtime (so "prv_candidates.jd" → "jd"
+          // stored here, then "myVar1.jd" when used as input to another condition).
           return existingListVar.listCondition.subFieldOptions.map((opt) => {
-            // Extract the subfield name (everything after the last dot)
             const subfieldName = opt.label.includes(".")
               ? opt.label.split(".").pop()
               : opt.label;
 
             return {
               ...opt,
-              // Preserve group for map operators, otherwise remove grouping
               group:
                 existingListVar.listCondition.operator === "$map"
                   ? opt.group
                   : undefined,
-              label: subfieldName, // Use just the subfield name, relative to this list
+              label: subfieldName,
             };
           });
         }
@@ -853,18 +853,15 @@ const AddListConditionDialog = () => {
             arrayField.arrayItems &&
             arrayField.arrayItems.fields
           ) {
-            const subFieldOptionsConsistent = arrayField.arrayItems.fields.map(
-              (sub) => {
-                const { name, ...subWithoutName } = sub;
-                return {
-                  ...subWithoutName,
-                  label: `${dialog.listFieldName}.${name}`,
-                  type: getSimpleType(sub.type),
-                  isSchemaField: true, // Mark as schema field for proper metadata routing
-                };
-              },
-            );
-            return [...fieldOptions, ...subFieldOptionsConsistent];
+            return arrayField.arrayItems.fields.map((sub) => {
+              const { name, ...subWithoutName } = sub;
+              return {
+                ...subWithoutName,
+                label: `${dialog.listFieldName}.${name}`,
+                type: getSimpleType(sub.type),
+                isSchemaField: true,
+              };
+            });
           }
         }
         // Fall back to the original subFieldOptions from dialog
