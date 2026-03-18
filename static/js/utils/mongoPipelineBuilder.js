@@ -115,7 +115,11 @@ const makeFieldCondition = (fieldName, operator, value) => {
         [fieldName]: { $in: Array.isArray(value) ? value : [value] },
       };
     case "$exists":
-      return { [fieldName]: { $exists: value } };
+      return {
+        [fieldName]: {
+          $exists: typeof value === "boolean" ? value : true,
+        },
+      };
     case "$lengthGt":
       return value < 0
         ? { [fieldName]: { $exists: true } }
@@ -152,7 +156,7 @@ const makeExprArrayCondition = (fieldExpr, operator, value) => {
     case "$in":
       return { $in: [fieldExpr, Array.isArray(value) ? value : [value]] };
     case "$exists":
-      return { $ne: [fieldExpr, null] };
+      return { $ne: [{ $type: fieldExpr }, "missing"] };
     case "$isNumber":
       return { $isNumber: fieldExpr };
     case "$lengthGt":
@@ -3360,7 +3364,11 @@ const convertSchemaFieldCondition = (
     case "length <":
       return { $expr: { $lt: [{ $size: `$${field}` }, processedValue] } };
     case "$exists":
-      return { [field]: { $exists: processedValue } };
+      return {
+        [field]: {
+          $exists: typeof processedValue === "boolean" ? processedValue : true,
+        },
+      };
     case "$isNumber":
     case "isNumber":
       // $isNumber requires $expr, so we need to wrap it
@@ -3799,7 +3807,8 @@ export const isValidPipeline = (pipeline) => {
   if (!Array.isArray(pipeline) || pipeline.length === 0) return false;
 
   const validateValue = (value, path = "") => {
-    if (value === null || value === undefined) return false;
+    if (value === undefined) return false;
+    if (value === null) return true; // null is a valid MongoDB query value (e.g. {$ne: [field, null]})
     if (
       typeof value === "string" ||
       typeof value === "number" ||
