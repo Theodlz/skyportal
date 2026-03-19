@@ -51,7 +51,7 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
   const dispatch = useDispatch();
 
   const filter_stream = useSelector(
-    (state) => state.filter_v?.stream?.name.split(" ")[0],
+    (state) => state.boom_filter_v?.stream?.name?.split(" ")[0],
   );
   const store_schema = useSelector((state) => state.filter_modules?.schema);
 
@@ -88,8 +88,7 @@ const AnnotationBuilderContent = ({ onBackToFilterBuilder }) => {
   }, [projectionFields, setProjectionFields]);
 
   useEffect(() => {
-    if (filter_stream)
-      dispatch(fetchSchema({ name: filter_stream, elements: "schema" }));
+    if (filter_stream) dispatch(fetchSchema(filter_stream));
   }, [filter_stream, dispatch]);
 
   useEffect(() => {
