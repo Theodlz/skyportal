@@ -502,8 +502,13 @@ const buildDependencyGraph = (
     customSwitchCases,
   );
 
-  // Calculate dependency levels using topological sort
-  calculateDependencyLevels(graph);
+  // Calculate dependency levels using topological sort.
+  // Arithmetic variables are always inlined into the expressions that reference
+  // them, so they never produce a separate $addFields stage. Excluding them
+  // from the level calculation prevents list variables from being artificially
+  // pushed to higher levels just because they reference an arithmetic variable.
+  const arithmeticVarNames = new Set(customVariables.map((v) => v.name));
+  calculateDependencyLevels(graph, arithmeticVarNames);
 
   return graph;
 };
@@ -1307,9 +1312,14 @@ const analyzeBlockForDeps = (
 };
 
 /**
- * Calculates dependency levels using topological sort
+ * Calculates dependency levels using topological sort.
+ * @param {object} graph - The dependency graph.
+ * @param {Set<string>} arithmeticVarNames - Names of arithmetic variables.
+ *   These are always inlined at expression-build time, so a dependency on one
+ *   does NOT require the dependent variable to be placed in a later $addFields
+ *   stage. Passing this set prevents artificial level inflation.
  */
-const calculateDependencyLevels = (graph) => {
+const calculateDependencyLevels = (graph, arithmeticVarNames = new Set()) => {
   const visited = new Set();
   const visiting = new Set();
   const levels = new Map();
@@ -1329,8 +1339,15 @@ const calculateDependencyLevels = (graph) => {
     const deps = graph.variables.get(node) || new Set();
     for (const dep of deps) {
       if (graph.variables.has(dep)) {
-        // Only for variables, not schema fields
-        maxDepLevel = Math.max(maxDepLevel, visit(dep, currentLevel) + 1);
+        if (arithmeticVarNames.has(dep)) {
+          // Arithmetic vars are inlined: they don't add a stage (+0 not +1).
+          // But we still recurse through them so that transitive list-var
+          // dependencies (e.g. arith var references $jd_min_prv) are counted.
+          maxDepLevel = Math.max(maxDepLevel, visit(dep, currentLevel));
+        } else {
+          // List vars and switch cases create a real stage boundary.
+          maxDepLevel = Math.max(maxDepLevel, visit(dep, currentLevel) + 1);
+        }
       }
     }
 
