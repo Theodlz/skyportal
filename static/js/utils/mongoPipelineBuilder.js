@@ -1690,6 +1690,12 @@ const extractEarlyMatchConditions = (
       filter.children &&
       filter.children.length > 0
     ) {
+      const parentLogic = (
+        filter.logic ||
+        filter.operator ||
+        "and"
+      ).toLowerCase();
+
       // If this block has isTrue === false, don't unwrap it - keep it intact
       // It needs special handling in the main match stage
       if (filter.isTrue === false) {
@@ -1702,14 +1708,13 @@ const extractEarlyMatchConditions = (
       const hasInvertedChild = filter.children.some(
         (child) => child.isTrue === false,
       );
-      if (hasInvertedChild) {
+      if (hasInvertedChild && parentLogic !== "and") {
         remainingFilters.push(filter);
         return;
       }
 
       const simpleChildren = [];
       const complexChildren = [];
-      const parentLogic = (filter.logic || "and").toLowerCase();
 
       // Unwrap two levels: root block and its immediate child blocks
       filter.children.forEach((child, childIndex) => {
@@ -1719,7 +1724,17 @@ const extractEarlyMatchConditions = (
           child.children &&
           child.children.length > 0
         ) {
-          const childLogic = (child.logic || "and").toLowerCase();
+          // Never unwrap inverted child blocks; keep them in remaining filters
+          if (child.isTrue === false) {
+            complexChildren.push(child);
+            return;
+          }
+
+          const childLogic = (
+            child.logic ||
+            child.operator ||
+            "and"
+          ).toLowerCase();
 
           // If logical operators differ, check if the entire block is simple
           // and keep it intact (can't split conditions across different logical operators)
