@@ -50,6 +50,7 @@ import {
 } from "../../../../ducks/boom_run_filter";
 import PipelineViewer from "./PipelineViewer";
 import FullscreenResultsDialog from "./FullscreenResultsDialog";
+import { fetchAllPages, downloadAsJson } from "../../../../utils/downloadUtils";
 
 const useStyles = makeStyles((theme) => ({
   timeRange: {
@@ -178,6 +179,8 @@ const MongoQueryDialog = () => {
   const [lastDocumentId, setLastDocumentId] = useState(null);
   const [hasNextPage, setHasNextPage] = useState(false);
   const [queryCompleted, setQueryCompleted] = useState(false);
+  const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
   const [lastQueryString, setLastQueryString] = useState("");
   const [lastPageOffset, setLastPageOffset] = useState(0);
 
@@ -410,23 +413,53 @@ const MongoQueryDialog = () => {
     }
   };
 
-  const handleDownloadResults = () => {
-    if (!displayResults.data || displayResults.data.length === 0) {
-      return;
+  const handleDownloadResults = async () => {
+    if (!queryCompleted || isDownloadingAll) return;
+
+    setIsDownloadingAll(true);
+    setDownloadProgress(0);
+
+    try {
+      const { startDate, endDate } = getConvertedDatesFromForm(getValues);
+      const userPipeline = generateMongoQuery();
+      const pipeline = combineWithPipeline(userPipeline, [], false);
+
+      const allData = await fetchAllPages(
+        async (cursor) => {
+          const response = await fetch("/api/boom/run_filter", {
+            credentials: "same-origin",
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              pipeline,
+              selectedCollection,
+              start_jd: startDate,
+              end_jd: endDate,
+              filter_id,
+              sort_by: "_id",
+              sort_order: "Ascending",
+              limit: pageSize + 1,
+              cursor,
+            }),
+          });
+          const json = await response.json();
+          if (json.status !== "success") {
+            throw new Error(json.message || "Failed to fetch results");
+          }
+          return json.data?.data?.results ?? [];
+        },
+        pageSize,
+        (count) => setDownloadProgress(count),
+      );
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      downloadAsJson(allData, `query-results-${timestamp}.json`);
+    } catch (error) {
+      console.error("Download error:", error);
+    } finally {
+      setIsDownloadingAll(false);
+      setDownloadProgress(0);
     }
-
-    const jsonString = JSON.stringify(displayResults.data, null, 2);
-    const blob = new Blob([jsonString], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-
-    const link = document.createElement("a");
-    link.href = url;
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    link.download = `query-results-${timestamp}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
   };
 
   const executeQuery = async (
@@ -648,12 +681,7 @@ const MongoQueryDialog = () => {
           direction = "backward";
         }
 
-        const queryResult = await executeQuery(
-          newPage,
-          false,
-          cursor,
-          direction,
-        );
+        const queryResult = await executeQuery(false, cursor, direction);
         setHasNextPage(queryResult.hasNext);
 
         const newCursors = new Map(pageCursors);
@@ -675,7 +703,6 @@ const MongoQueryDialog = () => {
       } else {
         const lastPageOffsetCalc = totalDocuments - (newPage - 1) * pageSize;
         const countQueryResult = await executeQuery(
-          newPage,
           false,
           null,
           "backward",
@@ -1279,6 +1306,8 @@ const MongoQueryDialog = () => {
         expandedCells={expandedCells}
         handlePageChange={handlePageChange}
         handleDownloadResults={handleDownloadResults}
+        isDownloadingAll={isDownloadingAll}
+        downloadProgress={downloadProgress}
       />
     </>
   );

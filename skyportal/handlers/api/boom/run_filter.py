@@ -11,6 +11,8 @@ from ...base import BaseHandler
 
 log = make_log("app/boom-run-filter")
 
+from .utils import convert_large_ints  # noqa: E402
+
 _, cfg = load_env()
 
 
@@ -157,4 +159,5 @@ class BoomRunFilterHandler(BaseHandler):
                 res["data"]["results"] = [
                     {**doc, "_id": str(doc["_id"])} for doc in res["data"]["results"]
                 ]
+            res = convert_large_ints(res)
         return self.success(data=res)
