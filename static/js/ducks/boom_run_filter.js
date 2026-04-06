@@ -1,11 +1,21 @@
 import * as API from "../API";
 import store from "../store";
+import { fetchAllPages } from "../utils/downloadUtils";
 
 export const RUN_BOOM_FILTER = "skyportal/RUN_BOOM_FILTER";
 export const RUN_BOOM_FILTER_OK = "skyportal/RUN_BOOM_FILTER_OK";
 export const RUN_BOOM_FILTER_ERROR = "skyportal/RUN_BOOM_FILTER_ERROR";
 export const RUN_BOOM_FILTER_FAIL = "skyportal/RUN_BOOM_FILTER_FAIL";
 export const BOOM_FILTER_CLEAR = "skyportal/BOOM_FILTER_CLEAR";
+
+export const DOWNLOAD_ALL_BOOM_FILTER_RESULTS =
+  "skyportal/DOWNLOAD_ALL_BOOM_FILTER_RESULTS";
+export const DOWNLOAD_ALL_BOOM_FILTER_RESULTS_OK =
+  "skyportal/DOWNLOAD_ALL_BOOM_FILTER_RESULTS_OK";
+export const DOWNLOAD_ALL_BOOM_FILTER_RESULTS_ERROR =
+  "skyportal/DOWNLOAD_ALL_BOOM_FILTER_RESULTS_ERROR";
+export const DOWNLOAD_ALL_BOOM_FILTER_RESULTS_FAIL =
+  "skyportal/DOWNLOAD_ALL_BOOM_FILTER_RESULTS_FAIL";
 
 export function runBoomFilter({
   pipeline,
@@ -45,6 +55,45 @@ export function runBoomTestFilter({
     limit,
     cursor,
   });
+}
+
+export function downloadAllBoomFilterResults({
+  pipeline,
+  selectedCollection,
+  start_jd,
+  end_jd,
+  filter_id,
+  pageSize,
+  onProgress,
+}) {
+  return async (dispatch) => {
+    return fetchAllPages(
+      async (cursor) => {
+        const result = await dispatch(
+          API.POST("/api/boom/run_filter", DOWNLOAD_ALL_BOOM_FILTER_RESULTS, {
+            pipeline,
+            selectedCollection,
+            start_jd,
+            end_jd,
+            filter_id,
+            sort_by: "_id",
+            sort_order: "Ascending",
+            limit: pageSize + 1,
+            cursor,
+          }),
+        );
+        if (
+          result.type === DOWNLOAD_ALL_BOOM_FILTER_RESULTS_ERROR ||
+          result.type === DOWNLOAD_ALL_BOOM_FILTER_RESULTS_FAIL
+        ) {
+          throw new Error(result.message || "Failed to fetch page");
+        }
+        return result.data?.data?.results ?? [];
+      },
+      pageSize,
+      onProgress,
+    );
+  };
 }
 
 export function clearBoomFilter() {

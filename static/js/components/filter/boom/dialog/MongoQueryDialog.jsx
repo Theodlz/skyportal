@@ -47,10 +47,11 @@ import {
   runBoomFilter,
   runBoomTestFilter,
   clearBoomFilter,
+  downloadAllBoomFilterResults,
 } from "../../../../ducks/boom_run_filter";
 import PipelineViewer from "./PipelineViewer";
 import FullscreenResultsDialog from "./FullscreenResultsDialog";
-import { fetchAllPages, downloadAsJson } from "../../../../utils/downloadUtils";
+import { downloadAsJson } from "../../../../utils/downloadUtils";
 
 const useStyles = makeStyles((theme) => ({
   timeRange: {
@@ -424,32 +425,16 @@ const MongoQueryDialog = () => {
       const userPipeline = generateMongoQuery();
       const pipeline = combineWithPipeline(userPipeline, [], false);
 
-      const allData = await fetchAllPages(
-        async (cursor) => {
-          const response = await fetch("/api/boom/run_filter", {
-            credentials: "same-origin",
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              pipeline,
-              selectedCollection,
-              start_jd: startDate,
-              end_jd: endDate,
-              filter_id,
-              sort_by: "_id",
-              sort_order: "Ascending",
-              limit: pageSize + 1,
-              cursor,
-            }),
-          });
-          const json = await response.json();
-          if (json.status !== "success") {
-            throw new Error(json.message || "Failed to fetch results");
-          }
-          return json.data?.data?.results ?? [];
-        },
-        pageSize,
-        (count) => setDownloadProgress(count),
+      const allData = await dispatch(
+        downloadAllBoomFilterResults({
+          pipeline,
+          selectedCollection,
+          start_jd: startDate,
+          end_jd: endDate,
+          filter_id,
+          pageSize,
+          onProgress: (count) => setDownloadProgress(count),
+        }),
       );
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
