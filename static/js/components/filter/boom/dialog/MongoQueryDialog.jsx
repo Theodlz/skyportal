@@ -648,12 +648,7 @@ const MongoQueryDialog = () => {
           direction = "backward";
         }
 
-        const queryResult = await executeQuery(
-          newPage,
-          false,
-          cursor,
-          direction,
-        );
+        const queryResult = await executeQuery(false, cursor, direction);
         setHasNextPage(queryResult.hasNext);
 
         const newCursors = new Map(pageCursors);
@@ -675,7 +670,6 @@ const MongoQueryDialog = () => {
       } else {
         const lastPageOffsetCalc = totalDocuments - (newPage - 1) * pageSize;
         const countQueryResult = await executeQuery(
-          newPage,
           false,
           null,
           "backward",
