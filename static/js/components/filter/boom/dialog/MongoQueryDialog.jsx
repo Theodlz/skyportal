@@ -918,6 +918,13 @@ const MongoQueryDialog = () => {
                       <FullscreenIcon />
                     </IconButton>
                   </Box>
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ mb: 2 }}
+                  >
+                    Generated query results — not all alert fields are shown.
+                  </Typography>
                   {displayResults.data?.length > 0 ? (
                     <>
                       <TableContainer
