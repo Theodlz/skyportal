@@ -200,6 +200,7 @@ from skyportal.handlers.api.boom import (
     BoomFilterHandler,
     BoomFilterModulesHandler,
     BoomObjectHandler,
+    BoomRunFilterFullHandler,
     BoomRunFilterHandler,
 )
 from skyportal.handlers.api.internal import (
@@ -264,6 +265,7 @@ skyportal_handlers = [
     (r"/api/boom/filters(/.*)", BoomFilterHandler),
     (r"/api/boom/filter_modules(/.*)?", BoomFilterModulesHandler),
     (r"/api/boom/run_filter", BoomRunFilterHandler),
+    (r"/api/boom/run_filter_full", BoomRunFilterFullHandler),
     (r"/api/boom/alerts/([0-9A-Za-z-_\.\+]+)/([0-9A-Za-z-_\.\+]+)", BoomObjectHandler),
     # Kowalski API endpoints
     (r"/api/kowalski/filters/([0-9]+)?/v", KowalskiFilterHandler),

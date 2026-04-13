@@ -17,6 +17,15 @@ export const DOWNLOAD_ALL_BOOM_FILTER_RESULTS_ERROR =
 export const DOWNLOAD_ALL_BOOM_FILTER_RESULTS_FAIL =
   "skyportal/DOWNLOAD_ALL_BOOM_FILTER_RESULTS_FAIL";
 
+export const DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS =
+  "skyportal/DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS";
+export const DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS_OK =
+  "skyportal/DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS_OK";
+export const DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS_ERROR =
+  "skyportal/DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS_ERROR";
+export const DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS_FAIL =
+  "skyportal/DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS_FAIL";
+
 export function runBoomFilter({
   pipeline,
   selectedCollection,
@@ -93,6 +102,82 @@ export function downloadAllBoomFilterResults({
       pageSize,
       onProgress,
     );
+  };
+}
+
+export function downloadAllBoomFilterFullResults({
+  pipeline,
+  selectedCollection,
+  start_jd,
+  end_jd,
+  filter_id,
+  pageSize,
+  onProgress,
+}) {
+  return async (dispatch) => {
+    // Phase 1: collect all matching document IDs by reusing the same
+    // /run_filter path as the display query.  The pipeline already ends with
+    // {$project: {_id: 1}} (set by buildIdOnlyPipeline in MongoQueryDialog),
+    // so /filters/test receives a valid pipeline and only _id is returned.
+    // fetchAllPages expects full documents (reads doc._id for the cursor),
+    // so we return full docs here and extract IDs after.
+    const allPageDocs = await fetchAllPages(
+      async (cursor) => {
+        const result = await dispatch(
+          API.POST(
+            "/api/boom/run_filter",
+            DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS,
+            {
+              pipeline,
+              selectedCollection,
+              start_jd,
+              end_jd,
+              filter_id,
+              sort_by: "_id",
+              sort_order: "Ascending",
+              limit: pageSize + 1,
+              cursor,
+            },
+          ),
+        );
+        if (
+          result.type === DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS_ERROR ||
+          result.type === DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS_FAIL
+        ) {
+          throw new Error(result.message || "Failed to fetch page");
+        }
+        return result.data?.data?.results ?? [];
+      },
+      pageSize,
+      onProgress,
+    );
+
+    const allIds = allPageDocs.map((doc) => doc._id);
+    if (allIds.length === 0) return [];
+
+    // Phase 2: fetch full documents in batches via /run_filter_full.
+    // Each request carries a slice of IDs; the backend issues a single
+    // $match on _id (no lookups required) against /queries/pipeline.
+    const BATCH_SIZE = 100;
+    const allDocs = [];
+    for (let i = 0; i < allIds.length; i += BATCH_SIZE) {
+      const batch = allIds.slice(i, i + BATCH_SIZE);
+      const result = await dispatch(
+        API.POST(
+          "/api/boom/run_filter_full",
+          DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS,
+          { ids: batch, selectedCollection, filter_id },
+        ),
+      );
+      if (
+        result.type === DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS_ERROR ||
+        result.type === DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS_FAIL
+      ) {
+        throw new Error(result.message || "Failed to fetch full documents");
+      }
+      allDocs.push(...(result.data?.data?.results ?? []));
+    }
+    return allDocs;
   };
 }
 

@@ -48,9 +48,11 @@ import {
   runBoomTestFilter,
   clearBoomFilter,
   downloadAllBoomFilterResults,
+  downloadAllBoomFilterFullResults,
 } from "../../../../ducks/boom_run_filter";
 import PipelineViewer from "./PipelineViewer";
 import FullscreenResultsDialog from "./FullscreenResultsDialog";
+import DownloadOptionsDialog from "./DownloadOptionsDialog";
 import { downloadAsJson } from "../../../../utils/downloadUtils";
 
 const useStyles = makeStyles((theme) => ({
@@ -64,11 +66,7 @@ const useStyles = makeStyles((theme) => ({
 
 // Helper function to properly combine user pipeline with additional stages
 // Note: Sorting is now handled by the API, not in the pipeline
-const combineWithPipeline = (
-  userPipeline,
-  additionalStages = [],
-  isCountOnly = false,
-) => {
+const combineWithPipeline = (userPipeline, additionalStages = []) => {
   const finalPipeline = [];
 
   // Add user pipeline stages
@@ -181,7 +179,9 @@ const MongoQueryDialog = () => {
   const [hasNextPage, setHasNextPage] = useState(false);
   const [queryCompleted, setQueryCompleted] = useState(false);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+  const [isDownloadingFull, setIsDownloadingFull] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
+  const [showDownloadOptions, setShowDownloadOptions] = useState(false);
   const [lastQueryString, setLastQueryString] = useState("");
   const [lastPageOffset, setLastPageOffset] = useState(0);
 
@@ -414,19 +414,37 @@ const MongoQueryDialog = () => {
     }
   };
 
-  const handleDownloadResults = async () => {
-    if (!queryCompleted || isDownloadingAll) return;
+  // Open the download-options dialog (replaces the old direct download).
+  const handleDownloadResults = () => {
+    if (!queryCompleted || isDownloadingAll || isDownloadingFull) return;
+    setShowDownloadOptions(true);
+  };
 
-    setIsDownloadingAll(true);
+  // Replace the last $project stage with {_id: 1} so /filters/test is satisfied
+  // while only fetching the _id needed for the full-alerts ID-collection phase.
+  const buildIdOnlyPipeline = (pipeline) => {
+    const lastProjectIdx = pipeline
+      .map((s) => "$project" in s)
+      .lastIndexOf(true);
+    if (lastProjectIdx === -1)
+      return [...pipeline, { $project: { _id: 1, objectId: 1 } }];
+    return pipeline.map((stage, i) =>
+      i === lastProjectIdx ? { $project: { _id: 1, objectId: 1 } } : stage,
+    );
+  };
+
+  const _runDownload = async ({
+    pipeline,
+    filename,
+    setLoading,
+    downloadAction,
+  }) => {
+    setLoading(true);
     setDownloadProgress(0);
-
     try {
       const { startDate, endDate } = getConvertedDatesFromForm(getValues);
-      const userPipeline = generateMongoQuery();
-      const pipeline = combineWithPipeline(userPipeline, [], false);
-
       const allData = await dispatch(
-        downloadAllBoomFilterResults({
+        downloadAction({
           pipeline,
           selectedCollection,
           start_jd: startDate,
@@ -436,15 +454,44 @@ const MongoQueryDialog = () => {
           onProgress: (count) => setDownloadProgress(count),
         }),
       );
-
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      downloadAsJson(allData, `query-results-${timestamp}.json`);
+      downloadAsJson(allData, `${filename}-${timestamp}.json`);
+      setShowDownloadOptions(false);
     } catch (error) {
       console.error("Download error:", error);
+      setQueryError(
+        error?.message?.includes("timeout") || error?.message?.includes("408")
+          ? "The download timed out. Try a shorter date range or a more restrictive query."
+          : `Download failed: ${error.message}`,
+      );
     } finally {
-      setIsDownloadingAll(false);
+      setLoading(false);
       setDownloadProgress(0);
     }
+  };
+
+  const handleDownloadQueryResults = () => {
+    const userPipeline = generateMongoQuery();
+    const pipeline = combineWithPipeline(userPipeline, [], false);
+    _runDownload({
+      pipeline,
+      filename: "query-results",
+      setLoading: setIsDownloadingAll,
+      downloadAction: downloadAllBoomFilterResults,
+    });
+  };
+
+  const handleDownloadFullAlerts = () => {
+    const userPipeline = generateMongoQuery();
+    const idOnlyPipeline = buildIdOnlyPipeline(
+      combineWithPipeline(userPipeline, []),
+    );
+    _runDownload({
+      pipeline: idOnlyPipeline,
+      filename: "full-alerts",
+      setLoading: setIsDownloadingFull,
+      downloadAction: downloadAllBoomFilterFullResults,
+    });
   };
 
   const executeQuery = async (
@@ -459,11 +506,7 @@ const MongoQueryDialog = () => {
 
     let additionalStages = [];
 
-    const pipeline = combineWithPipeline(
-      userPipeline,
-      additionalStages,
-      countOnly,
-    );
+    const pipeline = combineWithPipeline(userPipeline, additionalStages);
 
     const sortOrder = direction === "backward" ? "Descending" : "Ascending";
     const result = countOnly
@@ -616,11 +659,8 @@ const MongoQueryDialog = () => {
         setPageDataCache(newCache);
       }
 
-      // Get actual count after first page
+      // Get actual count after first page using /filters/test/count
       const countQueryResult = await executeQuery(true);
-      // Good code when using queries/count endpoint
-      // const actualCount = countQueryResult.result?.data?.data || 0;
-      // temporary code to get count from results length
       const actualCount = countQueryResult.result?.data?.data?.count;
       setTotalDocuments(actualCount);
 
@@ -1291,8 +1331,19 @@ const MongoQueryDialog = () => {
         expandedCells={expandedCells}
         handlePageChange={handlePageChange}
         handleDownloadResults={handleDownloadResults}
-        isDownloadingAll={isDownloadingAll}
+        isDownloadingAll={isDownloadingAll || isDownloadingFull}
         downloadProgress={downloadProgress}
+      />
+
+      <DownloadOptionsDialog
+        open={showDownloadOptions}
+        onClose={() => setShowDownloadOptions(false)}
+        onDownloadQuery={handleDownloadQueryResults}
+        onDownloadFull={handleDownloadFullAlerts}
+        isDownloadingQuery={isDownloadingAll}
+        isDownloadingFull={isDownloadingFull}
+        downloadProgress={downloadProgress}
+        totalDocuments={totalDocuments}
       />
     </>
   );
