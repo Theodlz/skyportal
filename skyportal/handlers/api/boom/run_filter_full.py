@@ -34,7 +34,7 @@ class BoomRunFilterFullHandler(BaseHandler):
 
             # IDs arrive as strings (run_filter converts _id to str for JS
             # safety); convert back to integers for the MongoDB $match.
-            ids = [int(id_) for id_ in data["ids"]]
+            ids = [int(candid) for candid in data["ids"]]
             collection = data["selectedCollection"]
 
             headers = {
@@ -61,7 +61,7 @@ class BoomRunFilterFullHandler(BaseHandler):
 
             # Preserve the ID order that the frontend supplied so downstream
             # cursor logic stays consistent.
-            id_order = {id_: i for i, id_ in enumerate(ids)}
+            id_order = {candid: i for i, candid in enumerate(ids)}
             results.sort(key=lambda doc: id_order.get(doc.get("_id"), 0))
 
             results = [{**doc, "_id": str(doc["_id"])} for doc in results]
