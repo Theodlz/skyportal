@@ -6,7 +6,7 @@ from baselayer.app.access import auth_or_token, permissions
 
 from ...models import Filter, GroupUser
 from ..base import BaseHandler
-from .boom.filter import boom_token, boom_url, get_boom_token
+from .boom.utils import boom_token, boom_url, get_boom_token
 from .group import has_admin_access_for_group
 
 
