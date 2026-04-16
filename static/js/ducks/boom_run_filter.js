@@ -17,14 +17,10 @@ export const DOWNLOAD_ALL_BOOM_FILTER_RESULTS_ERROR =
 export const DOWNLOAD_ALL_BOOM_FILTER_RESULTS_FAIL =
   "skyportal/DOWNLOAD_ALL_BOOM_FILTER_RESULTS_FAIL";
 
-export const DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS =
-  "skyportal/DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS";
-export const DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS_OK =
-  "skyportal/DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS_OK";
-export const DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS_ERROR =
-  "skyportal/DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS_ERROR";
-export const DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS_FAIL =
-  "skyportal/DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS_FAIL";
+export const GET_BOOM_ALERTS = "skyportal/GET_BOOM_ALERTS";
+export const GET_BOOM_ALERTS_OK = "skyportal/GET_BOOM_ALERTS_OK";
+export const GET_BOOM_ALERTS_ERROR = "skyportal/GET_BOOM_ALERTS_ERROR";
+export const GET_BOOM_ALERTS_FAIL = "skyportal/GET_BOOM_ALERTS_FAIL";
 
 export function runBoomFilter({
   pipeline,
@@ -124,25 +120,21 @@ export function downloadAllBoomFilterFullResults({
     const allPageDocs = await fetchAllPages(
       async (cursor) => {
         const result = await dispatch(
-          API.POST(
-            "/api/boom/run_filter",
-            DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS,
-            {
-              pipeline,
-              selectedCollection,
-              start_jd,
-              end_jd,
-              filter_id,
-              sort_by: "_id",
-              sort_order: "Ascending",
-              limit: pageSize + 1,
-              cursor,
-            },
-          ),
+          API.POST("/api/boom/run_filter", GET_BOOM_ALERTS, {
+            pipeline,
+            selectedCollection,
+            start_jd,
+            end_jd,
+            filter_id,
+            sort_by: "_id",
+            sort_order: "Ascending",
+            limit: pageSize + 1,
+            cursor,
+          }),
         );
         if (
-          result.type === DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS_ERROR ||
-          result.type === DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS_FAIL
+          result.type === GET_BOOM_ALERTS_ERROR ||
+          result.type === GET_BOOM_ALERTS_FAIL
         ) {
           throw new Error(result.message || "Failed to fetch page");
         }
@@ -155,23 +147,23 @@ export function downloadAllBoomFilterFullResults({
     const allIds = allPageDocs.map((doc) => doc._id);
     if (allIds.length === 0) return [];
 
-    // Phase 2: fetch full documents in batches via /run_filter_full.
+    // Phase 2: fetch full documents in batches via GET /api/boom/alerts.
     // Each request carries a slice of IDs; the backend issues a single
-    // $match on _id (no lookups required) against /queries/pipeline.
+    // $match on _id (no lookups required) against /queries/find.
+    const survey = selectedCollection.split("_")[0];
     const BATCH_SIZE = 100;
     const allDocs = [];
     for (let i = 0; i < allIds.length; i += BATCH_SIZE) {
       const batch = allIds.slice(i, i + BATCH_SIZE);
       const result = await dispatch(
-        API.POST(
-          "/api/boom/run_filter_full",
-          DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS,
-          { ids: batch, selectedCollection, filter_id },
-        ),
+        API.GET("/api/boom/alerts", GET_BOOM_ALERTS, {
+          survey,
+          candids: batch.join(","),
+        }),
       );
       if (
-        result.type === DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS_ERROR ||
-        result.type === DOWNLOAD_ALL_BOOM_FILTER_FULL_RESULTS_FAIL
+        result.type === GET_BOOM_ALERTS_ERROR ||
+        result.type === GET_BOOM_ALERTS_FAIL
       ) {
         throw new Error(result.message || "Failed to fetch full documents");
       }
