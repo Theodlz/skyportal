@@ -54,7 +54,7 @@ dependencies = [
     "twilio==9.10.4",
     "numba>=0.59.0",
     "pyvo==1.8",
-    "lxml==6.0.2",
+    "lxml==6.1.0",
     "suds-py3==1.4.5.0",
     "vcrpy==8.1.1",
     "aiosmtpd==1.4.6",
@@ -102,7 +102,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pre-commit",
-    "pytest>=8.3.2, <9.0.0",
+    "pytest>=9.0.3,<10.0.0",
     "pytest-randomly==4.0.1",
     "pytest-rerunfailures>=14.0",
     "selenium==4.38.0",
