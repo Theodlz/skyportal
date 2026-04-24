@@ -17,7 +17,9 @@ EXCLUDED_FILES = {
     "package.json",
     "uv.lock",
     "pyproject.toml",
-    "app_server.py.gitignore",
+    "app_server.py",
+    ".gitignore",
+    ".npmrc",
 }
 
 
