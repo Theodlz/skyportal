@@ -10,9 +10,9 @@ import Paper from "@mui/material/Paper";
 import PropTypes from "prop-types";
 import Typography from "@mui/material/Typography";
 
+import Button from "./Button";
 import clsx from "clsx";
 import dayjs from "dayjs";
-import Button from "./Button";
 
 const useStyles = makeStyles((theme) => ({
   bibcard: {
@@ -83,38 +83,44 @@ const AboutPlugins = () => {
 
   return (
     <div>
-      <Typography variant="h5">
-        This is SkyPortal&nbsp;
+      <Typography className={classes.header} variant="h5">
+        This is Fritz&nbsp;
         <code>v{version}</code>.
       </Typography>
       <Typography variant="body1">
-        SkyPortal is an open source codebase that serves as a dynamic
-        collaborative platform for time-domain astronomy. It is being jointly
-        developed at Caltech, UC Berkeley, the University of Minnesota, and the
-        Observatoire de la Côte d&apos;Azur.
+        Fritz is an open source codebase that serves as a dynamic collaborative
+        platform for time-domain astronomy. It is being jointly developed at
+        Caltech, UC Berkeley, the University of Minnesota, and the Observatoire
+        de la Côte d&apos;Azur.
+      </Typography>
+      <Paper variant="outlined" className={classes.documentation}>
+        <Typography variant="body1">
+          Documentation for Fritz is available at{" "}
+          <a href="https://docs.fritz.science/">https://docs.fritz.science/</a>.
+        </Typography>
+      </Paper>
+      <Typography variant="body1">
+        Fritz integrates and extends two projects,&nbsp;
+        <a href="https://github.com/skyportal/kowalski">Kowalski</a>
+        &nbsp;&&nbsp;
+        <a href="https://skyportal.io">SkyPortal</a>, and has the functionality
+        of an alert broker, a multi-survey data sink/archive, a marshal, and a
+        target and observation/follow-up management tool.
       </Typography>
       <Typography variant="body1">
-        The project homepage is at&nbsp;
-        <a href="https://skyportal.io">https://skyportal.io</a>
-      </Typography>
-      <Typography variant="body1">
-        Documentation lives at&nbsp;
-        <a href="https://skyportal.io">https://skyportal.io/docs/</a>
-      </Typography>
-      <Typography variant="body1">
-        You may also interact with SkyPortal through its API. Generate a token
-        from your&nbsp;
-        <Link to="/profile">profile</Link>&nbsp; page, then refer to the&nbsp;
-        <a href="https://skyportal.io/docs/api.html">API documentation</a>.
+        You may also interact with Fritz through its API. Generate a token from
+        your&nbsp;
+        <Link to="/profile">profile</Link>&nbsp;page, then refer to the&nbsp;
+        <a href="https://docs.fritz.science/api.html">API documentation</a>.
       </Typography>
       <Typography variant="body1">
         Please file issues on our GitHub page at&nbsp;
-        <a href="https://github.com/skyportal/skyportal">
-          https://github.com/skyportal/skyportal
+        <a href="https://github.com/fritz-marshal/fritz">
+          https://github.com/fritz-marshal/fritz
         </a>
       </Typography>
       <div>
-        If you found SkyPortal useful, please consider citing our work:
+        If you found Fritz useful, please cite the following papers:
         <BibLink
           bibtex={`@article{Coughlin_2023,
   doi = {10.3847/1538-4365/acdee1},
@@ -162,16 +168,107 @@ const AboutPlugins = () => {
           </a>
           .
         </BibLink>
+        <BibLink
+          bibtex={`@article{duev2019real,
+  title={Real-bogus classification for the Zwicky Transient Facility using deep learning},
+  author={Duev, Dmitry A and Mahabal, Ashish and Masci, Frank J and Graham, Matthew J and Rusholme, Ben and Walters, Richard and Karmarkar, Ishani and Frederick, Sara and Kasliwal, Mansi M and Rebbapragada, Umaa and others},
+  journal={Monthly Notices of the Royal Astronomical Society},
+  volume={489},
+  number={3},
+  pages={3582--3590},
+  year={2019},
+  publisher={Oxford University Press}
+  url={https://ui.adsabs.harvard.edu/abs/2019MNRAS.489.3582D/abstract}
+}`}
+        >
+          Duev, Dmitry A., et al.,{" "}
+          <em>
+            Real-bogus classification for the Zwicky Transient Facility using
+            deep learning.
+          </em>{" "}
+          Monthly Notices of the Royal Astronomical Society, 489(3) 3582-3590,
+          2019.{" "}
+          <a href="https://doi.org/10.1093/mnras/stz2357">
+            https://doi.org/10.1093/mnras/stz2357
+          </a>
+          .
+        </BibLink>
+        <BibLink
+          bibtex={`@article{Kasliwal_2019,
+    doi = {10.1088/1538-3873/aafbc2},
+    url = {https://doi.org/10.1088%2F1538-3873%2Faafbc2},
+    year = 2019,
+    month = {feb},
+    publisher = {{IOP} Publishing},
+    volume = {131},
+    number = {997},
+    pages = {038003},
+    author = {M. M. Kasliwal and C. Cannella and A. Bagdasaryan and T. Hung and U. Feindt and L. P. Singer and M. Coughlin and C. Fremling and R. Walters and D. Duev and R. Itoh and R. M. Quimby},
+    title = {The {GROWTH} Marshal: A Dynamic Science Portal for Time-domain Astronomy},
+    journal = {Publications of the Astronomical Society of the Pacific},
+}`}
+        >
+          Kasliwal, M., et al.,{" "}
+          <em>
+            The GROWTH marshal: a dynamic science portal for time-domain
+            astronomy.
+          </em>{" "}
+          Publications of the Astronomical Society of the Pacific, 131(997)
+          038003, Feb 2019.{" "}
+          <a href="https://doi.org/10.1088%2F1538-3873%2Faafbc2">
+            https://doi.org/10.1088%2F1538-3873%2Faafbc2
+          </a>
+          .
+        </BibLink>
+        If you found Fritz&apos;s ACAI machine learning classifiers useful,
+        please cite the following paper:
       </div>
+      <div>
+        <BibLink
+          bibtex={`@ARTICLE{2021arXiv211112142D,
+       author = {{Duev}, Dmitry A. and {van der Walt}, St{\\'e}fan J.},
+        title = "{Phenomenological classification of the Zwicky Transient Facility astronomical event alerts}",
+      journal = {arXiv e-prints},
+     keywords = {Astrophysics - Instrumentation and Methods for Astrophysics},
+         year = 2021,
+        month = nov,
+          eid = {arXiv:2111.12142},
+        pages = {arXiv:2111.12142},
+archivePrefix = {arXiv},
+       eprint = {2111.12142},
+ primaryClass = {astro-ph.IM},
+       adsurl = {https://ui.adsabs.harvard.edu/abs/2021arXiv211112142D},
+      adsnote = {Provided by the SAO/NASA Astrophysics Data System}
+}`}
+        >
+          Dmitry A. Duev & Stéfan J. van der Walt,{" "}
+          <em>
+            Phenomenological classification of the Zwicky Transient Facility
+            astronomical event alerts.{" "}
+          </em>
+          <a href="https://arxiv.org/abs/2111.12142">arXiv:2111.12142</a>.
+        </BibLink>
+      </div>
+      <Typography variant="body1">
+        Fritz development is funded by the Moore Foundation, Heising Simons
+        Foundation, National Science Foundation, NASA and the Packard
+        Foundation.
+      </Typography>
       {gitlog && (
         <>
           <Typography variant="h5">Recent Changelog</Typography>
           <Paper mt={1} className={classes.gitlogPaper}>
             <Box p={1}>
               <div>
-                See all pull requests at{" "}
-                <a href="https://github.com/skyportal/skyportal/pulls?q=is%3Apr+">
-                  https://github.com/skyportal/skyportal/pulls
+                See all pull requests for{" "}
+                <a href="https://github.com/fritz-marshal/fritz/pulls">Fritz</a>
+                ,{" "}
+                <a href="https://github.com/skyportal/skyportal/pulls">
+                  SkyPortal
+                </a>
+                , and{" "}
+                <a href="https://github.com/skyportal/kowalski/pulls">
+                  Kowalski
                 </a>
               </div>
               <ul className={classes.gitlogList}>
