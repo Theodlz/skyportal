@@ -197,6 +197,7 @@ from skyportal.handlers.api import (
     WeatherHandler,
 )
 from skyportal.handlers.api.boom import (
+    BoomAlertsHandler,
     BoomFilterHandler,
     BoomFilterModulesHandler,
     BoomObjectHandler,
@@ -264,7 +265,8 @@ skyportal_handlers = [
     (r"/api/boom/filters(/.*)", BoomFilterHandler),
     (r"/api/boom/filter_modules(/.*)?", BoomFilterModulesHandler),
     (r"/api/boom/run_filter", BoomRunFilterHandler),
-    (r"/api/boom/alerts/([0-9A-Za-z-_\.\+]+)/([0-9A-Za-z-_\.\+]+)", BoomObjectHandler),
+    (r"/api/boom/alerts", BoomAlertsHandler),
+    (r"/api/boom/objects/([0-9A-Za-z-_\.\+]+)/([0-9A-Za-z-_\.\+]+)", BoomObjectHandler),
     # Kowalski API endpoints
     (r"/api/kowalski/filters/([0-9]+)?/v", KowalskiFilterHandler),
     (r"/api/kowalski/alerts(/.+)?", KowalskiAlertHandler),

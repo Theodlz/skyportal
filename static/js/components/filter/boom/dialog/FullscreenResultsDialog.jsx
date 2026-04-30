@@ -25,6 +25,7 @@ import {
   ChevronLeft as ChevronLeftIcon,
   ChevronRight as ChevronRightIcon,
 } from "@mui/icons-material";
+import CircularProgress from "@mui/material/CircularProgress";
 import ReactJson from "react-json-view";
 
 const FullscreenResultsDialog = ({
@@ -40,6 +41,8 @@ const FullscreenResultsDialog = ({
   expandedCells,
   handlePageChange,
   handleDownloadResults,
+  isDownloadingAll,
+  downloadProgress,
 }) => {
   const showPagination =
     totalDocuments > pageSize ||
@@ -98,14 +101,35 @@ const FullscreenResultsDialog = ({
             />
           )}
         </Box>
-        <Box sx={{ display: "flex", gap: 1 }}>
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+          {isDownloadingAll && (
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              {downloadProgress === 0
+                ? "Downloading…"
+                : `Downloading… ${downloadProgress}${
+                    totalDocuments > 0 ? ` / ${totalDocuments}` : ""
+                  }`}
+            </Typography>
+          )}
           <IconButton
             onClick={handleDownloadResults}
-            disabled={!displayResults.data?.length}
-            title="Download results as JSON"
+            disabled={
+              !queryCompleted ||
+              !displayResults.data?.length ||
+              isDownloadingAll
+            }
+            title={
+              isDownloadingAll
+                ? `Downloading all results… (${downloadProgress})`
+                : "Download all results as JSON"
+            }
             sx={{ color: "text.secondary" }}
           >
-            <DownloadIcon />
+            {isDownloadingAll ? (
+              <CircularProgress size={20} color="inherit" />
+            ) : (
+              <DownloadIcon />
+            )}
           </IconButton>
           <IconButton
             onClick={() => setIsFullscreen(false)}
@@ -376,6 +400,8 @@ FullscreenResultsDialog.propTypes = {
   expandedCells: PropTypes.instanceOf(Set).isRequired,
   handlePageChange: PropTypes.func.isRequired,
   handleDownloadResults: PropTypes.func.isRequired,
+  isDownloadingAll: PropTypes.bool.isRequired,
+  downloadProgress: PropTypes.number.isRequired,
 };
 
 export default FullscreenResultsDialog;
