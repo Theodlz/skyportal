@@ -33,3 +33,5 @@ export {
 } from "./positions";
 
 export { not, intersection, union } from "./sets";
+
+export { bytes2image } from "./imageProcessing";

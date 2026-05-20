@@ -14,22 +14,39 @@ export const FETCH_AUX_FAIL = "skyportal/FETCH_AUX_FAIL";
 export const SAVE_ALERT = "skyportal/SAVE_ALERT";
 export const SAVE_ALERT_OK = "skyportal/SAVE_ALERT_OK";
 
-export function fetchAlertData(id) {
-  return API.GET(`/api/kowalski/alerts/${id}`, FETCH_ALERT);
+export const UPDATE_CUTOUTS = "skyportal/UPDATE_CUTOUTS";
+export const UPDATE_CUTOUTS_OK = "skyportal/UPDATE_CUTOUTS_OK";
+
+export function fetchAlertData(survey, id) {
+  return API.GET(`/api/boom/alerts/${survey}?objectId=${id}`, FETCH_ALERT);
 }
 
-export const fetchAuxData = (id) =>
-  API.GET(`/api/kowalski/alerts_aux/${id}`, FETCH_AUX);
+export const fetchAuxData = (survey, id) =>
+  API.GET(`/api/boom/alerts_aux/${survey}/${id}`, FETCH_AUX);
 
-export function saveAlertAsSource({ id, payload }) {
-  return API.POST(`/api/kowalski/alerts/${id}`, SAVE_ALERT, payload);
+export function saveAlertAsSource({ survey, id, payload }) {
+  return API.POST(`/api/boom/alerts/${survey}/${id}`, SAVE_ALERT, payload);
+}
+
+export function updateCutouts({ survey, objectId, candid, which, band }) {
+  const payload = { objectId };
+  if (candid !== undefined && candid !== null && candid !== "") {
+    payload.candid = parseInt(candid, 10);
+  } else {
+    payload.which = which || "last";
+  }
+  if (band) payload.band = band;
+  return API.POST(
+    `/api/boom/alerts_cutouts/${survey}`,
+    UPDATE_CUTOUTS,
+    payload,
+  );
 }
 
 const alertDataReducer = (state = {}, action) => {
   switch (action.type) {
     case FETCH_ALERT_OK: {
       if (action.data.length > 0) {
-        // return action.data;
         return {
           ...state,
           [action.data[0].objectId]: action.data,

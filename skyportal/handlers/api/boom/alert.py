@@ -10,15 +10,19 @@ import requests
 import sqlalchemy as sa
 from astropy.io import fits
 from astropy.visualization import (
+    AsinhStretch,
     AsymmetricPercentileInterval,
     ImageNormalize,
     LinearStretch,
     LogStretch,
+    MinMaxInterval,
+    SqrtStretch,
+    ZScaleInterval,
 )
 from scipy.ndimage import rotate
 from sqlalchemy.orm.session import Session
 
-from baselayer.app.access import permissions
+from baselayer.app.access import auth_or_token, permissions
 from baselayer.app.env import load_env
 from baselayer.log import make_log
 
@@ -33,9 +37,11 @@ from ....models import (
     Thumbnail,
     User,
 )
+from ....utils.parse import str_to_bool
 from ...base import BaseHandler
 from ..photometry import add_external_photometry
 from ..thumbnail import post_thumbnail
+from .utils import boom_available, boom_token, boom_url, convert_large_ints
 
 thumbnail_types = [
     ("cutoutScience", "new"),
@@ -153,84 +159,6 @@ log = make_log("api/boom_alerts")
 _, cfg = load_env()
 
 
-def get_boom_url():
-    try:
-        ports_to_ignore = [443, 80]
-        return f"{cfg['boom.protocol']}://{cfg['boom.host']}" + (
-            f":{int(cfg['boom.port'])}"
-            if (
-                isinstance(cfg["boom.port"], int)
-                and int(cfg["boom.port"]) not in ports_to_ignore
-            )
-            else ""
-        )
-    except Exception as e:
-        log(f"Error getting Boom URL: {e}")
-        return None
-
-
-def get_boom_credentials():
-    username = cfg["boom.username"]
-    password = cfg["boom.password"]
-    return {"username": username, "password": password}
-
-
-boom_url = get_boom_url()
-boom_credentials = get_boom_credentials()
-
-
-def get_boom_token():
-    try:
-        if boom_url is None:
-            return None, None
-        auth_url = f"{boom_url}/auth"
-        current_time = datetime.utcnow()
-        auth_response = requests.post(
-            auth_url,
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-            data=boom_credentials,
-            timeout=10,  # 10 second timeout for auth request
-        )
-        auth_response.raise_for_status()
-        data = auth_response.json()
-        token = data["access_token"]
-        expires_at = None
-        if data.get("expires_in"):
-            expires_in = int(data["expires_in"])
-            expires_at = current_time + timedelta(seconds=expires_in)
-        return token, expires_at
-    except Exception as e:
-        log(f"Error getting Boom token: {e}")
-        return None, None
-
-
-boom_token, boom_token_expires_at = get_boom_token()
-
-
-def boom_available(func):
-    def wrapper(*args, **kwargs):
-        global boom_url
-        global boom_credentials
-        # we should have a boom_url
-        if boom_url is None or boom_credentials is None:
-            raise ValueError("Boom is not available")
-        # if we don't have a token or it's about to expire (<30min), get another one
-        global boom_token
-        global boom_token_expires_at
-        if boom_token is None or (
-            boom_token_expires_at is not None
-            and boom_token_expires_at < datetime.utcnow() + timedelta(seconds=1800)
-        ):
-            boom_token, boom_token_expires_at = get_boom_token()
-        if boom_token is None:
-            raise ValueError("Boom is not available")
-        return func(*args, **kwargs)
-
-    return wrapper
-
-
 def make_programid2stream_mapper(session: Session):
     # here we:
     # - get all the streams
@@ -336,6 +264,231 @@ def process_photometry(
 
     for key, data in photometry_data.items():
         add_external_photometry(data, user, session)
+
+
+BOOM_RADIUS_UNIT_MAP = {
+    "deg": "Degrees",
+    "arcmin": "Arcminutes",
+    "arcsec": "Arcseconds",
+}
+
+NO_CUTOUT_PROJECTION = {
+    "cutoutScience": 0,
+    "cutoutTemplate": 0,
+    "cutoutDifference": 0,
+}
+
+
+class BoomAlertHandler(BaseHandler):
+    @auth_or_token
+    @boom_available
+    async def get(self, survey: str):
+        """
+        ---
+        summary: Retrieve alerts from Boom for a given survey
+        description: |
+          Retrieve alerts from Boom by objectId (single or comma-separated list),
+          candid, or sky position (ra/dec/radius/radius_units). Positional queries
+          and objectId filtering can be combined.
+        tags:
+          - alerts
+          - boom
+        parameters:
+          - in: path
+            name: survey
+            required: true
+            schema:
+              type: string
+            description: Survey name (e.g. ZTF, LSST)
+          - in: query
+            name: objectId
+            required: false
+            schema:
+              type: string
+            description: Single objectId or comma-separated list of objectIds
+          - in: query
+            name: candid
+            required: false
+            schema:
+              type: integer
+            description: Alert candid. Can be combined with objectId.
+          - in: query
+            name: ra
+            required: false
+            schema:
+              type: number
+            description: RA in degrees
+          - in: query
+            name: dec
+            required: false
+            schema:
+              type: number
+            description: Declination in degrees
+          - in: query
+            name: radius
+            required: false
+            schema:
+              type: number
+            description: Search radius (capped at 1 deg). Units set by radius_units.
+          - in: query
+            name: radius_units
+            required: false
+            schema:
+              type: string
+              enum: [deg, arcmin, arcsec]
+            description: Units for radius
+        responses:
+          200:
+            description: retrieved alert(s)
+            content:
+              application/json:
+                schema:
+                  allOf:
+                    - $ref: '#/components/schemas/Success'
+                    - type: object
+                      properties:
+                        data:
+                          type: array
+                          items:
+                            type: object
+          400:
+            content:
+              application/json:
+                schema: Error
+        """
+        object_id = self.get_query_argument("objectId", None)
+        candid = self.get_query_argument("candid", None)
+        ra = self.get_query_argument("ra", None)
+        dec = self.get_query_argument("dec", None)
+        radius = self.get_query_argument("radius", None)
+        radius_units = self.get_query_argument("radius_units", None)
+
+        position_tuple = (ra, dec, radius, radius_units)
+
+        if not any((object_id, candid, ra, dec, radius, radius_units)):
+            return self.error(
+                "Missing required parameters: provide objectId, candid, or ra/dec/radius/radius_units."
+            )
+
+        headers = {"Authorization": f"Bearer {boom_token}"}
+        catalog = f"{survey.upper()}_alerts"
+
+        try:
+            if candid is not None:
+                try:
+                    candid = int(candid)
+                except ValueError:
+                    return self.error("`candid` must be an integer.")
+
+                filter_doc = {"candid": candid}
+                if object_id:
+                    filter_doc["objectId"] = object_id
+
+                response = requests.post(
+                    f"{boom_url}/queries/find",
+                    headers=headers,
+                    json={
+                        "catalog_name": catalog,
+                        "filter": filter_doc,
+                        "projection": NO_CUTOUT_PROJECTION,
+                        "max_time_ms": 10000,
+                    },
+                    timeout=15,
+                )
+                if response.status_code != 200:
+                    return self.error(
+                        f"Boom query failed: {response.status_code} {response.text}"
+                    )
+                data = response.json().get("data", [])
+                return self.success(data=convert_large_ints(data))
+
+            if not any(position_tuple):
+                # objectId-only query
+                if object_id is None:
+                    return self.error("Missing required parameters.")
+
+                object_ids = [oid.strip() for oid in object_id.split(",")]
+                filter_doc = (
+                    {"objectId": object_ids[0]}
+                    if len(object_ids) == 1
+                    else {"objectId": {"$in": object_ids}}
+                )
+
+                response = requests.post(
+                    f"{boom_url}/queries/find",
+                    headers=headers,
+                    json={
+                        "catalog_name": catalog,
+                        "filter": filter_doc,
+                        "projection": NO_CUTOUT_PROJECTION,
+                        "max_time_ms": 10000,
+                    },
+                    timeout=15,
+                )
+                if response.status_code != 200:
+                    return self.error(
+                        f"Boom query failed: {response.status_code} {response.text}"
+                    )
+                data = response.json().get("data", [])
+                return self.success(data=convert_large_ints(data))
+
+            # Positional query
+            if not all(position_tuple):
+                missing = [
+                    name
+                    for name, val in zip(
+                        ["ra", "dec", "radius", "radius_units"], position_tuple
+                    )
+                    if val is None
+                ]
+                return self.error(f"Missing positional parameters: {missing}.")
+
+            if radius_units not in BOOM_RADIUS_UNIT_MAP:
+                return self.error(
+                    "Invalid radius_units. Must be one of 'deg', 'arcmin', or 'arcsec'."
+                )
+            try:
+                ra = float(ra)
+                dec = float(dec)
+                radius = float(radius)
+            except ValueError:
+                return self.error("Invalid (non-float) value provided.")
+
+            if (
+                (radius_units == "deg" and radius > 1)
+                or (radius_units == "arcmin" and radius > 60)
+                or (radius_units == "arcsec" and radius > 3600)
+            ):
+                return self.error("Radius must be <= 1.0 deg.")
+
+            response = requests.post(
+                f"{boom_url}/queries/cone_search",
+                headers=headers,
+                json={
+                    "catalog_name": catalog,
+                    "object_coordinates": {"query": [ra, dec]},
+                    "radius": radius,
+                    "unit": BOOM_RADIUS_UNIT_MAP[radius_units],
+                    "max_time_ms": 10000,
+                },
+                timeout=15,
+            )
+            if response.status_code != 200:
+                return self.error(
+                    f"Boom cone search failed: {response.status_code} {response.text}"
+                )
+
+            alert_data = response.json().get("data", {}).get("query", [])
+
+            if object_id is not None:
+                filter_ids = {oid.strip() for oid in object_id.split(",")}
+                alert_data = [a for a in alert_data if a.get("objectId") in filter_ids]
+
+            return self.success(data=convert_large_ints(alert_data))
+
+        except Exception:
+            _err = traceback.format_exc()
+            return self.error(f"failure: {_err}")
 
 
 class BoomObjectHandler(BaseHandler):
@@ -476,38 +629,6 @@ class BoomObjectHandler(BaseHandler):
                         )
                     )
 
-            # Grab and insert cutouts, if they don't already exist for this object in the database.
-            existing_cutouts = session.scalars(
-                sa.select(Thumbnail.type).where(
-                    Thumbnail.obj_id == data["objectId"],
-                    Thumbnail.type.in_([t[1] for t in thumbnail_types]),
-                )
-            ).all()
-            if len(existing_cutouts) < len(thumbnail_types):
-                # for new objects, we use the /queries/find endpoint to get the cutouts
-                cutout_url = f"{boom_url}/queries/find"
-                cutout_json_data = {
-                    "catalog_name": f"{str(survey).upper()}_alerts_cutouts",
-                    "filter": {"_id": data["_id"]},
-                    "max_time_ms": 30000,  # 30 second timeout
-                }
-                cutout_response = requests.post(
-                    cutout_url, headers=headers, json=cutout_json_data
-                )
-                if cutout_response.status_code != 200:
-                    log(
-                        f"Error querying Boom API for cutouts: {cutout_response.status_code} {cutout_response.text}"
-                    )
-                else:
-                    cutout_data = cutout_response.json().get("data", [])
-                    if len(cutout_data) > 0:
-                        cutout_data[0]["objectId"] = object_id
-                        add_thumbnails(cutout_data[0], survey, session)
-                    else:
-                        log(
-                            f"No cutout data found for object {object_id} in survey {survey}"
-                        )
-
             process_photometry(
                 object_id,
                 survey,
@@ -606,3 +727,617 @@ class BoomObjectHandler(BaseHandler):
             session.commit()
 
         return self.success({"survey": survey, "objectId": object_id})
+
+
+class BoomAlertAuxHandler(BaseHandler):
+    @auth_or_token
+    @boom_available
+    async def get(self, survey: str, object_id: str):
+        """
+        ---
+        summary: Retrieve aux data for an objectId from Boom
+        description: |
+          Retrieves auxiliary data for a given objectId from Boom, including
+          previous candidates, forced-photometry history, non-detections, and
+          cross-matches. Also appends the most recent alert detection(s) from
+          the alerts collection when they are absent from prv_candidates.
+        tags:
+          - alerts
+          - boom
+        parameters:
+          - in: path
+            name: survey
+            required: true
+            schema:
+              type: string
+            description: Survey name (e.g. ZTF, LSST)
+          - in: path
+            name: object_id
+            required: true
+            schema:
+              type: string
+          - in: query
+            name: includePrvCandidates
+            required: false
+            schema:
+              type: boolean
+            default: true
+          - in: query
+            name: includeFpHists
+            required: false
+            schema:
+              type: boolean
+            default: true
+          - in: query
+            name: includePrvNondetections
+            required: false
+            schema:
+              type: boolean
+            default: true
+          - in: query
+            name: includeAllFields
+            required: false
+            schema:
+              type: boolean
+            default: false
+        responses:
+          200:
+            description: retrieved aux data
+            content:
+              application/json:
+                schema:
+                  allOf:
+                    - $ref: '#/components/schemas/Success'
+                    - type: object
+                      properties:
+                        data:
+                          type: object
+          400:
+            content:
+              application/json:
+                schema: Error
+        """
+        include_prv_candidates = str_to_bool(
+            self.get_query_argument("includePrvCandidates", "true"), default=True
+        )
+        include_fp_hists = str_to_bool(
+            self.get_query_argument("includeFpHists", "true"), default=True
+        )
+        include_prv_nondetections = str_to_bool(
+            self.get_query_argument("includePrvNondetections", "true"), default=True
+        )
+        include_all_fields = str_to_bool(
+            self.get_query_argument("includeAllFields", "false").lower(), default=False
+        )
+
+        headers = {"Authorization": f"Bearer {boom_token}"}
+        catalog_aux = f"{survey.upper()}_alerts_aux"
+
+        try:
+            # ── 1. Fetch aux document ────────────────────────────────────────
+            aux_pipeline = [{"$match": {"_id": object_id}}]
+            if not include_all_fields:
+                aux_pipeline.append(
+                    {
+                        "$project": {
+                            "_id": 1,
+                            "cross_matches": 1,
+                            "prv_candidates.candid": 1,
+                            "prv_candidates.jd": 1,
+                            "prv_candidates.band": 1,
+                            "prv_candidates.programid": 1,
+                            "prv_candidates.ra": 1,
+                            "prv_candidates.dec": 1,
+                            "prv_candidates.magpsf": 1,
+                            "prv_candidates.sigmapsf": 1,
+                            "prv_candidates.diffmaglim": 1,
+                            "prv_candidates.isdiffpos": 1,
+                            "prv_candidates.snr_psf": 1,
+                            "fp_hists.jd": 1,
+                            "fp_hists.band": 1,
+                            "fp_hists.programid": 1,
+                            "fp_hists.ra": 1,
+                            "fp_hists.dec": 1,
+                            "fp_hists.magpsf": 1,
+                            "fp_hists.sigmapsf": 1,
+                            "fp_hists.diffmaglim": 1,
+                            "fp_hists.isdiffpos": 1,
+                            "fp_hists.snr_psf": 1,
+                            "prv_nondetections.jd": 1,
+                            "prv_nondetections.band": 1,
+                            "prv_nondetections.programid": 1,
+                            "prv_nondetections.diffmaglim": 1,
+                        }
+                    }
+                )
+
+            aux_response = requests.post(
+                f"{boom_url}/queries/pipeline",
+                headers=headers,
+                json={
+                    "catalog_name": catalog_aux,
+                    "pipeline": aux_pipeline,
+                    "max_time_ms": 10000,
+                },
+                timeout=15,
+            )
+            if aux_response.status_code != 200:
+                return self.error(
+                    f"Boom aux query failed: {aux_response.status_code} {aux_response.text}"
+                )
+
+            aux_records = aux_response.json().get("data", [])
+            if len(aux_records) > 0:
+                aux_data = aux_records[0]
+            else:
+                aux_data = {
+                    "prv_candidates": [],
+                    "fp_hists": [],
+                    "prv_nondetections": [],
+                    "cross_matches": {},
+                    "missing": True,
+                    "message": (
+                        "Aux data for this object is missing from Boom. "
+                        "Use alert data directly to retrieve detections."
+                    ),
+                }
+
+            # ── 2. Compute median coordinates ────────────────────────────────
+            all_ras = [
+                c["ra"]
+                for c in aux_data.get("prv_candidates", [])
+                if c.get("ra") is not None
+            ]
+            all_decs = [
+                c["dec"]
+                for c in aux_data.get("prv_candidates", [])
+                if c.get("dec") is not None
+            ]
+            if all_ras and all_decs:
+                aux_data["coordinates"] = {
+                    "ra_median": float(
+                        np.median(np.unique(np.array(all_ras).round(decimals=10)))
+                    ),
+                    "dec_median": float(
+                        np.median(np.unique(np.array(all_decs).round(decimals=10)))
+                    ),
+                }
+
+            # ── 4. Suppress unwanted sections ───────────────────────────────
+            if not include_prv_candidates:
+                aux_data.pop("prv_candidates", None)
+            if not include_fp_hists:
+                aux_data.pop("fp_hists", None)
+            if not include_prv_nondetections:
+                aux_data.pop("prv_nondetections", None)
+
+            return self.success(data=aux_data)
+
+        except Exception:
+            _err = traceback.format_exc()
+            return self.error(f"failure: {_err}")
+
+
+class BoomAlertCutoutHandler(BaseHandler):
+    @auth_or_token
+    @boom_available
+    async def get(self, survey: str):
+        """
+        ---
+        summary: Serve Boom alert cutout(s) as JSON (FITS) or PNG
+        description: |
+          When file_format=fits (default): fetches all three cutouts from Boom
+          and returns the raw payload as JSON (keys: cutoutScience,
+          cutoutTemplate, cutoutDifference). No server-side processing is
+          applied; the caller receives exactly what Boom returned.
+
+          When file_format=png: renders a single cutout type as a PNG image.
+          The `cutout` parameter is required in this mode.
+        tags:
+          - alerts
+          - boom
+
+        parameters:
+          - in: path
+            name: survey
+            description: "Survey name (e.g. ZTF, LSST)"
+            required: true
+            schema:
+              type: string
+          - in: query
+            name: candid
+            description: "Alert candid. Mutually exclusive with objectId."
+            required: false
+            schema:
+              type: integer
+          - in: query
+            name: objectId
+            description: "Object ID. Mutually exclusive with candid."
+            required: false
+            schema:
+              type: string
+          - in: query
+            name: which
+            description: "Which alert to use when querying by objectId."
+            required: false
+            schema:
+              type: string
+              enum: [first, last, brightest, faintest]
+          - in: query
+            name: file_format
+            description: |
+              fits (default): return raw Boom JSON with all three cutouts.
+              png: render a single cutout as a PNG image (requires `cutout`).
+            required: false
+            default: png
+            schema:
+              type: string
+              enum: [fits, png]
+          - in: query
+            name: cutout
+            description: "PNG mode only: which cutout to render."
+            required: false
+            schema:
+              type: string
+              enum: [science, template, difference]
+          - in: query
+            name: interval
+            description: "PNG mode only: normalisation interval."
+            required: false
+            schema:
+              type: string
+              enum: [min_max, zscale]
+          - in: query
+            name: stretch
+            description: "PNG mode only: stretch function."
+            required: false
+            schema:
+              type: string
+              enum: [linear, log, asinh, sqrt]
+          - in: query
+            name: cmap
+            description: "PNG mode only: colour map."
+            required: false
+            schema:
+              type: string
+              enum: [bone, gray, cividis, viridis, magma]
+
+        responses:
+          '200':
+            description: retrieved cutout(s)
+            content:
+              application/json:
+                schema:
+                  allOf:
+                    - $ref: '#/components/schemas/Success'
+                    - type: object
+                      properties:
+                        data:
+                          type: object
+              image/png:
+                schema:
+                  type: string
+                  format: binary
+          '400':
+            description: retrieval failed
+            content:
+              application/json:
+                schema: Error
+        """
+        import time
+
+        try:
+            candid = self.get_query_argument("candid", None)
+            object_id = self.get_query_argument("objectId", None)
+            which = self.get_query_argument("which", "last")
+            file_format = self.get_argument("file_format", "png").lower()
+            cutout = self.get_argument("cutout", None)
+            interval = self.get_argument("interval", default=None)
+            stretch = self.get_argument("stretch", default=None)
+            cmap = self.get_argument("cmap", default=None)
+
+            # ── common validation ────────────────────────────────────────────
+            if candid is None and object_id is None:
+                return self.error("Either `candid` or `objectId` must be provided.")
+            if candid is not None and object_id is not None:
+                return self.error(
+                    "Only one of `candid` or `objectId` should be provided."
+                )
+            if candid is not None:
+                try:
+                    candid = int(candid)
+                except ValueError:
+                    return self.error("`candid` must be an integer.")
+
+            known_file_formats = ["fits", "png"]
+            if file_format not in known_file_formats:
+                return self.error(f"`file_format` must be one of {known_file_formats}.")
+
+            known_which = ["first", "last", "brightest", "faintest"]
+            if which not in known_which:
+                return self.error(f"`which` must be one of {known_which}.")
+
+            params = {}
+            if candid is not None:
+                params["candid"] = candid
+            else:
+                params["objectId"] = object_id
+                params["which"] = which
+
+            headers = {
+                "Accept": "application/json",
+                "Authorization": f"Bearer {boom_token}",
+            }
+
+            # ── fetch from Boom ──────────────────────────────────────────────
+            start = time.time()
+            response = requests.get(
+                f"{boom_url}/surveys/{survey.upper()}/cutouts",
+                headers=headers,
+                params=params,
+                timeout=10,
+            )
+            log(f"Boom cutout query took {time.time() - start:.2f} seconds")
+
+            if response.status_code != 200:
+                return self.error(
+                    f"Failed to fetch cutout from Boom: {response.status_code} {response.text}"
+                )
+
+            resp_json = response.json()
+            if "data" not in resp_json:
+                return self.error(
+                    "Unexpected response from Boom API (missing 'data' field)."
+                )
+
+            boom_data = resp_json["data"]
+
+            # ── FITS mode: return raw Boom payload unchanged ─────────────────
+            if file_format == "fits":
+                return self.success(data=boom_data)
+
+            # ── PNG mode: render one cutout type ─────────────────────────────
+            if cutout is None:
+                return self.error("`cutout` is required when file_format=png.")
+            cutout = cutout.capitalize()
+            known_cutouts = ["Science", "Template", "Difference"]
+            if cutout not in known_cutouts:
+                return self.error(f"`cutout` must be one of {known_cutouts}.")
+
+            cutout_key = f"cutout{cutout}"
+            if cutout_key not in boom_data:
+                return self.error(f"Cutout type '{cutout}' not found in Boom response.")
+
+            raw_cutout = boom_data[cutout_key]
+            if isinstance(raw_cutout, list):
+                raw_cutout = bytes(raw_cutout)
+            elif isinstance(raw_cutout, str):
+                raw_cutout = base64.b64decode(raw_cutout)
+
+            if survey.upper() == "LSST":
+                with fits.open(
+                    io.BytesIO(raw_cutout), ignore_missing_simple=True
+                ) as hdu:
+                    header = hdu[0].header
+                    data_array = hdu[0].data
+            else:
+                with gzip.open(io.BytesIO(raw_cutout), "rb") as f:
+                    with fits.open(
+                        io.BytesIO(f.read()), ignore_missing_simple=True
+                    ) as hdu:
+                        header = hdu[0].header
+                        data_array = hdu[0].data
+
+            if survey.upper() == "ZTF":
+                data_array = np.flipud(data_array)
+            elif survey.upper() == "LSST":
+                rotpa = header.get("ROTPA", None)
+                if rotpa is not None:
+                    try:
+                        data_array = rotate(
+                            data_array,
+                            -rotpa,
+                            reshape=True,
+                            order=1,
+                            mode="constant",
+                            cval=0.0,
+                        )
+                    except Exception as e:
+                        log(f"Failed to rotate LSST image: {e}")
+
+            normalization_methods = {
+                "asymmetric_percentile": AsymmetricPercentileInterval(
+                    lower_percentile=1, upper_percentile=100
+                ),
+                "min_max": MinMaxInterval(),
+                "zscale": ZScaleInterval(n_samples=600, contrast=0.045, krej=2.5),
+            }
+            if interval is None:
+                interval = "asymmetric_percentile"
+            normalizer = normalization_methods.get(
+                interval.lower(),
+                AsymmetricPercentileInterval(lower_percentile=1, upper_percentile=100),
+            )
+
+            stretching_methods = {
+                "linear": LinearStretch,
+                "log": LogStretch,
+                "asinh": AsinhStretch,
+                "sqrt": SqrtStretch,
+            }
+            if stretch is None:
+                stretch = "log" if cutout != "Difference" else "linear"
+            stretcher = stretching_methods.get(stretch.lower(), LogStretch)()
+
+            if cmap is None or cmap.lower() not in [
+                "bone",
+                "gray",
+                "cividis",
+                "viridis",
+                "magma",
+            ]:
+                cmap = "bone"
+            else:
+                cmap = cmap.lower()
+
+            img = np.array(data_array)
+            xl = np.greater(np.abs(img), 1e20, where=~np.isnan(img))
+            if img[xl].any():
+                img[xl] = np.nan
+            if np.isnan(img).any():
+                img = np.nan_to_num(img, nan=float(np.nanmean(img.flatten())))
+
+            norm = ImageNormalize(img, stretch=stretcher)
+            img_norm = norm(img)
+            vmin, vmax = normalizer.get_limits(img_norm)
+
+            buff = io.BytesIO()
+            fig, ax = plt.subplots(figsize=(4, 4))
+            fig.subplots_adjust(0, 0, 1, 1)
+            ax.set_axis_off()
+            ax.imshow(img_norm, cmap=cmap, origin="lower", vmin=vmin, vmax=vmax)
+            plt.savefig(buff, dpi=42, format="png")
+            plt.close(fig)
+            buff.seek(0)
+            self.set_header("Content-Type", "image/png")
+            self.write(buff.getvalue())
+
+        except Exception:
+            _err = traceback.format_exc()
+            return self.error(f"failure: {_err}")
+
+    @permissions(["Upload data"])
+    @boom_available
+    def post(self, survey: str):
+        """
+        ---
+        summary: Save or replace cutout thumbnails for an existing source
+        description: |
+          Fetches cutout images from Boom for a given alert (identified by
+          candid or objectId + which) and stores them as thumbnails for the
+          corresponding source in SkyPortal. All existing thumbnails of types
+          new/ref/sub for that source are replaced. Returns an error if the
+          object does not already exist as a source.
+        tags:
+          - alerts
+          - boom
+        parameters:
+          - in: path
+            name: survey
+            required: true
+            schema:
+              type: string
+            description: Survey name (e.g. ZTF, LSST)
+        requestBody:
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - objectId
+                properties:
+                  objectId:
+                    type: string
+                    description: Object ID of the existing source
+                  candid:
+                    type: integer
+                    description: >
+                      Alert candid to use for the cutout. Mutually exclusive
+                      with `which`.
+                  which:
+                    type: string
+                    enum: [first, last, brightest, faintest]
+                    default: last
+                    description: >
+                      When querying by objectId, which alert to use.
+                      Ignored when `candid` is provided.
+                  band:
+                    type: string
+                    description: Optional band filter (e.g. g, r, i for LSST)
+        responses:
+          200:
+            content:
+              application/json:
+                schema:
+                  allOf:
+                    - $ref: '#/components/schemas/Success'
+                    - type: object
+                      properties:
+                        data:
+                          type: object
+          400:
+            content:
+              application/json:
+                schema: Error
+        """
+        data = self.get_json()
+        object_id = data.get("objectId")
+        candid = data.get("candid")
+        which = data.get("which", "last")
+        band = data.get("band")
+
+        if not object_id:
+            return self.error("`objectId` is required.")
+
+        known_which = ["first", "last", "brightest", "faintest"]
+        if which not in known_which:
+            return self.error(f"`which` must be one of {known_which}.")
+
+        if candid is not None:
+            try:
+                candid = int(candid)
+            except (TypeError, ValueError):
+                return self.error("`candid` must be an integer.")
+
+        params = {}
+        if candid is not None:
+            params["candid"] = candid
+        else:
+            params["objectId"] = object_id
+            params["which"] = which
+        if band is not None:
+            params["band"] = band
+
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {boom_token}",
+        }
+
+        with self.Session() as session:
+            obj = session.scalar(sa.select(Obj).where(Obj.id == object_id))
+            if obj is None:
+                return self.error(
+                    f"Object '{object_id}' not found. Save it as a source first."
+                )
+
+            response = requests.get(
+                f"{boom_url}/surveys/{survey.upper()}/cutouts",
+                headers=headers,
+                params=params,
+                timeout=10,
+            )
+            if response.status_code != 200:
+                return self.error(
+                    f"Failed to fetch cutouts from Boom: "
+                    f"{response.status_code} {response.text}"
+                )
+
+            resp_json = response.json()
+            cutout_data = resp_json.get("data", {})
+            cutout_data["objectId"] = object_id
+
+            # Replace any existing stored thumbnails of these types
+            existing = session.scalars(
+                sa.select(Thumbnail).where(
+                    Thumbnail.obj_id == object_id,
+                    Thumbnail.type.in_([t[1] for t in thumbnail_types]),
+                )
+            ).all()
+            for thumb in existing:
+                session.delete(thumb)
+            session.flush()
+
+            add_thumbnails(cutout_data, survey.upper(), session)
+            session.commit()
+
+        return self.success(data={"objectId": object_id, "survey": survey})

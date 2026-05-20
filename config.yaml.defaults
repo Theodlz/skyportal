@@ -219,6 +219,10 @@ app:
       component: sharing_service/SharingServiceSubmissionsPage
     - path: "/moving_objects/obsplan"
       component: moving_object/MovingObjectObsPlanPage
+    - path: "/alerts"
+      component: alert/Alerts
+    - path: "/alerts/:survey/:id"
+      component: alert/Alert
 
   sidebar:
     # See https://material-ui.com/components/material-icons/
@@ -235,6 +239,10 @@ app:
         - name: Candidates
           icon: Search
           url: /candidates
+
+        - name: Alerts
+          icon: Explore
+          url: /alerts
 
         - name: Favorites
           icon: Star

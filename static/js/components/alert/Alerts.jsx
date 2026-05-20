@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, Link } from "react-router-dom";
+import PropTypes from "prop-types";
 
 import Card from "@mui/material/Card";
 import CardActions from "@mui/material/CardActions";
@@ -52,11 +53,19 @@ import FormValidationError from "../FormValidationError";
 import { dec_to_dms, ra_to_hours, dms_to_dec, hours_to_ra } from "../../units";
 import { greatCircleDistance } from "../../utils";
 
-import * as alertActions from "../../ducks/kowalski_alert";
-import * as alertsActions from "../../ducks/kowalski_alerts";
+import * as alertActions from "../../ducks/boom_alert";
+import * as alertsActions from "../../ducks/boom_alerts";
+import { bytes2image } from "../../utils/imageProcessing";
 
 function isString(x) {
   return Object.prototype.toString.call(x) === "[object String]";
+}
+
+function inferSurvey(objectId) {
+  if (!objectId) return null;
+  if (objectId.toUpperCase().startsWith("ZTF")) return "ZTF";
+  if (/^\d{15,}$/.test(objectId)) return "LSST";
+  return null;
 }
 
 const getMuiTheme = (theme) =>
@@ -170,6 +179,61 @@ const useStyles = makeStyles((theme) => ({
   },
 }));
 
+const CutoutTriplet = ({ rowObj, survey }) => {
+  const [dataUris, setDataUris] = useState(null);
+
+  useEffect(() => {
+    const query = rowObj.candid
+      ? `candid=${rowObj.candid}`
+      : `objectId=${rowObj.objectId}&which=last`;
+    fetch(`/api/boom/alerts_cutouts/${survey}?${query}&file_format=fits`, {
+      credentials: "include",
+    })
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.status !== "success" || !json.data) {
+          setDataUris({});
+          return;
+        }
+        const d = json.data;
+        setDataUris({
+          new: bytes2image(d.cutoutScience, survey, "science", "bone") ?? null,
+          ref:
+            bytes2image(d.cutoutTemplate, survey, "template", "bone") ?? null,
+          sub:
+            bytes2image(d.cutoutDifference, survey, "difference", "bone") ??
+            null,
+        });
+      })
+      .catch(() => setDataUris({}));
+  }, [rowObj.candid, rowObj.objectId, survey]);
+
+  return dataUris === null ? (
+    <CircularProgress size={32} />
+  ) : (
+    <ThumbnailList
+      thumbnails={[
+        { type: "new", id: 0, public_url: dataUris.new },
+        { type: "ref", id: 1, public_url: dataUris.ref },
+        { type: "sub", id: 2, public_url: dataUris.sub },
+      ]}
+      ra={rowObj.ra}
+      dec={rowObj.dec}
+      displayTypes={["new", "ref", "sub"]}
+    />
+  );
+};
+
+CutoutTriplet.propTypes = {
+  rowObj: PropTypes.shape({
+    candid: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+    objectId: PropTypes.string,
+    ra: PropTypes.number,
+    dec: PropTypes.number,
+  }).isRequired,
+  survey: PropTypes.string.isRequired,
+};
+
 const Alerts = () => {
   const dispatch = useDispatch();
   const classes = useStyles();
@@ -183,6 +247,8 @@ const Alerts = () => {
   const groups = useSelector((state) => state.groups.userAccessible);
 
   // save alerts to SP in bulk (by objectID)
+  const [selectedSurvey, setSelectedSurvey] = useState("ZTF");
+
   const [groupByObj, setGroupByObj] = useState(false);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [rowsToSave, setRowsToSave] = useState([]);
@@ -191,26 +257,29 @@ const Alerts = () => {
 
   useEffect(() => {
     const objectId = searchParams.get("objectId");
-    const ra = parseFloat(searchParams.get("ra"), 10);
-    const dec = parseFloat(searchParams.get("dec"), 10);
-    let radius = parseFloat(searchParams.get("radius"), 10);
+    const ra = parseFloat(searchParams.get("ra"));
+    const dec = parseFloat(searchParams.get("dec"));
+    let radius = parseFloat(searchParams.get("radius"));
     let radius_unit = searchParams.get("radius_unit");
     const group_by = searchParams.get("group_by_obj");
+    const surveyParam = searchParams.get("survey");
 
     if (!objectId && (Number.isNaN(ra) || Number.isNaN(dec))) {
       return;
     }
-    if (objectId) {
-      // set the values in the form
-      dispatch(
-        alertsActions.fetchAlerts({
-          object_id: objectId,
-        }),
-      );
-      reset({
-        object_id: objectId,
-      });
-    } else if (ra && dec) {
+
+    // Explicit survey param takes priority; infer from objectId as fallback
+    const inferredSurvey = inferSurvey(objectId);
+    const survey = surveyParam?.toUpperCase() || inferredSurvey || "ZTF";
+    setSelectedSurvey(survey);
+
+    // Use objectId search only when the objectId belongs to the target survey
+    const objectIdMatchesSurvey = !inferredSurvey || inferredSurvey === survey;
+
+    if (objectId && objectIdMatchesSurvey) {
+      dispatch(alertsActions.fetchAlerts({ survey, object_id: objectId }));
+      reset({ object_id: objectId, instrument: survey.toLowerCase() });
+    } else if (!Number.isNaN(ra) && !Number.isNaN(dec)) {
       if (!["arcsec", "arcmin", "deg", "rad"].includes(radius_unit)) {
         radius_unit = "arcsec";
       }
@@ -218,49 +287,50 @@ const Alerts = () => {
         radius = 3.0;
       }
       dispatch(
-        alertsActions.fetchAlerts({
-          ra,
-          dec,
-          radius,
-          radius_unit,
-        }),
+        alertsActions.fetchAlerts({ survey, ra, dec, radius, radius_unit }),
       );
-      reset({
-        ra,
-        dec,
-        radius,
-        radius_unit,
-      });
+      reset({ ra, dec, radius, radius_unit, instrument: survey.toLowerCase() });
     }
+
     if ([true, "true", "t", "1", 1].includes(group_by)) {
       setGroupByObj(true);
     }
   }, [dispatch, searchParams]);
 
-  const makeRow = (alert) => ({
-    objectId: alert?.objectId,
-    candid: alert?.candid,
-    jd: alert?.candidate.jd,
-    ra: alert?.candidate.ra,
-    dec: alert?.candidate.dec,
-    fid: alert?.candidate.fid,
-    magpsf: alert?.candidate.magpsf,
-    sigmapsf: alert?.candidate.sigmapsf,
-    programid: alert?.candidate.programid,
-    isdiffpos: alert?.candidate.isdiffpos,
-    drb: alert?.candidate.drb,
-    acai_h: alert?.classifications?.acai_h,
-    acai_n: alert?.classifications?.acai_n,
-    acai_o: alert?.classifications?.acai_o,
-    acai_v: alert?.classifications?.acai_v,
-    acai_b: alert?.classifications?.acai_b,
-    bts: alert?.classifications?.bts,
-  });
+  const makeRow = (alert, survey) => {
+    const isLSST = survey === "LSST";
+    return {
+      objectId: alert?.objectId,
+      candid: isLSST
+        ? alert?.diaSourceId ?? alert?.candid ?? alert?._id
+        : alert?.candid ?? alert?.candidate?.candid ?? alert?._id,
+      jd: alert?.candidate?.jd,
+      ra: alert?.candidate?.ra ?? alert?.candidate?.coord_ra,
+      dec: alert?.candidate?.dec ?? alert?.candidate?.coord_dec,
+      band: alert?.candidate?.band,
+      magpsf: alert?.candidate?.magpsf,
+      sigmapsf: alert?.candidate?.sigmapsf,
+      isdiffpos: alert?.candidate?.isdiffpos,
+      drb: isLSST ? alert?.candidate?.reliability : alert?.candidate?.drb,
+      snr: alert?.candidate?.snr,
+      ...(isLSST
+        ? {}
+        : {
+            programid: alert?.candidate?.programid,
+            acai_h: alert?.classifications?.acai_h,
+            acai_n: alert?.classifications?.acai_n,
+            acai_o: alert?.classifications?.acai_o,
+            acai_v: alert?.classifications?.acai_v,
+            acai_b: alert?.classifications?.acai_b,
+            btsbot: alert?.classifications?.btsbot,
+          }),
+    };
+  };
 
   let rows = [];
 
   if (alerts !== null && !isString(alerts) && Array.isArray(alerts)) {
-    rows = alerts.map((a) => makeRow(a));
+    rows = alerts.map((a) => makeRow(a, selectedSurvey));
   }
 
   if (groupByObj === true && rows.length > 0) {
@@ -299,6 +369,8 @@ const Alerts = () => {
 
   const handleSave = async () => {
     setSaving(true);
+    const { instrument } = getValues();
+    const survey = (instrument || "ztf").toUpperCase();
     const objectIds = rowsToSave.data.map(
       (rowToSave) => rows[rowToSave.dataIndex]?.objectId,
     );
@@ -306,26 +378,26 @@ const Alerts = () => {
       const payload = {
         group_ids: selectedGroups,
       };
-      dispatch(alertActions.saveAlertAsSource({ id: objectId, payload })).then(
-        (response) => {
-          if (response.status === "success") {
-            dispatch(
-              showNotification(
-                `Saved ${objectId} to groups ${selectedGroups.join(", ")}`,
-              ),
-            );
-          } else {
-            dispatch(
-              showNotification(
-                `Failed to save ${objectId} to groups ${selectedGroups.join(
-                  ", ",
-                )}`,
-                "error",
-              ),
-            );
-          }
-        },
-      );
+      dispatch(
+        alertActions.saveAlertAsSource({ survey, id: objectId, payload }),
+      ).then((response) => {
+        if (response.status === "success") {
+          dispatch(
+            showNotification(
+              `Saved ${objectId} to groups ${selectedGroups.join(", ")}`,
+            ),
+          );
+        } else {
+          dispatch(
+            showNotification(
+              `Failed to save ${objectId} to groups ${selectedGroups.join(
+                ", ",
+              )}`,
+              "error",
+            ),
+          );
+        }
+      });
     });
     setSaving(false);
     setSaveDialogOpen(false);
@@ -334,27 +406,9 @@ const Alerts = () => {
   // This is just passed to MUI datatables options -- not meant to be instantiated directly.
   const renderPullOutRow = (rowData, rowMeta) => {
     const colSpan = rowData?.length + 1;
-    const alertData = alerts[rowMeta.dataIndex];
-    const thumbnails = [
-      {
-        type: "new",
-        id: 0,
-        public_url: `/api/alerts_cutouts/${alertData.objectId}?candid=${alertData.candid}&cutout=science`,
-      },
-      {
-        type: "ref",
-        id: 1,
-        public_url: `/api/alerts_cutouts/${alertData.objectId}?candid=${alertData.candid}&cutout=template`,
-      },
-      {
-        type: "sub",
-        id: 2,
-        public_url: `/api/alerts_cutouts/${alertData.objectId}?candid=${alertData.candid}&cutout=difference`,
-      },
-    ];
-
+    const rowObj = rows[rowMeta.dataIndex];
     return (
-      <TableRow data-testid={`alertRow_${alertData.candid}`}>
+      <TableRow data-testid={`alertRow_${rowObj.candid}`}>
         <TableCell
           style={{ paddingBottom: 0, paddingTop: 0 }}
           colSpan={colSpan}
@@ -367,12 +421,7 @@ const Alerts = () => {
             alignItems="center"
           >
             <Grid item>
-              <ThumbnailList
-                thumbnails={thumbnails}
-                ra={alertData.candidate.ra}
-                dec={alertData.candidate.dec}
-                displayTypes={["new", "ref", "sub"]}
-              />
+              <CutoutTriplet rowObj={rowObj} survey={selectedSurvey} />
             </Grid>
           </Grid>
         </TableCell>
@@ -425,55 +474,42 @@ const Alerts = () => {
     customToolbar: CustomToolbar,
   };
 
-  const columns = [
-    {
-      name: "objectId",
-      label: "Object ID",
-      options: {
-        filter: true,
-        sort: true,
-        sortDescFirst: true,
-        customBodyRender: (value, tableMeta, updateValue) => (
-          <a
-            href={`/alerts/ztf/${value}`}
-            target="_blank"
-            data-testid={value}
-            rel="noreferrer"
-          >
-            <Button className={classes.button} size="small" variant="contained">
-              {value}
-            </Button>
-          </a>
-        ),
-      },
+  const objectIdColumn = {
+    name: "objectId",
+    label: "Object ID",
+    options: {
+      filter: true,
+      sort: true,
+      sortDescFirst: true,
+      customBodyRender: (value) => (
+        <Link
+          to={`/alerts/${selectedSurvey.toLowerCase()}/${value}`}
+          target="_blank"
+          data-testid={value}
+          rel="noreferrer"
+        >
+          <Button className={classes.button} size="small" variant="contained">
+            {value}
+          </Button>
+        </Link>
+      ),
     },
-    {
-      name: "candid",
-      label: "candid",
-      options: {
-        filter: false,
-        display: false,
-        sort: true,
-      },
-    },
-    {
-      name: "jd",
-      label: "JD",
-      options: {
-        filter: false,
-        sort: true,
-        sortDescFirst: true,
-        customBodyRender: (value, tableMeta, updateValue) => value.toFixed(5),
-      },
-    },
+  };
+
+  const candidHiddenColumn = {
+    name: "candid",
+    label: selectedSurvey === "LSST" ? "diaSourceId" : "candid",
+    options: { filter: false, display: false, sort: true },
+  };
+
+  const positionColumns = [
     {
       name: "ra",
       label: "R.A.",
       options: {
         filter: false,
         sort: true,
-        customBodyRender: (value, tableMeta, updateValue) =>
-          ra_to_hours(value, ":"),
+        customBodyRender: (value) => ra_to_hours(value, ":"),
       },
     },
     {
@@ -482,25 +518,43 @@ const Alerts = () => {
       options: {
         filter: false,
         sort: true,
-        customBodyRender: (value, tableMeta, updateValue) =>
-          dec_to_dms(value, ":"),
+        customBodyRender: (value) => dec_to_dms(value, ":"),
       },
     },
+  ];
+
+  const separationColumn = {
+    name: "separation",
+    label: "Separation",
+    options: {
+      filter: false,
+      sort: true,
+      customBodyRender: (value) => `${value.toFixed(2)}"`,
+    },
+  };
+
+  const isLSST = selectedSurvey === "LSST";
+
+  const surveyColumns = [
     {
-      name: "fid",
-      label: "fid",
+      name: "jd",
+      label: isLSST ? "MJD" : "JD",
       options: {
-        filter: true,
+        filter: false,
         sort: true,
+        sortDescFirst: true,
+        customBodyRender: (value) => value?.toFixed(5),
       },
     },
+    ...positionColumns,
+    { name: "band", label: "band", options: { filter: true, sort: true } },
     {
       name: "magpsf",
       label: "magpsf",
       options: {
         filter: false,
         sort: true,
-        customBodyRender: (value, tableMeta, updateValue) => value.toFixed(3),
+        customBodyRender: (value) => value?.toFixed(3),
       },
     },
     {
@@ -509,15 +563,7 @@ const Alerts = () => {
       options: {
         filter: false,
         sort: true,
-        customBodyRender: (value, tableMeta, updateValue) => value.toFixed(3),
-      },
-    },
-    {
-      name: "programid",
-      label: "programid",
-      options: {
-        filter: true,
-        sort: true,
+        customBodyRender: (value) => value?.toFixed(3),
       },
     },
     {
@@ -526,99 +572,105 @@ const Alerts = () => {
       options: {
         filter: true,
         sort: true,
+        customBodyRender: (v) => (v != null ? String(v) : "—"),
       },
     },
     {
       name: "drb",
-      label: "drb",
+      label: isLSST ? "reliability" : "drb",
       options: {
         filter: false,
         sort: true,
-        customBodyRender: (value, tableMeta, updateValue) =>
-          value ? value.toFixed(5) : value,
+        customBodyRender: (value) => value?.toFixed(5),
       },
     },
     {
-      name: "acai_h",
-      label: "acai_h",
+      name: "snr",
+      label: "snr",
       options: {
         filter: false,
         sort: true,
-        customBodyRender: (value, tableMeta, updateValue) =>
-          value ? value.toFixed(5) : value,
+        customBodyRender: (value) => value?.toFixed(2),
       },
     },
-    {
-      name: "acai_n",
-      label: "acai_n",
-      options: {
-        filter: false,
-        sort: true,
-        customBodyRender: (value, tableMeta, updateValue) =>
-          value ? value.toFixed(5) : value,
-      },
-    },
-    {
-      name: "acai_o",
-      label: "acai_o",
-      options: {
-        filter: false,
-        sort: true,
-        customBodyRender: (value, tableMeta, updateValue) =>
-          value ? value.toFixed(5) : value,
-      },
-    },
-    {
-      name: "acai_v",
-      label: "acai_v",
-      options: {
-        filter: false,
-        sort: true,
-        customBodyRender: (value, tableMeta, updateValue) =>
-          value ? value.toFixed(5) : value,
-      },
-    },
-    {
-      name: "acai_b",
-      label: "acai_b",
-      options: {
-        filter: false,
-        sort: true,
-        customBodyRender: (value, tableMeta, updateValue) =>
-          value ? value.toFixed(5) : value,
-      },
-    },
-    {
-      name: "bts",
-      label: "BTS",
-      options: {
-        filter: false,
-        sort: true,
-        customBodyRender: (value, tableMeta, updateValue) =>
-          value ? value.toFixed(5) : value,
-      },
-    },
+    ...(!isLSST
+      ? [
+          {
+            name: "programid",
+            label: "programid",
+            options: { filter: true, sort: true },
+          },
+          {
+            name: "acai_h",
+            label: "acai_h",
+            options: {
+              filter: false,
+              sort: true,
+              customBodyRender: (value) => value?.toFixed(5),
+            },
+          },
+          {
+            name: "acai_n",
+            label: "acai_n",
+            options: {
+              filter: false,
+              sort: true,
+              customBodyRender: (value) => value?.toFixed(5),
+            },
+          },
+          {
+            name: "acai_o",
+            label: "acai_o",
+            options: {
+              filter: false,
+              sort: true,
+              customBodyRender: (value) => value?.toFixed(5),
+            },
+          },
+          {
+            name: "acai_v",
+            label: "acai_v",
+            options: {
+              filter: false,
+              sort: true,
+              customBodyRender: (value) => value?.toFixed(5),
+            },
+          },
+          {
+            name: "acai_b",
+            label: "acai_b",
+            options: {
+              filter: false,
+              sort: true,
+              customBodyRender: (value) => value?.toFixed(5),
+            },
+          },
+          {
+            name: "btsbot",
+            label: "BTSbot",
+            options: {
+              filter: false,
+              sort: true,
+              customBodyRender: (value) => value?.toFixed(5),
+            },
+          },
+        ]
+      : []),
   ];
 
-  // if we are grouping by objectId, we add a "separation" column between declination and fid
+  const columns = [objectIdColumn, candidHiddenColumn, ...surveyColumns];
+
   if (groupByObj) {
     const { ra, dec, object_id } = getValues();
     if (ra && dec && !object_id) {
-      columns.splice(5, 0, {
-        name: "separation",
-        label: "Separation",
-        options: {
-          filter: false,
-          sort: true,
-          customBodyRender: (value, tableMeta, updateValue) =>
-            `${value.toFixed(2)}"`,
-        },
-      });
+      // insert separation after the dec column (index 4: objectId, candid, jd, ra, dec)
+      columns.splice(5, 0, separationColumn);
     }
   }
 
   const formSubmit = async () => {
-    let { object_id, ra, dec, radius, radius_unit } = getValues();
+    let { object_id, ra, dec, radius, radius_unit, instrument } = getValues();
+    const survey = (instrument || "ztf").toUpperCase();
     ra = ra?.toString();
     dec = dec?.toString();
     radius = radius?.toString();
@@ -710,6 +762,7 @@ const Alerts = () => {
         const object_id_split = object_id.split(",");
         dispatch(
           alertsActions.fetchAlerts({
+            survey,
             object_id: object_id_split,
             ra,
             dec,
@@ -717,7 +770,9 @@ const Alerts = () => {
           }),
         );
       } else {
-        dispatch(alertsActions.fetchAlerts({ object_id, ra, dec, radius }));
+        dispatch(
+          alertsActions.fetchAlerts({ survey, object_id, ra, dec, radius }),
+        );
       }
     }
   };
@@ -773,11 +828,15 @@ const Alerts = () => {
                       rules={{ required: true }}
                       render={({ field: { onChange, value } }) => (
                         <Select
-                          value={value}
-                          onChange={onChange}
+                          value={value || "ztf"}
+                          onChange={(e) => {
+                            onChange(e);
+                            setSelectedSurvey(e.target.value.toUpperCase());
+                          }}
                           defaultValue="ztf"
                         >
                           <MenuItem value="ztf">ZTF</MenuItem>
+                          <MenuItem value="lsst">LSST</MenuItem>
                         </Select>
                       )}
                     />
