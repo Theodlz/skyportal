@@ -1,4 +1,4 @@
-import React, { useEffect, useState, Suspense } from "react";
+import React, { useEffect, useState, useMemo, Suspense } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate, Link } from "react-router-dom";
 
@@ -485,8 +485,9 @@ const Alert = ({ route }) => {
   const userAccessibleGroups = useSelector(
     (state) => state.groups.userAccessible,
   );
-  const userAccessibleGroupIds = useSelector((state) =>
-    state.groups.userAccessible?.map((a) => a.id),
+  const userAccessibleGroupIds = useMemo(
+    () => userAccessibleGroups?.map((a) => a.id),
+    [userAccessibleGroups],
   );
 
   const [candid, setCandid] = useState(null);
@@ -549,7 +550,7 @@ const Alert = ({ route }) => {
     setCutoutSaving(false);
   };
 
-  const boom_alert_data = useSelector((state) => state.boom_boom_alert_data);
+  const boom_alert_data = useSelector((state) => state.boom_alert_data);
   const boom_object_data = useSelector((state) => state.boom_object_data);
 
   // ── Source existence check ──────────────────────────────────────────────────
@@ -664,7 +665,7 @@ const Alert = ({ route }) => {
   };
 
   // ── Loading / error states ─────────────────────────────────────────────────
-  if (boom_alert_data && boom_alert_data[objectId] === null) {
+  if (!boom_alert_data || boom_alert_data[objectId] == null) {
     return (
       <div>
         <CircularProgress color="secondary" />

@@ -316,7 +316,7 @@ const Alerts = () => {
       sigmapsf: alert?.candidate?.sigmapsf,
       isdiffpos: alert?.candidate?.isdiffpos,
       drb: isLSST ? alert?.candidate?.reliability : alert?.candidate?.drb,
-      snr: alert?.candidate?.snr,
+      snr: alert?.candidate?.snr_psf,
       ...(isLSST
         ? {}
         : {
@@ -523,7 +523,7 @@ const Alerts = () => {
       options: {
         filter: false,
         sort: true,
-        customBodyRender: (value) => ra_to_hours(value, ":"),
+        customBodyRender: (value) => value?.toFixed(5),
       },
     },
     {
@@ -532,7 +532,7 @@ const Alerts = () => {
       options: {
         filter: false,
         sort: true,
-        customBodyRender: (value) => dec_to_dms(value, ":"),
+        customBodyRender: (value) => value?.toFixed(6),
       },
     },
   ];
@@ -549,6 +549,19 @@ const Alerts = () => {
 
   const isLSST = dataSurvey === "LSST";
 
+  const compactHeaderProps = { style: { padding: "4px 4px 4px 4px" } };
+  const mlScoreColumn = (name, label) => ({
+    name,
+    label,
+    options: {
+      filter: false,
+      sort: true,
+      setCellHeaderProps: () => compactHeaderProps,
+      setCellProps: () => compactHeaderProps,
+      customBodyRender: (value) => value?.toFixed(2),
+    },
+  });
+
   const surveyColumns = [
     {
       name: "jd",
@@ -561,23 +574,46 @@ const Alerts = () => {
       },
     },
     ...positionColumns,
-    { name: "band", label: "band", options: { filter: true, sort: true } },
+    {
+      name: "band",
+      label: "band",
+      options: {
+        filter: true,
+        sort: true,
+        setCellHeaderProps: () => compactHeaderProps,
+      },
+    },
     {
       name: "magpsf",
       label: "magpsf",
       options: {
         filter: false,
         sort: true,
-        customBodyRender: (value) => value?.toFixed(3),
+        setCellProps: () => ({ style: { whiteSpace: "nowrap" } }),
+        customBodyRenderLite: (dataIndex) => {
+          const mag = rows[dataIndex]?.magpsf;
+          const sigma = rows[dataIndex]?.sigmapsf;
+          if (mag == null) return "—";
+          return sigma != null
+            ? `${mag.toFixed(3)} ± ${sigma.toFixed(3)}`
+            : mag.toFixed(3);
+        },
       },
     },
     {
       name: "sigmapsf",
       label: "sigmapsf",
+      options: { display: false, filter: false, sort: false },
+    },
+    {
+      name: "snr",
+      label: "snr",
       options: {
         filter: false,
         sort: true,
-        customBodyRender: (value) => value?.toFixed(3),
+        setCellHeaderProps: () => compactHeaderProps,
+        setCellProps: () => compactHeaderProps,
+        customBodyRender: (value) => value?.toFixed(2),
       },
     },
     {
@@ -595,15 +631,8 @@ const Alerts = () => {
       options: {
         filter: false,
         sort: true,
-        customBodyRender: (value) => value?.toFixed(5),
-      },
-    },
-    {
-      name: "snr",
-      label: "snr",
-      options: {
-        filter: false,
-        sort: true,
+        setCellHeaderProps: () => compactHeaderProps,
+        setCellProps: () => compactHeaderProps,
         customBodyRender: (value) => value?.toFixed(2),
       },
     },
@@ -612,62 +641,18 @@ const Alerts = () => {
           {
             name: "programid",
             label: "programid",
-            options: { filter: true, sort: true },
-          },
-          {
-            name: "acai_h",
-            label: "acai_h",
             options: {
-              filter: false,
+              filter: true,
               sort: true,
-              customBodyRender: (value) => value?.toFixed(5),
+              setCellHeaderProps: () => compactHeaderProps,
             },
           },
-          {
-            name: "acai_n",
-            label: "acai_n",
-            options: {
-              filter: false,
-              sort: true,
-              customBodyRender: (value) => value?.toFixed(5),
-            },
-          },
-          {
-            name: "acai_o",
-            label: "acai_o",
-            options: {
-              filter: false,
-              sort: true,
-              customBodyRender: (value) => value?.toFixed(5),
-            },
-          },
-          {
-            name: "acai_v",
-            label: "acai_v",
-            options: {
-              filter: false,
-              sort: true,
-              customBodyRender: (value) => value?.toFixed(5),
-            },
-          },
-          {
-            name: "acai_b",
-            label: "acai_b",
-            options: {
-              filter: false,
-              sort: true,
-              customBodyRender: (value) => value?.toFixed(5),
-            },
-          },
-          {
-            name: "btsbot",
-            label: "BTSbot",
-            options: {
-              filter: false,
-              sort: true,
-              customBodyRender: (value) => value?.toFixed(5),
-            },
-          },
+          mlScoreColumn("acai_h", "acai_h"),
+          mlScoreColumn("acai_n", "acai_n"),
+          mlScoreColumn("acai_o", "acai_o"),
+          mlScoreColumn("acai_v", "acai_v"),
+          mlScoreColumn("acai_b", "acai_b"),
+          mlScoreColumn("btsbot", "BTSbot"),
         ]
       : []),
   ];
@@ -731,6 +716,11 @@ const Alerts = () => {
         ),
       );
     } else {
+      const hadPositionalParams = !!(
+        ra?.length ||
+        dec?.length ||
+        radius?.length
+      );
       if (ra?.length) {
         if (
           ra?.includes(":") ||
@@ -771,7 +761,7 @@ const Alerts = () => {
       }
 
       if (object_id?.length) {
-        if (ra?.length || dec?.length || radius?.length) {
+        if (hadPositionalParams) {
           dispatch(
             showNotification(
               `Object ID specified, ignored positional parameters`,
