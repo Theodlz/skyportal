@@ -212,7 +212,7 @@ const Archive = () => {
   const userGroupIds = useSelector((state) =>
     state.groups.userAccessible?.map((a) => a.id),
   );
-  const catalogNames = useSelector((state) => state.catalog_names);
+  const catalogNames = useSelector((state) => state.kowalski_catalog_names);
   const { lightCurves: ztf_light_curves, queryInProgress } = useSelector(
     (state) => state.ztf_light_curves,
   );

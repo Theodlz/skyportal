@@ -138,7 +138,7 @@ const reducerNearestSources = (state = null, action) => {
   }
 };
 
-store.injectReducer("catalog_names", reducerCatalogNames);
+store.injectReducer("kowalski_catalog_names", reducerCatalogNames);
 store.injectReducer("ztf_light_curves", reducer);
 store.injectReducer("scope_features", reducerScopeFeatures);
 store.injectReducer("nearest_sources", reducerNearestSources);

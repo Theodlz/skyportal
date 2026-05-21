@@ -6,10 +6,10 @@ export const FETCH_ALERT_OK = "skyportal/FETCH_ALERT_OK";
 export const FETCH_ALERT_ERROR = "skyportal/FETCH_ALERT_ERROR";
 export const FETCH_ALERT_FAIL = "skyportal/FETCH_ALERT_FAIL";
 
-export const FETCH_AUX = "skyportal/FETCH_AUX";
-export const FETCH_AUX_OK = "skyportal/FETCH_AUX_OK";
-export const FETCH_AUX_ERROR = "skyportal/FETCH_AUX_ERROR";
-export const FETCH_AUX_FAIL = "skyportal/FETCH_AUX_FAIL";
+export const FETCH_BOOM_OBJECT = "skyportal/FETCH_BOOM_OBJECT";
+export const FETCH_BOOM_OBJECT_OK = "skyportal/FETCH_BOOM_OBJECT_OK";
+export const FETCH_BOOM_OBJECT_ERROR = "skyportal/FETCH_BOOM_OBJECT_ERROR";
+export const FETCH_BOOM_OBJECT_FAIL = "skyportal/FETCH_BOOM_OBJECT_FAIL";
 
 export const SAVE_ALERT = "skyportal/SAVE_ALERT";
 export const SAVE_ALERT_OK = "skyportal/SAVE_ALERT_OK";
@@ -18,14 +18,21 @@ export const UPDATE_CUTOUTS = "skyportal/UPDATE_CUTOUTS";
 export const UPDATE_CUTOUTS_OK = "skyportal/UPDATE_CUTOUTS_OK";
 
 export function fetchAlertData(survey, id) {
-  return API.GET(`/api/boom/alerts/${survey}?objectId=${id}`, FETCH_ALERT);
+  return API.GET(
+    `/api/boom/surveys/${survey}/alerts?objectId=${id}`,
+    FETCH_ALERT,
+  );
 }
 
-export const fetchAuxData = (survey, id) =>
-  API.GET(`/api/boom/alerts_aux/${survey}/${id}`, FETCH_AUX);
+export const fetchBoomObject = (survey, id) =>
+  API.GET(`/api/boom/surveys/${survey}/objects/${id}`, FETCH_BOOM_OBJECT);
 
 export function saveAlertAsSource({ survey, id, payload }) {
-  return API.POST(`/api/boom/alerts/${survey}/${id}`, SAVE_ALERT, payload);
+  return API.POST(
+    `/api/boom/surveys/${survey}/objects/${id}`,
+    SAVE_ALERT,
+    payload,
+  );
 }
 
 export function updateCutouts({ survey, objectId, candid, which, band }) {
@@ -37,7 +44,7 @@ export function updateCutouts({ survey, objectId, candid, which, band }) {
   }
   if (band) payload.band = band;
   return API.POST(
-    `/api/boom/alerts_cutouts/${survey}`,
+    `/api/boom/surveys/${survey}/alerts/cutouts`,
     UPDATE_CUTOUTS,
     payload,
   );
@@ -65,18 +72,18 @@ const alertDataReducer = (state = {}, action) => {
   }
 };
 
-const auxDataReducer = (state = {}, action) => {
+const boomObjectReducer = (state = {}, action) => {
   switch (action.type) {
-    case FETCH_AUX_OK: {
+    case FETCH_BOOM_OBJECT_OK: {
       return {
         ...state,
         [action.data._id]: action.data,
       };
     }
-    case FETCH_AUX_ERROR: {
+    case FETCH_BOOM_OBJECT_ERROR: {
       return action.message;
     }
-    case FETCH_AUX_FAIL: {
+    case FETCH_BOOM_OBJECT_FAIL: {
       return "uncaught error";
     }
     default:
@@ -84,5 +91,5 @@ const auxDataReducer = (state = {}, action) => {
   }
 };
 
-store.injectReducer("alert_data", alertDataReducer);
-store.injectReducer("alert_aux_data", auxDataReducer);
+store.injectReducer("boom_alert_data", alertDataReducer);
+store.injectReducer("boom_object_data", boomObjectReducer);

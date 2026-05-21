@@ -1,11 +1,146 @@
+import base64
+import gzip
+import io
+import traceback
 from datetime import datetime, timedelta
 
+import matplotlib.pyplot as plt
+import numpy as np
 import requests
+from astropy.io import fits
+from astropy.visualization import (
+    AsymmetricPercentileInterval,
+    ImageNormalize,
+    LinearStretch,
+    LogStretch,
+)
+from scipy.ndimage import rotate
 
 from baselayer.app.env import load_env
 from baselayer.log import make_log
 
 log = make_log("app/boom-utils")
+
+
+# ── Shared thumbnail helpers ─────────────────────────────────────────────────
+# Imported lazily to avoid a circular-import at module load time (post_thumbnail
+# lives in handlers/api/thumbnail which ultimately imports app models).
+def _post_thumbnail(thumbnail_dict, user_id, session):
+    from ..thumbnail import post_thumbnail
+
+    post_thumbnail(thumbnail_dict, user_id=user_id, session=session)
+
+
+thumbnail_types = [
+    ("cutoutScience", "new"),
+    ("cutoutTemplate", "ref"),
+    ("cutoutDifference", "sub"),
+]
+
+
+def decode_cutout(cutout_data, survey):
+    """Decode a raw cutout payload into (data_array, header).
+
+    Handles bytes/list/base64-string input and the survey-specific compression:
+    LSST cutouts are uncompressed FITS; all others are gzip-compressed.
+    """
+    if isinstance(cutout_data, list):
+        cutout_data = bytes(cutout_data)
+    elif isinstance(cutout_data, str):
+        cutout_data = base64.b64decode(cutout_data)
+    if survey.upper() == "LSST":
+        with fits.open(io.BytesIO(cutout_data), ignore_missing_simple=True) as hdu:
+            return np.array(hdu[0].data), dict(hdu[0].header)
+    else:
+        with (
+            gzip.open(io.BytesIO(cutout_data), "rb") as f,
+            fits.open(io.BytesIO(f.read()), ignore_missing_simple=True) as hdu,
+        ):
+            return np.array(hdu[0].data), dict(hdu[0].header)
+
+
+def orient_cutout(data_array, survey, header):
+    """Rotate/flip a cutout array so that North is up and West is right."""
+    if survey.upper() == "ZTF":
+        return np.flipud(data_array)
+    if survey.upper() == "LSST":
+        rotpa = header.get("ROTPA")
+        if rotpa is not None:
+            try:
+                return rotate(
+                    data_array, -rotpa, reshape=True, order=1, mode="constant", cval=0.0
+                )
+            except Exception as e:
+                log(f"Failed to rotate LSST cutout: {e}")
+    return data_array
+
+
+def clean_image_array(img):
+    """Scrub sentinel infinity values and NaNs from a cutout pixel array."""
+    xl = ~np.isnan(img) & (np.abs(img) > 1e20)
+    if img[xl].any():
+        img[xl] = np.nan
+    if np.isnan(img).any():
+        img = np.nan_to_num(img, nan=float(np.nanmean(img.flatten())))
+    return img
+
+
+def render_cutout_png(data_array, stretch, normalizer, cmap="bone"):
+    """Normalize and render a 2D array to a PNG BytesIO buffer.
+
+    `stretch` and `normalizer` are astropy.visualization instances.
+    Returns a seeked-to-start BytesIO containing the PNG bytes.
+    """
+    img = clean_image_array(data_array)
+    norm = ImageNormalize(img, stretch=stretch)
+    img_norm = norm(img)
+    vmin, vmax = normalizer.get_limits(img_norm)
+
+    buff = io.BytesIO()
+    fig, ax = plt.subplots(figsize=(4, 4))
+    fig.subplots_adjust(0, 0, 1, 1)
+    ax.set_axis_off()
+    ax.imshow(img_norm, cmap=cmap, origin="lower", vmin=vmin, vmax=vmax)
+    plt.savefig(buff, dpi=42, format="png")
+    plt.close(fig)
+    buff.seek(0)
+    return buff
+
+
+def make_thumbnail(obj_id, cutout_data, cutout_type, thumbnail_type, survey):
+    data_array, header = decode_cutout(cutout_data, survey)
+    data_array = orient_cutout(data_array, survey, header)
+
+    stretch = LinearStretch() if cutout_type == "cutoutDifference" else LogStretch()
+    normalizer = AsymmetricPercentileInterval(lower_percentile=1, upper_percentile=100)
+    buff = render_cutout_png(data_array, stretch, normalizer, cmap="bone")
+
+    return {
+        "obj_id": obj_id,
+        "data": base64.b64encode(buff.read()).decode("utf-8"),
+        "ttype": thumbnail_type,
+    }
+
+
+def add_thumbnails(alert, survey, session):
+    for cutout_type, thumbnail_type in thumbnail_types:
+        if cutout_type not in alert:
+            log(f"Cutout key {cutout_type} not found in alert")
+            continue
+        try:
+            thumbnail = make_thumbnail(
+                alert["objectId"],
+                alert[cutout_type],
+                cutout_type,
+                thumbnail_type,
+                survey,
+            )
+        except Exception as e:
+            traceback.print_exc()
+            log(f"Failed to create thumbnail for cutout type {cutout_type}: {e}")
+            continue
+        _post_thumbnail(thumbnail, user_id=1, session=session)
+
 
 _, cfg = load_env()
 

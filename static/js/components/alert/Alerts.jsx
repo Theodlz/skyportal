@@ -186,9 +186,12 @@ const CutoutTriplet = ({ rowObj, survey }) => {
     const query = rowObj.candid
       ? `candid=${rowObj.candid}`
       : `objectId=${rowObj.objectId}&which=last`;
-    fetch(`/api/boom/alerts_cutouts/${survey}?${query}&file_format=fits`, {
-      credentials: "include",
-    })
+    fetch(
+      `/api/boom/surveys/${survey}/alerts/cutouts?${query}&file_format=fits`,
+      {
+        credentials: "include",
+      },
+    )
       .then((r) => r.json())
       .then((json) => {
         if (json.status !== "success" || !json.data) {

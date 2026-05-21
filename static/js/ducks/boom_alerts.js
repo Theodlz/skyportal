@@ -7,7 +7,7 @@ const FETCH_ALERTS_ERROR = "skyportal/FETCH_ALERTS_ERROR";
 const FETCH_ALERTS_FAIL = "skyportal/FETCH_ALERTS_FAIL";
 
 export const fetchAlerts = ({ survey, object_id, ra, dec, radius }) => {
-  const base = `/api/boom/alerts/${survey}`;
+  const base = `/api/boom/surveys/${survey}/alerts`;
   if (object_id && ra && dec && radius) {
     return API.GET(
       `${base}?objectId=${object_id}&ra=${ra}&dec=${dec}&radius=${radius}&radius_units=arcsec`,

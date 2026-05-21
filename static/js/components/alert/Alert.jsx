@@ -169,22 +169,24 @@ const buildColumns = (survey) => {
 const VegaPlotAlert = React.lazy(() => import("../plot/VegaPlotAlert"));
 
 const AlertPhotometryPlot = ({ objectId, jd = null, survey }) => {
-  const aux_data = useSelector((state) => state.alert_aux_data);
+  const object_data = useSelector((state) => state.boom_object_data);
   const [showUpperLimits, setShowUpperLimits] = useState(true);
   const [showForcedPhotometry, setShowForcedPhotometry] = useState(true);
   const [forcedPhotometrySNR, setForcedPhotometrySNR] = useState(3);
 
-  if (!aux_data || aux_data[objectId] === null || jd === null) {
+  if (!object_data || object_data[objectId] === null || jd === null) {
     return <div>Loading photometry...</div>;
   }
 
   let photometry = [];
-  if (typeof aux_data === "object" && aux_data[objectId]) {
-    const detections = (aux_data[objectId].prv_candidates || []).map((d) => ({
-      ...d,
-      origin: "alert",
-    }));
-    const nonDetections = (aux_data[objectId].prv_nondetections || []).map(
+  if (typeof object_data === "object" && object_data[objectId]) {
+    const detections = (object_data[objectId].prv_candidates || []).map(
+      (d) => ({
+        ...d,
+        origin: "alert",
+      }),
+    );
+    const nonDetections = (object_data[objectId].prv_nondetections || []).map(
       (d) => ({
         ...d,
         magpsf: null,
@@ -195,7 +197,7 @@ const AlertPhotometryPlot = ({ objectId, jd = null, survey }) => {
     photometry = detections.concat(nonDetections);
 
     const fp_hists = showForcedPhotometry
-      ? (aux_data[objectId].fp_hists || []).map((d) => {
+      ? (object_data[objectId].fp_hists || []).map((d) => {
           const point = { ...d, origin: "fp" };
           if (d.snr_psf > forcedPhotometrySNR) {
             point.magpsf = d.magpsf;
@@ -495,7 +497,7 @@ const Alert = ({ route }) => {
     if (!objectId || !survey) return;
     setCutoutDataUris(null);
     fetch(
-      `/api/boom/alerts_cutouts/${survey}?objectId=${objectId}&which=brightest&file_format=fits`,
+      `/api/boom/surveys/${survey}/alerts/cutouts?objectId=${objectId}&which=brightest&file_format=fits`,
       { credentials: "include" },
     )
       .then((r) => r.json())
@@ -547,8 +549,8 @@ const Alert = ({ route }) => {
     setCutoutSaving(false);
   };
 
-  const alert_data = useSelector((state) => state.alert_data);
-  const alert_aux_data = useSelector((state) => state.alert_aux_data);
+  const boom_alert_data = useSelector((state) => state.boom_boom_alert_data);
+  const boom_object_data = useSelector((state) => state.boom_object_data);
 
   // ── Source existence check ──────────────────────────────────────────────────
   useEffect(() => {
@@ -572,9 +574,9 @@ const Alert = ({ route }) => {
 
   // ── Alert data fetch ────────────────────────────────────────────────────────
   const isCached =
-    alert_data &&
-    alert_data[objectId] &&
-    !isString(alert_data[objectId]) &&
+    boom_alert_data &&
+    boom_alert_data[objectId] &&
+    !isString(boom_alert_data[objectId]) &&
     candid !== null;
 
   useEffect(() => {
@@ -584,7 +586,7 @@ const Alert = ({ route }) => {
       const data = await dispatch(Actions.fetchAlertData(survey, objectId));
       if (data.status !== "success") return;
 
-      await dispatch(Actions.fetchAuxData(survey, objectId));
+      await dispatch(Actions.fetchBoomObject(survey, objectId));
 
       const candids = Array.from(new Set(data.data.map((a) => getCandid(a))))
         .filter((c) => c != null)
@@ -631,8 +633,10 @@ const Alert = ({ route }) => {
 
   // ── Alert candidate lookup helpers ─────────────────────────────────────────
   const alertsForObject =
-    alert_data && alert_data[objectId] && !isString(alert_data[objectId])
-      ? alert_data[objectId]
+    boom_alert_data &&
+    boom_alert_data[objectId] &&
+    !isString(boom_alert_data[objectId])
+      ? boom_alert_data[objectId]
       : [];
 
   const currentAlert = alertsForObject.find((a) => getCandid(a) === candid);
@@ -641,8 +645,8 @@ const Alert = ({ route }) => {
   const columns = buildColumns(survey);
 
   let cross_matches = {};
-  if (alert_aux_data && !isString(alert_aux_data[objectId])) {
-    cross_matches = alert_aux_data[objectId]?.cross_matches ?? {};
+  if (boom_object_data && !isString(boom_object_data[objectId])) {
+    cross_matches = boom_object_data[objectId]?.cross_matches ?? {};
   }
 
   const thumbnails = cutoutDataUris
@@ -660,7 +664,7 @@ const Alert = ({ route }) => {
   };
 
   // ── Loading / error states ─────────────────────────────────────────────────
-  if (alert_data && alert_data[objectId] === null) {
+  if (boom_alert_data && boom_alert_data[objectId] === null) {
     return (
       <div>
         <CircularProgress color="secondary" />
@@ -668,12 +672,12 @@ const Alert = ({ route }) => {
     );
   }
   if (
-    isString(alert_data[objectId]) ||
-    (alert_aux_data && isString(alert_aux_data[objectId]))
+    isString(boom_alert_data[objectId]) ||
+    (boom_object_data && isString(boom_object_data[objectId]))
   ) {
     return <div>Failed to fetch alert data, please try again later.</div>;
   }
-  if (alert_data[objectId]?.length === 0) {
+  if (boom_alert_data[objectId]?.length === 0) {
     return (
       <Typography variant="h5" className={classes.header}>
         {objectId} not found
@@ -681,7 +685,7 @@ const Alert = ({ route }) => {
     );
   }
 
-  if (!alert_data[objectId]?.length) {
+  if (!boom_alert_data[objectId]?.length) {
     return null;
   }
 
@@ -705,7 +709,7 @@ const Alert = ({ route }) => {
                     <SharePage />
                   </div>
                   <div className={classes.name}>{objectId}</div>
-                  {alert_aux_data[objectId]?.missing === true && (
+                  {boom_object_data[objectId]?.missing === true && (
                     <Chip
                       title="Aux data for this object is temporarily unavailable. Detections were fetched using individual alerts instead."
                       size="small"
