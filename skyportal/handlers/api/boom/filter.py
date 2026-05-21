@@ -1,6 +1,3 @@
-# from pymongo import MongoClient
-from datetime import datetime, timedelta
-
 import requests
 from marshmallow.exceptions import ValidationError
 from sqlalchemy.orm import joinedload
@@ -55,27 +52,22 @@ class BoomFilterHandler(BaseHandler):
                 if f is None:
                     return self.error(f"Cannot find a filter with ID: {filter_id}.")
 
-                if f.altdata is not None and "boom" in f.altdata:
-                    url = f"{boom_url}/filters/{f.altdata['boom']['filter_id']}"
+                if isinstance(f.altdata, dict) and isinstance(
+                    f.altdata.get("boom"), dict
+                ):
+                    boom_filter_id = f.altdata["boom"].get("filter_id", None)
+                    if boom_filter_id is not None:
+                        url = f"{boom_url}/filters/{f.altdata['boom']['filter_id']}"
+                        headers = {
+                            "Authorization": f"Bearer {boom_token}",
+                        }
+                        response = requests.get(url, headers=headers)
+                        response.raise_for_status()
 
-                    headers = {
-                        "Authorization": f"Bearer {boom_token}",
-                    }
-                    response = requests.get(url, headers=headers)
-                    response.raise_for_status()
-
-                    f = session.scalar(
-                        Filter.select(
-                            session.user_or_token, options=[joinedload(Filter.stream)]
-                        ).where(
-                            Filter.altdata["boom"]["filter_id"].astext
-                            == str(response.json()["data"]["id"])
-                        )
-                    )
-                    f.fv = response.json()["data"]["fv"]
-                    f.active_fid = response.json()["data"]["active_fid"]
-                    f.active = response.json()["data"]["active"]
-                    f.filters = f.altdata["filters"]
+                        f.fv = response.json()["data"]["fv"]
+                        f.active_fid = response.json()["data"]["active_fid"]
+                        f.active = response.json()["data"]["active"]
+                        f.filters = f.altdata["filters"]
 
                 return self.success(data=f)
 
@@ -183,21 +175,23 @@ class BoomFilterHandler(BaseHandler):
                         }
                     )
                     flag_modified(f, "altdata")
-                    data = {}
+                    session.commit()
+                    return self.success(data={"id": f.id})
 
                 for k in data:
                     setattr(f, k, data[k])
+                session.commit()
+                return self.success(data={"id": f.id})
 
             schema = Filter.__schema__()
             try:
-                fil = schema.load(data, partial=bool(filter_id))
+                fil = schema.load(data, partial=False)
             except ValidationError as e:
                 return self.error(
                     f"Invalid/missing parameters: {e.normalized_messages()}"
                 )
 
-            if filter_id is None:
-                session.add(fil)
+            session.add(fil)
             session.commit()
             return self.success(data={"id": fil.id})
 
@@ -240,7 +234,7 @@ class BoomFilterHandler(BaseHandler):
                 return self.error(f"Cannot find a filter with ID: {filter_id}.")
 
             data = self.get_json()
-            if "active" in data or "active_fid" in data:
+            if "active" in data and "active_fid" in data:
                 data_url = f"{boom_url}/filters/{f.altdata['boom']['filter_id']}"
                 data_payload = {
                     # Your data here, e.g. for /filters:
@@ -264,19 +258,6 @@ class BoomFilterHandler(BaseHandler):
             elif "autoFollowup" in data:
                 f.altdata["autoFollowup"] = data["autoFollowup"]
                 flag_modified(f, "altdata")
-
-            data = {}
-
-            schema = Filter.__schema__()
-            try:
-                schema.load(data, partial=True)
-            except ValidationError as e:
-                return self.error(
-                    f"Invalid/missing parameters: {e.normalized_messages()}"
-                )
-
-            for k in data:
-                setattr(f, k, data[k])
 
             session.commit()
             return self.success()

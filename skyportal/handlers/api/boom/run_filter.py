@@ -1,8 +1,6 @@
-# from pymongo import MongoClient
-from datetime import datetime, timedelta
-
 import requests
 
+from baselayer.app.access import auth_or_token
 from baselayer.app.env import load_env
 from baselayer.log import make_log
 
@@ -16,24 +14,76 @@ _, cfg = load_env()
 
 
 class BoomRunFilterHandler(BaseHandler):
+    @auth_or_token
     @boom_available
     def post(self):
         data = self.get_json()
+
+        filter_id = data.get("filter_id", None)
+        if filter_id is None:
+            return self.error("Missing required field: filter_id")
+        try:
+            filter_id = int(filter_id)
+        except ValueError:
+            return self.error("`filter_id` must be an integer.")
+
+        selected_collection = data.get("selectedCollection", None)
+        if selected_collection is None:
+            return self.error("Missing required field: selectedCollection")
+        if not isinstance(selected_collection, str):
+            return self.error("`selectedCollection` must be a string.")
+        try:
+            survey = selected_collection.split("_")[0]
+        except Exception:
+            return self.error(
+                "Invalid `selectedCollection` format. Expected format: 'SURVEY_collectionName'."
+            )
+        pipeline = data.get("pipeline", None)
+        if not (
+            isinstance(pipeline, list)
+            and all(isinstance(stage, dict) for stage in pipeline)
+        ):
+            return self.error("`pipeline` must be a list of dictionaries.")
+        start_jd = data.get("start_jd", None)
+        end_jd = data.get("end_jd", None)
+        if not (isinstance(start_jd, int | float) and isinstance(end_jd, int | float)):
+            return self.error("`start_jd` and `end_jd` must be numbers.")
+        if start_jd >= end_jd:
+            return self.error("`start_jd` must be less than `end_jd`.")
+        sort_by = data.get("sort_by", None)
+        sort_order = data.get("sort_order", None)
+        if (sort_by is not None and sort_order is None) or (
+            sort_by is None and sort_order is not None
+        ):
+            return self.error(
+                "Both `sort_by` and `sort_order` must be provided together."
+            )
+        if sort_order is not None and sort_order not in ("Ascending", "Descending"):
+            return self.error(
+                "`sort_order` must be either 'Ascending' or 'Descending'."
+            )
+        limit = data.get("limit", None)
+        if limit is not None:
+            try:
+                limit = int(limit)
+            except ValueError:
+                return self.error("`limit` must be an integer.")
+            if limit <= 0:
+                return self.error("`limit` must be a positive integer.")
+
         with self.Session() as session:
             f = session.scalar(
                 Filter.select(session.user_or_token, mode="update").where(
-                    Filter.id == data["filter_id"]
+                    Filter.id == filter_id
                 )
             )
+            if f is None:
+                return self.error("Filter not found", status=404)
             if "sort_by" not in data:
                 data_url = f"{boom_url}/filters/test/count"
                 data_payload = {
-                    "permissions": {
-                        data["selectedCollection"].split("_")[0]: f.stream.altdata[
-                            "selector"
-                        ]
-                    },
-                    "survey": data["selectedCollection"].split("_")[0],
+                    "permissions": {survey: f.stream.altdata["selector"]},
+                    "survey": survey,
                     "pipeline": data["pipeline"],
                     "start_jd": data["start_jd"],
                     "end_jd": data["end_jd"],
@@ -41,12 +91,8 @@ class BoomRunFilterHandler(BaseHandler):
             else:
                 data_url = f"{boom_url}/filters/test"
                 data_payload = {
-                    "permissions": {
-                        data["selectedCollection"].split("_")[0]: f.stream.altdata[
-                            "selector"
-                        ]
-                    },
-                    "survey": data["selectedCollection"].split("_")[0],
+                    "permissions": {survey: f.stream.altdata["selector"]},
+                    "survey": survey,
                     "pipeline": data["pipeline"],
                     "start_jd": data["start_jd"],
                     "end_jd": data["end_jd"],
