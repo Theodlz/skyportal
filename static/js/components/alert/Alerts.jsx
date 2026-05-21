@@ -33,7 +33,7 @@ import {
   useTheme,
   adaptV4Theme,
 } from "@mui/material/styles";
-import makeStyles from "@mui/styles/makeStyles";
+import { makeStyles } from "tss-react/mui";
 import { useForm, Controller } from "react-hook-form";
 import Paper from "@mui/material/Paper";
 import MUIDataTable from "mui-datatables";
@@ -84,7 +84,7 @@ const getMuiTheme = (theme) =>
     }),
   );
 
-const useStyles = makeStyles((theme) => ({
+const useStyles = makeStyles()((theme) => ({
   root: {
     margin: 0,
     padding: 0,
@@ -239,7 +239,7 @@ CutoutTriplet.propTypes = {
 
 const Alerts = () => {
   const dispatch = useDispatch();
-  const classes = useStyles();
+  const { classes } = useStyles();
   const theme = useTheme();
 
   const [searchParams] = useSearchParams();

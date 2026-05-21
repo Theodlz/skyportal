@@ -42,6 +42,11 @@ class BoomFilterHandler(BaseHandler):
               application/json:
                 schema: Error
         """
+        try:
+            filter_id = int(filter_id)
+        except ValueError:
+            return self.error(f"Invalid filter_id: {filter_id}. Must be an integer.")
+
         with self.Session() as session:
             if filter_id is not None:
                 f = session.scalar(
@@ -106,6 +111,12 @@ class BoomFilterHandler(BaseHandler):
         data = self.get_json()
         with self.Session() as session:
             if filter_id is not None:
+                try:
+                    filter_id = int(filter_id)
+                except ValueError:
+                    return self.error(
+                        f"Invalid filter_id: {filter_id}. Must be an integer."
+                    )
                 f = session.scalar(
                     Filter.select(session.user_or_token, mode="update").where(
                         Filter.id == filter_id
@@ -152,6 +163,23 @@ class BoomFilterHandler(BaseHandler):
                         },
                     }
                 else:
+                    if not (
+                        isinstance(f.altdata, dict)
+                        and isinstance(f.altdata.get("boom"), dict)
+                    ):
+                        return self.error(
+                            "Existing filter altdata is not in expected format."
+                        )
+                    if "filter_id" not in f.altdata["boom"]:
+                        return self.error(
+                            "Existing filter altdata does not contain Boom filter ID."
+                        )
+                    if "filters" not in f.altdata or not isinstance(
+                        f.altdata["filters"], list
+                    ):
+                        return self.error(
+                            "Existing filter altdata does not contain filters list."
+                        )
                     data_url = (
                         f"{boom_url}/filters/{f.altdata['boom']['filter_id']}/versions"
                     )
@@ -224,6 +252,11 @@ class BoomFilterHandler(BaseHandler):
               application/json:
                 schema: Error
         """
+        try:
+            filter_id = int(filter_id)
+        except ValueError:
+            return self.error(f"Invalid filter_id: {filter_id}. Must be an integer.")
+
         with self.Session() as session:
             f = session.scalar(
                 Filter.select(session.user_or_token, mode="update").where(
@@ -232,6 +265,12 @@ class BoomFilterHandler(BaseHandler):
             )
             if f is None:
                 return self.error(f"Cannot find a filter with ID: {filter_id}.")
+            if not isinstance(f.altdata, dict) or not isinstance(
+                f.altdata.get("boom"), dict
+            ):
+                return self.error("Filter altdata is not in expected format.")
+            if "filter_id" not in f.altdata["boom"]:
+                return self.error("Filter altdata does not contain Boom filter ID.")
 
             data = self.get_json()
             if "active" in data and "active_fid" in data:
@@ -283,6 +322,10 @@ class BoomFilterHandler(BaseHandler):
               application/json:
                 schema: Success
         """
+        try:
+            filter_id = int(filter_id)
+        except ValueError:
+            return self.error(f"Invalid filter_id: {filter_id}. Must be an integer.")
 
         with self.Session() as session:
             f = session.scalars(

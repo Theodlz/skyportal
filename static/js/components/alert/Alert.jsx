@@ -10,7 +10,7 @@ import {
   ThemeProvider,
   StyledEngineProvider,
 } from "@mui/material/styles";
-import makeStyles from "@mui/styles/makeStyles";
+import { makeStyles } from "tss-react/mui";
 import Grid from "@mui/material/Grid";
 import Accordion from "@mui/material/Accordion";
 import AccordionSummary from "@mui/material/AccordionSummary";
@@ -426,7 +426,7 @@ CrossMatchesPanel.propTypes = {
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
-const useStyles = makeStyles((theme) => ({
+const useStyles = makeStyles()((theme) => ({
   root: { width: "100%" },
   itemPadding: { padding: "0.5rem 0 0.5rem 0" },
   saveAlertButton: { margin: "0.5rem 0 0 0", paddingTop: "0.5rem" },
@@ -474,7 +474,7 @@ const Alert = ({ route }) => {
 
   const dispatch = useDispatch();
   const navigate = useNavigate();
-  const classes = useStyles();
+  const { classes } = useStyles();
   const theme = useTheme();
   const [savedSource, setSavedSource] = useState(false);
   const [fetchedDuplicates, setFetchedDuplicates] = useState(false);

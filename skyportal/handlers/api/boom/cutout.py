@@ -325,6 +325,10 @@ class BoomCutoutHandler(BaseHandler):
 
         if not object_id:
             return self.error("`objectId` is required.")
+        try:
+            object_id = str(object_id)
+        except ValueError:
+            return self.error("`objectId` must be a string.")
 
         known_which = ["first", "last", "brightest", "faintest"]
         if which not in known_which:

@@ -250,6 +250,14 @@ class BoomObjectHandler(BaseHandler):
               application/json:
                 schema: Error
         """
+        try:
+            survey = str(survey)
+            object_id = str(object_id)
+        except ValueError:
+            return self.error(
+                f"Invalid survey or object_id: {survey}, {object_id}. Must be strings."
+            )
+
         include_prv_candidates = str_to_bool(
             self.get_query_argument("includePrvCandidates", "true"), default=True
         )
@@ -378,6 +386,14 @@ class BoomObjectHandler(BaseHandler):
             - alerts
             - boom
         """
+        try:
+            survey = str(survey)
+            object_id = str(object_id)
+        except ValueError:
+            return self.error(
+                f"Invalid survey or object_id: {survey}, {object_id}. Must be strings."
+            )
+
         data = self.get_json()
         group_ids = data.pop("group_ids", None)
         try:

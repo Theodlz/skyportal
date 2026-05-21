@@ -73,7 +73,7 @@ class BoomRunFilterHandler(BaseHandler):
 
         with self.Session() as session:
             f = session.scalar(
-                Filter.select(session.user_or_token, mode="update").where(
+                Filter.select(session.user_or_token, mode="read").where(
                     Filter.id == filter_id
                 )
             )

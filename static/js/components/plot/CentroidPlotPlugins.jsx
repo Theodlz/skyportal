@@ -1,14 +1,16 @@
 import React from "react";
 import PropTypes from "prop-types";
-import makeStyles from "@mui/styles/makeStyles";
+import { makeStyles } from "tss-react/mui";
 import Typography from "@mui/material/Typography";
 
 import * as archiveActions from "../../ducks/boom_archive";
 
 import { greatCircleDistance } from "../../utils";
 
+// list of cross-match catalogs to hide
 const hiddenCrossMatches = ["PS1_PSC", "TNS"];
 
+// map the cross-match catalog names to the colors to use for plotting them
 const crossMatchesColors = {
   AllWISE: "#2f5492",
   CatWISE2020: "#d6de40",
@@ -19,6 +21,7 @@ const crossMatchesColors = {
   LSPSC: "#d62728",
 };
 
+// map the fields names to display for each cross-match source to the actual field names
 const crossMatchesLabels = {
   AllWISE: {
     name: "_id",
@@ -72,9 +75,10 @@ const crossMatchesLabels = {
   },
 };
 
+// max radius in arcseconds to use for cross-matching
 const radius = 10.0;
 
-const useStyles = makeStyles(() => ({
+const useStyles = makeStyles()(() => ({
   pluginContainer: {
     paddingTop: "0.5em",
     width: "100%",
@@ -192,7 +196,7 @@ function getCrossMatchesTraces(crossMatches, refRA, refDec) {
 }
 
 const CentroidPlotPlugins = ({ crossMatches, refRA, refDec }) => {
-  const classes = useStyles();
+  const { classes } = useStyles();
   if (
     !crossMatches ||
     Object.keys(crossMatches).length === 0 ||
