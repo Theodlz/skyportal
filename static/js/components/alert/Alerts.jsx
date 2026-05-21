@@ -241,7 +241,8 @@ const Alerts = () => {
 
   const [searchParams] = useSearchParams();
 
-  const { register, handleSubmit, control, getValues, reset } = useForm();
+  const { register, handleSubmit, control, getValues, reset, setValue } =
+    useForm();
 
   const { alerts, queryInProgress } = useSelector((state) => state.alerts);
   const groups = useSelector((state) => state.groups.userAccessible);
@@ -327,10 +328,15 @@ const Alerts = () => {
     };
   };
 
+  // Infer the survey from what's actually loaded rather than the form state,
+  // so changing the instrument dropdown doesn't corrupt the existing results.
+  const dataSurvey =
+    (alerts?.length > 0 && inferSurvey(alerts[0]?.objectId)) || selectedSurvey;
+
   let rows = [];
 
   if (alerts !== null && !isString(alerts) && Array.isArray(alerts)) {
-    rows = alerts.map((a) => makeRow(a, selectedSurvey));
+    rows = alerts.map((a) => makeRow(a, dataSurvey));
   }
 
   if (groupByObj === true && rows.length > 0) {
@@ -421,7 +427,10 @@ const Alerts = () => {
             alignItems="center"
           >
             <Grid item>
-              <CutoutTriplet rowObj={rowObj} survey={selectedSurvey} />
+              <CutoutTriplet
+                rowObj={rowObj}
+                survey={inferSurvey(rowObj.objectId) || dataSurvey}
+              />
             </Grid>
           </Grid>
         </TableCell>
@@ -483,7 +492,9 @@ const Alerts = () => {
       sortDescFirst: true,
       customBodyRender: (value) => (
         <Link
-          to={`/alerts/${selectedSurvey.toLowerCase()}/${value}`}
+          to={`/alerts/${(
+            inferSurvey(value) || dataSurvey
+          ).toLowerCase()}/${value}`}
           target="_blank"
           data-testid={value}
           rel="noreferrer"
@@ -498,7 +509,7 @@ const Alerts = () => {
 
   const candidHiddenColumn = {
     name: "candid",
-    label: selectedSurvey === "LSST" ? "diaSourceId" : "candid",
+    label: dataSurvey === "LSST" ? "diaSourceId" : "candid",
     options: { filter: false, display: false, sort: true },
   };
 
@@ -533,7 +544,7 @@ const Alerts = () => {
     },
   };
 
-  const isLSST = selectedSurvey === "LSST";
+  const isLSST = dataSurvey === "LSST";
 
   const surveyColumns = [
     {
@@ -670,7 +681,23 @@ const Alerts = () => {
 
   const formSubmit = async () => {
     let { object_id, ra, dec, radius, radius_unit, instrument } = getValues();
-    const survey = (instrument || "ztf").toUpperCase();
+    let survey = (instrument || "ztf").toUpperCase();
+
+    if (object_id?.trim()) {
+      const inferred = inferSurvey(object_id.trim());
+      if (inferred && inferred !== survey) {
+        survey = inferred;
+        setValue("instrument", inferred.toLowerCase());
+        dispatch(
+          showNotification(
+            `Survey changed to ${inferred} based on the object ID format.`,
+            "warning",
+          ),
+        );
+      }
+    }
+
+    setSelectedSurvey(survey);
     ra = ra?.toString();
     dec = dec?.toString();
     radius = radius?.toString();
@@ -741,12 +768,14 @@ const Alerts = () => {
       }
 
       if (object_id?.length) {
-        dispatch(
-          showNotification(
-            `Object ID specified, ignored positional parameters`,
-            "warning",
-          ),
-        );
+        if (ra?.length || dec?.length || radius?.length) {
+          dispatch(
+            showNotification(
+              `Object ID specified, ignored positional parameters`,
+              "warning",
+            ),
+          );
+        }
         ra = null;
         dec = null;
         radius = null;
@@ -831,7 +860,6 @@ const Alerts = () => {
                           value={value || "ztf"}
                           onChange={(e) => {
                             onChange(e);
-                            setSelectedSurvey(e.target.value.toUpperCase());
                           }}
                           defaultValue="ztf"
                         >

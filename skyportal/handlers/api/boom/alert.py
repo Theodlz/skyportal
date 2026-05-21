@@ -2,7 +2,6 @@ import base64
 import gzip
 import io
 import traceback
-from datetime import datetime, timedelta
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -24,9 +23,11 @@ from sqlalchemy.orm.session import Session
 
 from baselayer.app.access import auth_or_token, permissions
 from baselayer.app.env import load_env
+from baselayer.app.flow import Flow
 from baselayer.log import make_log
 
 from ....models import (
+    DBSession,
     Group,
     Instrument,
     Obj,
@@ -37,6 +38,7 @@ from ....models import (
     Thumbnail,
     User,
 )
+from ....utils.asynchronous import run_async
 from ....utils.parse import str_to_bool
 from ...base import BaseHandler
 from ..photometry import add_external_photometry
@@ -55,11 +57,11 @@ def make_thumbnail(
 ):
     rotpa = None
     if isinstance(cutout_data, list):
-        # DEBUG, save it to disk as a fits.gz file to check it looks correct
-        with open(f"cutout_{obj_id}_{cutout_type}.fits.gz", "wb") as f:
-            f.write(bytes(cutout_data))
         # looks like we got it as an array of u8 instead of a bytes object, let's convert it to bytes
         cutout_data = bytes(cutout_data)
+    elif isinstance(cutout_data, str):
+        # looks like we got it as a base64 string, let's decode it
+        cutout_data = base64.b64decode(cutout_data)
     if survey == "LSST":  # LSST uses no compression
         with fits.open(io.BytesIO(cutout_data), ignore_missing_simple=True) as hdu:
             rotpa = hdu[0].header.get("ROTPA", None)
@@ -82,7 +84,7 @@ def make_thumbnail(
 
     # Clean the data
     img = np.array(data)
-    xl = np.greater(np.abs(img), 1e20, where=~np.isnan(img))
+    xl = ~np.isnan(img) & (np.abs(img) > 1e20)
     if img[xl].any():
         img[xl] = np.nan
     if np.isnan(img).any():
@@ -150,6 +152,49 @@ def add_thumbnails(alert, survey, session):
             log(f"Failed to create thumbnail for cutout type {cutout_type}: {e}")
             continue
         post_thumbnail(thumbnail, user_id=1, session=session)
+
+
+def fetch_and_add_thumbnails(obj_id, survey, headers, obj_internal_key=None):
+    with DBSession() as session:
+        try:
+            existing_thumbnails = session.scalars(
+                sa.select(Thumbnail).where(Thumbnail.obj_id == obj_id)
+            ).all()
+            existing_thumbnail_types = {t.type for t in existing_thumbnails}
+            if all(t in existing_thumbnail_types for t in ["new", "ref", "sub"]):
+                return
+            cutouts_response = requests.get(
+                f"{boom_url}/surveys/{survey.upper()}/cutouts",
+                headers=headers,
+                params={"objectId": obj_id, "which": "brightest"},
+                timeout=30,
+            )
+            if cutouts_response.status_code != 200:
+                log(
+                    f"Error querying Boom API for cutouts: {cutouts_response.status_code} {cutouts_response.text}"
+                )
+                return
+            cutout_data = cutouts_response.json().get("data", {})
+            if not cutout_data:
+                log(f"No cutout data found for object {obj_id} in survey {survey}")
+                return
+            cutout_data["objectId"] = obj_id
+            add_thumbnails(cutout_data, survey, session)
+            session.commit()
+        except Exception as e:
+            log(f"Failed to fetch or add thumbnails for obj_id {obj_id}: {e}")
+            traceback.print_exc()
+
+    if obj_internal_key is not None:
+        try:
+            flow = Flow()
+            flow.push(
+                "*",
+                "skyportal/REFRESH_SOURCE",
+                payload={"obj_key": obj_internal_key},
+            )
+        except Exception as e:
+            log(f"Failed to send notification: {e}")
 
 
 ZP_PER_SURVEY = {"LSST": 8.9, "ZTF": 23.9}
@@ -640,6 +685,7 @@ class BoomObjectHandler(BaseHandler):
             )
 
             # at the coordinates of obj, query the other survey's alerts to see if there's a match within 1 arcsec, if so add photometry from that survey as well
+            other_obj = None
             other_survey = "LSST" if survey == "ZTF" else "ZTF"
             other_url = f"{boom_url}/queries/cone_search"
             other_json_data = {
@@ -647,7 +693,7 @@ class BoomObjectHandler(BaseHandler):
                 "object_coordinates": {
                     object_id: [data["candidate"]["ra"], data["candidate"]["dec"]]
                 },
-                "radius": 2,  # 1 arcsec
+                "radius": 2,  # 2 arcsec
                 "unit": "Arcseconds",
                 "max_time_ms": 30000,  # 30 second timeout
             }
@@ -665,16 +711,10 @@ class BoomObjectHandler(BaseHandler):
                 other_data = other_response.json().get("data", {})
                 if object_id in other_data and len(other_data[object_id]) > 0:
                     other_alert = other_data[object_id][0]  # take the closest match
-                    print(
-                        f"Found a match for object {object_id} in survey {other_survey} ({other_alert['_id']}), adding object and photometry from that survey"
-                    )
                     existing_obj = session.scalar(
                         sa.select(Obj).where(Obj.id == other_alert["_id"])
                     )
                     if not existing_obj:
-                        print(
-                            f"Object {other_alert['_id']} not found in database, creating it"
-                        )
                         other_obj = Obj(
                             id=other_alert["_id"],
                             ra=other_alert["coordinates"]["radec_geojson"][
@@ -725,6 +765,24 @@ class BoomObjectHandler(BaseHandler):
                         session.add_all([association1, association2])
 
             session.commit()
+
+            obj_internal_key = obj.internal_key
+            other_obj_id, other_obj_internal_key = None, None
+            if other_obj is not None:
+                other_obj_id = other_obj.id
+                other_obj_internal_key = other_obj.internal_key
+
+            run_async(
+                fetch_and_add_thumbnails, object_id, survey, headers, obj_internal_key
+            )
+            if other_obj_id is not None:
+                run_async(
+                    fetch_and_add_thumbnails,
+                    other_obj_id,
+                    other_survey,
+                    headers,
+                    other_obj_internal_key,
+                )
 
         return self.success({"survey": survey, "objectId": object_id})
 
@@ -1070,14 +1128,12 @@ class BoomAlertCutoutHandler(BaseHandler):
             }
 
             # ── fetch from Boom ──────────────────────────────────────────────
-            start = time.time()
             response = requests.get(
                 f"{boom_url}/surveys/{survey.upper()}/cutouts",
                 headers=headers,
                 params=params,
                 timeout=10,
             )
-            log(f"Boom cutout query took {time.time() - start:.2f} seconds")
 
             if response.status_code != 200:
                 return self.error(

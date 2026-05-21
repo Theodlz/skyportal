@@ -42,7 +42,9 @@ def _fetch_reference_catalogs():
             return _reference_catalogs  # return stale list if available
         all_catalogs = response.json().get("data", [])
         _reference_catalogs = [
-            c for c in all_catalogs if not any(c.startswith(p) for p in SURVEY_PREFIXES)
+            str(c["name"])
+            for c in all_catalogs
+            if not any(str(c["name"]).startswith(p) for p in SURVEY_PREFIXES)
         ]
         _catalogs_fetched_at = datetime.utcnow()
         log(f"Cached {len(_reference_catalogs)} Boom reference catalogs.")
