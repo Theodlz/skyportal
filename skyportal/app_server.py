@@ -265,9 +265,9 @@ class CustomApplication(tornado.web.Application):
 
 skyportal_handlers = [
     # BOOM API endpoints
-    # (r"/api/boom/filters(/.*)", BoomFilterHandler),
-    # (r"/api/boom/filter_modules(/.*)?", BoomFilterModulesHandler),
-    # (r"/api/boom/run_filter", BoomRunFilterHandler),
+    (r"/api/boom/filters(/.*)", BoomFilterHandler),
+    (r"/api/boom/filter_modules(/.*)?", BoomFilterModulesHandler),
+    (r"/api/boom/run_filter", BoomRunFilterHandler),
     (r"/api/boom/surveys/([0-9A-Za-z-_\.]+)/alerts", BoomAlertHandler),
     (
         r"/api/boom/surveys/([0-9A-Za-z-_\.]+)/objects/([0-9A-Za-z-_\.\+]+)",
