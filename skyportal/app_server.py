@@ -196,6 +196,16 @@ from skyportal.handlers.api import (
     VizierQueryHandler,
     WeatherHandler,
 )
+from skyportal.handlers.api.boom import (
+    BoomAlertHandler,
+    BoomCatalogNamesHandler,
+    BoomCrossMatchHandler,
+    BoomCutoutHandler,
+    BoomFilterHandler,
+    BoomFilterModulesHandler,
+    BoomObjectHandler,
+    BoomRunFilterHandler,
+)
 from skyportal.handlers.api.internal import (
     AnnotationsInfoHandler,
     BulkNotificationHandler,
@@ -217,6 +227,17 @@ from skyportal.handlers.api.internal import (
     SourceViewsHandler,
     StandardsHandler,
     TokenHandler,
+)
+from skyportal.handlers.api.kowalski import (
+    KowalskiAlertAuxHandler,
+    KowalskiAlertCutoutHandler,
+    KowalskiAlertHandler,
+    KowalskiAlertTripletsHandler,
+    KowalskiArchiveCatalogsHandler,
+    KowalskiArchiveHandler,
+    KowalskiCrossMatchHandler,
+    KowalskiFilterHandler,
+    KowalskiScopeFeaturesHandler,
 )
 from skyportal.handlers.public import (
     CachedSourceFinderHandler,
@@ -243,6 +264,37 @@ class CustomApplication(tornado.web.Application):
 
 
 skyportal_handlers = [
+    # BOOM API endpoints
+    (r"/api/boom/filters(/.*)", BoomFilterHandler),
+    (r"/api/boom/filter_modules(/.*)?", BoomFilterModulesHandler),
+    (r"/api/boom/run_filter", BoomRunFilterHandler),
+    (r"/api/boom/surveys/([0-9A-Za-z-_\.]+)/alerts", BoomAlertHandler),
+    (
+        r"/api/boom/surveys/([0-9A-Za-z-_\.]+)/objects/([0-9A-Za-z-_\.\+]+)",
+        BoomObjectHandler,
+    ),
+    (r"/api/boom/surveys/([0-9A-Za-z-_\.]+)/alerts/cutouts", BoomCutoutHandler),
+    (r"/api/boom/archive/catalogs", BoomCatalogNamesHandler),
+    (r"/api/boom/archive/cross_match", BoomCrossMatchHandler),
+    # Kowalski API endpoints
+    # (r"/api/kowalski/filters/([0-9]+)?/v", KowalskiFilterHandler),
+    (r"/api/kowalski/alerts(/.+)?", KowalskiAlertHandler),
+    (r"/api/kowalski/alerts_aux(/.+)?", KowalskiAlertAuxHandler),
+    (r"/api/kowalski/alerts_cutouts(/.+)?", KowalskiAlertCutoutHandler),
+    (r"/api/kowalski/alerts_triplets(/.+)?", KowalskiAlertTripletsHandler),
+    (r"/api/kowalski/archive", KowalskiArchiveHandler),
+    (r"/api/kowalski/archive/catalogs", KowalskiArchiveCatalogsHandler),
+    (r"/api/kowalski/archive/cross_match", KowalskiCrossMatchHandler),
+    (r"/api/kowalski/archive/features", KowalskiScopeFeaturesHandler),
+    # Same but without the "/kowalski" prefix, to maintain compatibility with existing Fritz API endpoints
+    (r"/api/alerts(/.+)?", KowalskiAlertHandler),
+    (r"/api/alerts_aux(/.+)?", KowalskiAlertAuxHandler),
+    (r"/api/alerts_cutouts(/.+)?", KowalskiAlertCutoutHandler),
+    (r"/api/alerts_triplets(/.+)?", KowalskiAlertTripletsHandler),
+    (r"/api/archive", KowalskiArchiveHandler),
+    (r"/api/archive/catalogs", KowalskiArchiveCatalogsHandler),
+    (r"/api/archive/cross_match", KowalskiCrossMatchHandler),
+    (r"/api/archive/features", KowalskiScopeFeaturesHandler),
     # API endpoints
     (r"/api/acls", ACLHandler),
     (r"/api/allocation/report(/[0-9]+)", AllocationReportHandler),

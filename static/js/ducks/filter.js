@@ -10,6 +10,8 @@ const ADD_GROUP_FILTER = "skyportal/ADD_GROUP_FILTER";
 
 const DELETE_GROUP_FILTER = "skyportal/DELETE_GROUP_FILTER";
 
+const UPDATE_FILTER_NAME = "skyportal/UPDATE_FILTER_NAME";
+
 export function fetchFilter(id) {
   return API.GET(`/api/filters/${id}`, FETCH_FILTER);
 }
@@ -24,6 +26,10 @@ export function addGroupFilter({ name, group_id, stream_id }) {
 
 export function deleteGroupFilter({ filter_id }) {
   return API.DELETE(`/api/filters/${filter_id}`, DELETE_GROUP_FILTER);
+}
+
+export function updateFilterName({ filter_id, name }) {
+  return API.PATCH(`/api/filters/${filter_id}`, UPDATE_FILTER_NAME, { name });
 }
 
 const reducer = (state = {}, action) => {
